@@ -1,0 +1,17 @@
+{
+  "factory:Keys/Mask Only": {
+    "mask": 6
+  },
+  "factory:Pads/Mask And Depth": {
+    "depth": 0.5669291338582677,
+    "mask": 6
+  },
+  "factory:Leads/Mask Depth Target": {
+    "depth": 0.25,
+    "mask": 9,
+    "target": "effect"
+  },
+  "factory:Bass/No FX Chosen": {
+    "mask": 0
+  }
+}

@@ -277,3 +277,40 @@ class ExtraExclusions(unittest.TestCase):
             extra = self.parse_ex(spec)
             self.assertFalse(self.excluded("APC mini mk2 Notes", extra))
             self.assertTrue(self.excluded("Midi Through Port-0", extra))
+
+
+class Mk1ControlSurfaceExclusion(unittest.TestCase):
+    """The mk1's single port must never reach the synth.
+
+    Port names are the ones rtmidi actually reports, not tidied-up ones:
+    the mk1 string was read off the router's own startup log on the
+    appliance, 2026-09-06, while every pad was playing a pitch.
+    """
+
+    MK1_PORT = "APC MINI:APC MINI MIDI 1 16:0"
+
+    def setUp(self):
+        from scripts.midi_device import is_router_excluded
+
+        self.excluded = is_router_excluded
+
+    def test_mk1_port_is_excluded(self):
+        self.assertTrue(self.excluded(self.MK1_PORT))
+
+    def test_mk2_notes_port_still_reaches_the_synth(self):
+        # The whole point of the narrow token: Notes mode is the one APC
+        # path that is meant to play, and only the mk2 has it.
+        self.assertFalse(self.excluded("APC mini mk2:APC mini mk2 Notes 28:1"))
+
+    def test_mk2_control_port_still_excluded(self):
+        self.assertTrue(self.excluded("APC mini mk2:APC mini mk2 Control 28:0"))
+
+    def test_router_does_not_select_the_mk1(self):
+        from scripts.midi_router import select_router_ports
+
+        selected = select_router_ports(
+            [self.MK1_PORT, "LUMI Keys BLOCK:LUMI Keys BLOCK MIDI 1 20:0"],
+            route_classic=True,
+            is_mpe_port=lambda name: "lumi" in name.lower(),
+        )
+        self.assertEqual(selected, ["LUMI Keys BLOCK:LUMI Keys BLOCK MIDI 1 20:0"])

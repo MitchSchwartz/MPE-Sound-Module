@@ -140,8 +140,12 @@ class FakeSlEngine:
                 self.state[loop] = SL_STATE_PAUSED
                 self._at_boundary.pop(loop, None)
         elif cmd == "pause_off":
+            # Real SL, MEASURED 2026-09-07: `pause_off` resumes AT ONCE from the
+            # stored position, quantized or not. This used to say PAUSED ->
+            # MUTE, which is why a launch of `pause_off` + `trigger` looked
+            # harmless in the suite and sounded mid-loop on the appliance.
             if st == SL_STATE_PAUSED:
-                self.state[loop] = SL_STATE_MUTE
+                self.state[loop] = SL_STATE_PLAYING
         elif cmd == "undo_all":
             self.state[loop] = SL_STATE_OFF
             self.loop_len[loop] = 0.0

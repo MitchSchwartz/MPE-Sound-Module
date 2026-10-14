@@ -15,15 +15,19 @@ from patch_browser.draw_primitives import (
     draw_looper_icon,
     draw_sidebar_panel_icon,
 )
+from patch_browser.fx_policy import MOD_WHEEL_EFFECT
+from patch_browser.touch_browser_fx_effect_modal import EFFECT_CHANNEL_ID
 from patch_browser.peak_meter_math import peak_meter_color_dbfs
 from patch_browser.geometry import Rect
-from patch_browser.mixer import MixerChannel
+from patch_browser.mixer import FADER_NAME_DY, FADER_VALUE_DY, MixerChannel
 from patch_browser.patch_identity import (
     patch_browse_instrument_subtitle,
     patch_browse_subtitle,
     patch_list_subtitle,
 )
 from patch_browser.dsi_splash import shutdown_animation_phase
+from patch_browser.favorites_sections import HEADER_KIND, section_tag
+from patch_browser.jump_strip import section_cell_bounds, thumb_top
 from patch_browser.touch_ui_constants import (
     CPU_METER_BAR_W,
     CPU_METER_LABEL_GAP,
@@ -40,6 +44,9 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_PANEL_HEADER_H,
     SETTINGS_ROW_GAP,
     SETTINGS_ROW_H,
+    TOAST_ACTION_H,
+    TOAST_ACTION_HIT_PAD_PX,
+    TOAST_ACTION_PAD_X,
 )
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.audio_engine import engine_hud_label, engine_hud_semantic, engine_hud_should_show
@@ -59,6 +66,7 @@ from patch_browser.looper_hud import (
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,
+    Screen,
 )
 from patch_browser.ui_text import (
     blit_text_block,
@@ -347,8 +355,13 @@ class TouchBrowserDrawMixin:
         value = self._mixer_value(channel)
         handle_y = self._value_to_handle_y(channel, value)
         handle_x = channel.column_rect.x + (channel.column_rect.w - FADER_HANDLE_W) // 2
+        enabled = self._mixer_channel_enabled(channel)
 
-        track_color = self.theme.surface_alt if channel.enabled else self.theme.surface
+        # Greyed out as a locked toggle is (`_draw_normalize_toggle`, disabled):
+        # a hollow handle (surface fill, muted border) and muted text, on a
+        # dimmed track. Not the toggle's muted track: a muted bar the length
+        # of the fader reads as a full level, the opposite of 0.
+        track_color = self.theme.surface_alt if enabled else self.theme.surface
         pygame.draw.rect(self.screen, track_color, channel.track_rect.pygame_rect, border_radius=5)
 
         # Tick marks for mixing-board feel
@@ -362,30 +375,39 @@ class TouchBrowserDrawMixin:
                 1,
             )
 
-        handle_color = self.theme.accent if channel.enabled else self.theme.muted
+        handle_color = self.theme.accent if enabled else self.theme.surface
         handle_rect = pygame.Rect(handle_x, handle_y, FADER_HANDLE_W, FADER_HANDLE_H)
         pygame.draw.rect(self.screen, handle_color, handle_rect, border_radius=6)
-        pygame.draw.rect(self.screen, self.theme.text, handle_rect, width=1, border_radius=6)
+        pygame.draw.rect(
+            self.screen, self.theme.text if enabled else self.theme.muted, handle_rect, width=1, border_radius=6
+        )
         pygame.draw.line(
             self.screen,
-            self.theme.bg,
+            self.theme.bg if enabled else self.theme.muted,
             (handle_rect.x + 8, handle_rect.centery),
             (handle_rect.right - 8, handle_rect.centery),
             2,
         )
 
         control = self._mixer_control(channel.channel_id)
-        if channel.enabled and control is not None:
-            value_label = control.format(value)
+        if control is not None:
+            format_for = getattr(control, "format_for", None)
+            value_label = format_for(self, value) if format_for else control.format(value)
         else:
             value_label = "—"
-        val_s = self.font_sm.render(value_label, True, self.theme.muted if channel.enabled else self.theme.muted)
+        val_s = self.font_sm.render(value_label, True, self.theme.muted)
         val_x = channel.column_rect.x + (channel.column_rect.w - val_s.get_width()) // 2
-        self.screen.blit(val_s, (val_x, channel.track_rect.bottom + 6))
+        self.screen.blit(val_s, (val_x, channel.track_rect.bottom + FADER_VALUE_DY))
 
-        label_s = self.font_sm.render(channel.label, True, self.theme.text if channel.enabled else self.theme.muted)
+        # The Effect fader's label opens the picker even while the fader is
+        # greyed out (no effect ticked), so it keeps the live colour.
+        label_live = enabled or channel.channel_id == EFFECT_CHANNEL_ID
+        label_color = self.theme.text if label_live else self.theme.muted
+        label_s = self.font_sm.render(self._mixer_channel_label(channel), True, label_color)
         label_x = channel.column_rect.x + (channel.column_rect.w - label_s.get_width()) // 2
-        self.screen.blit(label_s, (label_x, channel.track_rect.bottom + 24))
+        label_y = channel.track_rect.bottom + FADER_NAME_DY
+        self.screen.blit(label_s, (label_x, label_y))
+        self._draw_effect_caret(channel, label_color)
     def _draw_mixer_strip(self) -> None:
         for channel in self.mixer_channels:
             self._draw_vertical_fader(channel)
@@ -429,6 +451,11 @@ class TouchBrowserDrawMixin:
             self.screen.blit(dash, (dash_x, dash_y))
             return
 
+        clip = bool(snap.get("clip"))
+        if clip:
+            # The compiled meter's latch: a post-FX sample reached full scale in
+            # the last ~1.6 s. Outlined so it reads even after the bar decays.
+            pygame.draw.rect(self.screen, self.theme.danger, bar_rect, width=1, border_radius=3)
         ratio = max(0.0, min(1.0, float(snap["ratio"] or 0.0)))
         if ratio <= 0.0:
             return
@@ -436,7 +463,7 @@ class TouchBrowserDrawMixin:
         fill_rect = pygame.Rect(bar_rect.x, bar_rect.bottom - fill_h, bar_rect.w, fill_h)
         pygame.draw.rect(
             self.screen,
-            self._peak_meter_color(snap["dbfs"]),
+            self.theme.danger if clip else self._peak_meter_color(snap["dbfs"]),
             fill_rect,
             border_radius=3,
         )
@@ -766,13 +793,7 @@ class TouchBrowserDrawMixin:
             self.screen.set_clip(clip)
             return
 
-        row_h = self.nav_list.row_height
-        start = int(self.nav_list._scroll_pixels // row_h)
-        sub_pixel = self.nav_list._scroll_pixels - start * row_h
-        end = min(len(entries), start + self.nav_list.visible_count() + 3)
-        y = self.nav_list.rect.y + self.nav_list.padding - int(sub_pixel)
-
-        for index in range(start, end):
+        for index, y, row_h in self.nav_list.visible_rows():
             entry = entries[index]
             row_rect = pygame.Rect(
                 self.nav_list.rect.x + 4,
@@ -780,6 +801,9 @@ class TouchBrowserDrawMixin:
                 self.nav_list.rect.w - 8,
                 row_h - 2,
             )
+            if entry["kind"] == HEADER_KIND:
+                self._draw_section_header(row_rect, entry)
+                continue
             is_highlight = self.nav_list.highlight_index == index
             is_loaded = self.nav_list.loaded_marker_index == index
             self._draw_row_touch_chrome(row_rect, index)
@@ -795,21 +819,25 @@ class TouchBrowserDrawMixin:
                 self.screen.blit(name_s, (row_rect.x + 10, ty))
             else:
                 patch = entry["patch"]
+                if entry.get("sectioned"):
+                    # Under a section header the instrument line would repeat
+                    # the header (Mitch, 2026-10-13): the name alone, centred
+                    # in the unchanged 58 px row so the tap target stays put.
+                    subtitle = ""
+                elif self._instrument_filter_active():
+                    subtitle = patch_browse_subtitle(patch)
+                else:
+                    subtitle = patch_browse_instrument_subtitle(patch)
                 name_clipped = ellipsize_text(self.font_md, patch["name"], name_max_w)
                 name_s = self.font_md.render(name_clipped, True, text_color)
-                self.screen.blit(name_s, (row_rect.x + 10, row_rect.y + 6))
-                subtitle = (
-                    patch_browse_subtitle(patch)
-                    if self._instrument_filter_active()
-                    else patch_browse_instrument_subtitle(patch)
-                )
-                inst_clipped = ellipsize_text(
-                    self.font_sm,
-                    subtitle,
-                    name_max_w,
-                )
-                inst_s = self.font_sm.render(inst_clipped, True, self.theme.muted)
-                self.screen.blit(inst_s, (row_rect.x + 10, row_rect.y + 26))
+                if subtitle:
+                    self.screen.blit(name_s, (row_rect.x + 10, row_rect.y + 6))
+                    inst_clipped = ellipsize_text(self.font_sm, subtitle, name_max_w)
+                    inst_s = self.font_sm.render(inst_clipped, True, self.theme.muted)
+                    self.screen.blit(inst_s, (row_rect.x + 10, row_rect.y + 26))
+                else:
+                    ty = row_rect.y + (row_rect.h - name_s.get_height()) // 2
+                    self.screen.blit(name_s, (row_rect.x + 10, ty))
 
             if is_loaded:
                 pygame.draw.circle(
@@ -819,9 +847,77 @@ class TouchBrowserDrawMixin:
                     5,
                 )
 
-            y += row_h
-
         self.screen.set_clip(clip)
+
+    def _draw_section_header(self, row_rect: pygame.Rect, entry: dict) -> None:
+        """Favorites section heading: accent caps, count, rule. No row chrome:
+        it is not a button."""
+        count_s = self.font_sm.render(str(entry["count"]), True, self.theme.muted)
+        label_w = max(1, row_rect.w - 12 - count_s.get_width() - 10)
+        label = ellipsize_text(self.font_sm, entry["label"].upper(), label_w)
+        label_s = self.font_sm.render(label, True, self.theme.accent)
+        ty = row_rect.bottom - label_s.get_height() - 4
+        self.screen.blit(label_s, (row_rect.x + 6, ty))
+        self.screen.blit(count_s, (row_rect.right - 6 - count_s.get_width(), ty))
+        pygame.draw.line(
+            self.screen,
+            self.theme.muted,
+            (row_rect.x + 6, row_rect.bottom),
+            (row_rect.right - 6, row_rect.bottom),
+            1,
+        )
+
+    def _draw_jump_strip(self) -> None:
+        rect = self.jump_strip_rect
+        if rect.w <= 0:
+            return
+        pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=8)
+        sections = self._jump_strip_sections()
+        capturing = getattr(self, "_jump_strip_capture", False)
+        if sections:
+            top_index = self.nav_list.index_at_content_y(self.nav_list.scroll_pixels) or 0
+            current = 0
+            for i, (_group, header_index) in enumerate(sections):
+                if header_index <= top_index:
+                    current = i
+            pressed = getattr(self, "_jump_strip_cell", None) if capturing else None
+            count = len(sections)
+            for i, (group, _header_index) in enumerate(sections):
+                y0, y1 = section_cell_bounds(i, rect.y, rect.h, count)
+                pill = pygame.Rect(rect.x + 3, y0 + 1, rect.w - 6, max(4, y1 - y0 - 2))
+                # The section at the top of the list is filled (inverted text),
+                # so it reads in every accent style, Monochrome included, where
+                # accent and text are one colour.
+                if i == current:
+                    pygame.draw.rect(self.screen, self.theme.accent, pill, border_radius=6)
+                if i == pressed:
+                    pygame.draw.rect(self.screen, self.theme.text, pill, width=2, border_radius=6)
+                color = self.theme.bg if i == current else self.theme.text
+                tag = self.font_xs.render(section_tag(group), True, color)
+                tx = rect.x + (rect.w - tag.get_width()) // 2
+                ty = y0 + max(0, (y1 - y0 - tag.get_height()) // 2)
+                self.screen.blit(tag, (tx, ty))
+            return
+        nav = self.nav_list
+        thumb_h = self._jump_strip_thumb_h()
+        max_scroll = nav.max_scroll_pixels()
+        fraction = nav.scroll_pixels / max_scroll if max_scroll > 0 else 0.0
+        track_x = rect.centerx
+        pygame.draw.line(
+            self.screen,
+            self.theme.muted,
+            (track_x, rect.y + 8),
+            (track_x, rect.bottom - 8),
+            1,
+        )
+        ty = thumb_top(fraction, rect.y, rect.h, thumb_h)
+        thumb = pygame.Rect(rect.x + 8, ty, rect.w - 16, thumb_h)
+        pygame.draw.rect(
+            self.screen,
+            self.theme.accent if capturing else self.theme.muted,
+            thumb,
+            border_radius=6,
+        )
 
     def _draw_az_rail(self) -> None:
         if self.az_rail_rect.w <= 0:
@@ -873,6 +969,7 @@ class TouchBrowserDrawMixin:
             self._draw_az_rail()
         elif self.left_nav_mode == LeftNavMode.PATCHES:
             self._draw_browse_patches_list()
+            self._draw_jump_strip()
         else:
             font = self.font_sm
             self.nav_list.row_touch_feedback = self._row_touch_feedback
@@ -928,6 +1025,19 @@ class TouchBrowserDrawMixin:
             disabled=not self.loader.normalization.is_globally_enabled(),
         )
         self._draw_heart_icon(self.favorites_btn, self._patch_is_favorited(self.detail_patch))
+        self._draw_mod_wheel_row()
+    def _draw_mod_wheel_row(self) -> None:
+        """The switch is the setting (on = Effect); its label is where the knob
+        goes now. Not drawn for a patch with no mod-wheel routing
+        (`_mod_wheel_switch_shown`): the knob goes to the effect regardless."""
+        if not self._mod_wheel_switch_shown():
+            return
+        self._draw_normalize_toggle(
+            self.mod_wheel_switch_rect,
+            self.fx_policy.target == MOD_WHEEL_EFFECT,
+            has_gain=True,
+            label=self._mod_knob_switch_label(),
+        )
     def _draw_browser(self) -> None:
         self.screen.fill(self.theme.bg)
         self._draw_status_bar()
@@ -1604,6 +1714,46 @@ class TouchBrowserDrawMixin:
             muted=start_disabled,
             pressed=self._pressed("cal:start"),
         )
+    def _toast_action_live(self) -> bool:
+        """The toast offers its button now: an action, still in time, not a
+        loader toast, and on the browser screen (modals take their own
+        touches, so the button is neither drawn nor hit there)."""
+        return (
+            self.toast_action is not None
+            and bool(self.toast_message)
+            and time.time() <= self.toast_until
+            and not getattr(self, "_loader_toast_active", False)
+            and self.screen_state == Screen.BROWSER
+        )
+
+    def _toast_layout(self):
+        """(toast rect, text lines, button rect or None): the one geometry the
+        draw and the hit test share."""
+        button = self._toast_action_live()
+        pad_x, pad_y = 16, 10
+        button_w = 0
+        if button:
+            button_w = self.font_sm.size(self.toast_action[0])[0] + TOAST_ACTION_PAD_X * 2
+        max_w = min(560, self.width - 48) - button_w
+        lines = wrap_text_lines(self.font_sm, self.toast_message, max_w, max_lines=3)
+        text_w = max(self.font_sm.size(line)[0] for line in lines)
+        block_h = text_block_height(self.font_sm, len(lines), line_spacing=2)
+        h = block_h + pad_y * 2
+        if button:
+            h = max(h, TOAST_ACTION_H)
+        w = text_w + pad_x * 2 + button_w
+        rect = Rect((self.width - w) // 2, self.height - 80 - max(0, h - 40), w, h)
+        button_rect = Rect(rect.right - button_w, rect.y, button_w, rect.h) if button else None
+        return rect, lines, button_rect
+
+    def _toast_action_rect(self) -> Rect | None:
+        """Where a tap reaches the toast's button: the button and a margin."""
+        if not self._toast_action_live():
+            return None
+        _rect, _lines, button = self._toast_layout()
+        pad = TOAST_ACTION_HIT_PAD_PX
+        return Rect(button.x - pad, button.y - pad, button.w + 2 * pad, button.h + 2 * pad)
+
     def _draw_toast(self) -> None:
         if time.time() > self.toast_until:
             return
@@ -1612,23 +1762,31 @@ class TouchBrowserDrawMixin:
             return
         if not self.toast_message:
             return
-        max_w = min(560, self.width - 48)
-        lines = wrap_text_lines(self.font_sm, self.toast_message, max_w, max_lines=3)
-        line_surfs = [self.font_sm.render(line, True, self.theme.text) for line in lines]
-        pad_x, pad_y = 16, 10
-        w = max(s.get_width() for s in line_surfs) + pad_x * 2
+        rect, lines, button = self._toast_layout()
+        pad_x = 16
         block_h = text_block_height(self.font_sm, len(lines), line_spacing=2)
-        h = block_h + pad_y * 2
-        rect = pygame.Rect((self.width - w) // 2, self.height - 80 - max(0, block_h - 20), w, h)
-        pygame.draw.rect(self.screen, self.theme.surface_alt, rect, border_radius=10)
+        pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=10)
         blit_text_block(
             self.screen,
             self.font_sm,
             lines,
             rect.x + pad_x,
-            rect.y + pad_y,
+            rect.y + (rect.h - block_h) // 2,
             self.theme.text,
             line_spacing=2,
+        )
+        if button is None:
+            return
+        pressed = getattr(self, "_toast_action_down", False)
+        inner = pygame.Rect(button.x + 4, button.y + 4, button.w - 8, button.h - 8)
+        pygame.draw.rect(
+            self.screen, self.theme.accent if pressed else self.theme.surface, inner, border_radius=8
+        )
+        pygame.draw.rect(self.screen, self.theme.accent, inner, width=1, border_radius=8)
+        label = self.font_sm.render(self.toast_action[0], True, self.theme.bg if pressed else self.theme.accent)
+        self.screen.blit(
+            label,
+            (inner.x + (inner.w - label.get_width()) // 2, inner.y + (inner.h - label.get_height()) // 2),
         )
 
     def _draw_loader_toast(self) -> None:

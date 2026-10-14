@@ -28,9 +28,11 @@ jack_client_visible() {
   jack_lsp 2>/dev/null | grep -q "^${JACK_CLIENT}:"
 }
 
+# Surge reaches every loop input, by whatever route the routing authority
+# says is current (directly, or through the FX host on the trunk).
 record_path_ok() {
-  jack_lsp -c "${JACK_CLIENT}:loop0_in_1" 2>/dev/null | grep -Fq "Surge XT:out_1" \
-    && jack_lsp -c "${JACK_CLIENT}:loop$((LOOPS - 1))_in_1" 2>/dev/null | grep -Fq "Surge XT:out_1"
+  jack_lsp -c 2>/dev/null \
+    | python3 "${SCRIPT_DIR}/../../patch_browser/audio_routing.py" check record --loops "${LOOPS}" >/dev/null
 }
 
 playback_path_ok() {
@@ -68,8 +70,50 @@ start_engine() {
   fi
 }
 
+restart_unit() {
+  # systemd owns the engine. Since 2026-09-07 mpe-sooperlooper.service is
+  # enabled at boot and mpe-looper-session.service Wants= it, so the old
+  # move here -- stop the unit, launch a manual engine, "manual bench owns
+  # the engine" -- turned every deploy into a hand-over: the session restart
+  # pulled the unit back in, run-sooperlooper.sh reaped the manual engine as
+  # a stray, the unit's graph verify failed against the half-torn-down
+  # graph, and Restart=always brought a THIRD engine up five seconds later.
+  # MEASURED 2026-09-07 13:26:03-13:26:26 on the SD image: the freshly
+  # restarted session sat on a dead engine for six seconds. So when the unit
+  # is enabled, the unit is restarted and nothing else starts an engine. Its
+  # ExecStartPost wires the graph, applies grid sync and emits
+  # looper.engine.started; this only waits for that to have happened.
+  log "restarting mpe-sooperlooper.service — systemd owns the engine"
+  if ! sudo systemctl restart mpe-sooperlooper.service; then
+    # Restart=always retries in 5 s; a start whose ExecStartPost lost a
+    # race is not yet a failed engine. The wait below decides.
+    log "WARN: systemctl restart returned non-zero — waiting for the unit's retry"
+  fi
+  local i
+  for i in $(seq 1 40); do
+    if systemctl is-active --quiet mpe-sooperlooper.service \
+       && jack_client_visible && record_path_ok && playback_path_ok; then
+      log "PASS — fan-out source -> loop inputs, common_out -> playback (mpe-sooperlooper.service, ${i}x0.5s)"
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "sl-restart: mpe-sooperlooper.service did not come up with a wired graph in 20 s" >&2
+  systemctl status mpe-sooperlooper.service --no-pager 2>/dev/null | tail -n 8 >&2 || true
+  jack_lsp -c "${JACK_CLIENT}:loop0_in_1" 2>/dev/null || true
+  return 1
+}
+
 main() {
   need_cmd jack_lsp
+  if command -v systemctl >/dev/null 2>&1 \
+     && systemctl is-enabled --quiet mpe-sooperlooper.service 2>/dev/null; then
+    restart_unit
+    exit $?
+  fi
+  # No enabled unit: the manual path. A unit that exists but is disabled is
+  # the pre-2026-09-07 opt-in layout, where a stray unit instance must not
+  # be left competing with the engine started here.
   if command -v systemctl >/dev/null 2>&1; then
     if systemctl is-active --quiet mpe-sooperlooper.service 2>/dev/null; then
       log "stopping mpe-sooperlooper.service — manual bench owns the engine"
@@ -101,7 +145,7 @@ main() {
   sleep 0.5
 
   if record_path_ok && playback_path_ok; then
-    log "PASS — Surge -> loop0_in, common_out -> playback"
+    log "PASS — fan-out source -> loop inputs, common_out -> playback"
     # Tell the bench the engine is new, or it keeps applying the old one's grid
     # to a process that has never heard of it. `start_engine` launches the
     # binary directly (setsid nohup), NOT via systemd, so the ExecStartPost on
@@ -115,7 +159,7 @@ main() {
         log "WARN: could not emit looper.engine.started"
   else
     echo "sl-restart: graph verify failed" >&2
-    jack_lsp -c "Surge XT:out_1" 2>/dev/null || true
+    jack_lsp -c "${JACK_CLIENT}:loop0_in_1" 2>/dev/null || true
     exit 1
   fi
 }

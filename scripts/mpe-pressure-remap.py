@@ -14,6 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from patch_browser.fx_policy import Cc1Router  # noqa: E402
 from patch_browser.midi_clock import read_clock_state  # noqa: E402
 from patch_browser.midi_sync import (  # noqa: E402
     clock_through_enabled,
@@ -27,6 +28,8 @@ from patch_browser.midi_sync import (  # noqa: E402
 )
 from patch_browser.patch_pressure import PatchPressureStore  # noqa: E402
 from patch_browser.poly_voice_tracker import (  # noqa: E402
+    FADE_REQUEST_FILE,
+    SHED_NOTE_OFF_VELOCITY,
     PolyVoiceTracker,
     clear_fade_request,
     fade_actuation_enabled,
@@ -80,6 +83,11 @@ CLOCK_REFRESH_S = 0.05
 # moves a few times a day. Cheap check before the expensive one, on the busiest
 # loop in the router.
 OFFSET_REFRESH_S = 1.0
+# The governor's shed request is a file on tmpfs. It used to be opened and
+# parsed on every 2 ms drain (~500 reads/s of a file that is absent nearly
+# always); now one stat() per 20 ms, and a read only when it changed. 20 ms is
+# well inside the governor's own 50-150 ms poll, so no shed is delayed by it.
+SHED_POLL_S = 0.02
 
 
 def lsusb_has_roli() -> bool:
@@ -117,6 +125,12 @@ class PressureRemapDaemon:
         self._pass_clock = clock_through_enabled()
         self._voice_tracker = PolyVoiceTracker()
         self._last_fade_request_id: float | None = None
+        self._next_shed_poll = 0.0
+        self._shed_request_mtime = 0.0
+        # (limit, requested_at, reason) while a request still has work to do.
+        self._shed_pending: tuple[int, float, str] | None = None
+        # None unless MPE_FX_HOST is on: then CC 1 is forwarded exactly as before.
+        self._cc1 = Cc1Router.from_env()
 
     def _refresh_floor(self) -> None:
         from patch_browser.patch_pressure import LIVE_STATE_FILE
@@ -211,32 +225,66 @@ class PressureRemapDaemon:
         for out_msg in out_msgs:
             self._send(out_msg)
 
-    def _process_fade_request(self) -> None:
-        if not fade_actuation_enabled() or self._out is None:
+    def _poll_shed_request(self, now: float) -> None:
+        """Pick up a new shed request from the governor (stat first, read on change)."""
+        if now < self._next_shed_poll:
             return
-        request = read_fade_request()
-        if not request:
-            return
+        self._next_shed_poll = now + SHED_POLL_S
         try:
-            request_id = float(request.get("request_id"))
-            release_count = int(request.get("release_count", 0))
-        except (TypeError, ValueError):
-            clear_fade_request()
+            mtime = FADE_REQUEST_FILE.stat().st_mtime
+        except OSError:
             return
-        if release_count <= 0:
+        if mtime == self._shed_request_mtime:
+            return
+        self._shed_request_mtime = mtime
+        request = read_fade_request()
+        try:
+            request_id = float(request["request_id"])
+            limit = int(request["limit"])
+            requested_at = float(request.get("requested_at", request_id))
+        except (KeyError, TypeError, ValueError):
             clear_fade_request()
             return
         if self._last_fade_request_id == request_id:
             return
-        targets = self._voice_tracker.notes_to_release(release_count)
-        if not targets:
-            return
-        for channel, note in targets:
-            self._out.send_message([0x80 | channel, note, 0])
-            self._voice_tracker.observe_message([0x80 | channel, note, 0])
-        self._voice_tracker.persist()
         self._last_fade_request_id = request_id
-        clear_fade_request()
+        # A newer request supersedes an unfinished one: it carries the
+        # governor's current limit.
+        self._shed_pending = (limit, requested_at, str(request.get("reason", "")))
+
+    def _process_shed_request(self, now: float) -> None:
+        """Release the notes plan_shed picks; the policy is in poly_voice_tracker."""
+        if not fade_actuation_enabled() or self._out is None:
+            return
+        self._poll_shed_request(now)
+        if self._shed_pending is None:
+            return
+        limit, requested_at, reason = self._shed_pending
+        sounding = self._voice_tracker.active_count()
+        plan = self._voice_tracker.plan_shed(
+            limit=limit, requested_at=requested_at, now=now
+        )
+        for channel, note in plan.release:
+            off = [0x80 | channel, note, SHED_NOTE_OFF_VELOCITY]
+            self._out.send_message(off)
+            self._voice_tracker.observe_message(off, now=now)
+        if plan.release:
+            self._voice_tracker.persist()
+        if plan.release or plan.blocked_by_sustain or (plan.done and sounding > limit):
+            # Rare (only on a governor step-down below the sounding count), so
+            # a journal line per pass is the record that shedding happened, and
+            # of every note it could not shed.
+            shed = " ".join(f"{ch + 1}:{n}" for ch, n in plan.release)
+            print(
+                f"governor shed: released={len(plan.release)} [{shed}] "
+                f"limit={limit} sounding={sounding} "
+                f"blocked_sustain={plan.blocked_by_sustain} "
+                f"too_young={plan.too_young} reason={reason}",
+                flush=True,
+            )
+        if plan.done:
+            self._shed_pending = None
+            clear_fade_request()
 
     def _handle_incoming(
         self, binding: SourceBinding, raw: list[int], now: float
@@ -246,6 +294,12 @@ class PressureRemapDaemon:
         status = raw[0]
         if self._pass_clock and is_realtime_clock_byte(status):
             self._emit_message(binding, raw)
+            return
+        # Before the translator: a classic device's CC 1 arrives on the master
+        # channel here and is spread across member channels after. fx_policy
+        # decides; a consumed message goes to the FX host, never to Surge. One
+        # it lets through may carry a rewritten value (knob pickup, scaled).
+        if self._cc1 is not None and self._cc1.consume(raw, binding):
             return
 
         quantize = self._grid_ticks > 0 and is_note_on(raw)
@@ -280,8 +334,10 @@ class PressureRemapDaemon:
         self._refresh_clock(now)
         self._refresh_floor()
         self._refresh_offset(now)
+        if self._cc1 is not None:
+            self._cc1.refresh(now)
         sent = self._drain_scheduled(now)
-        self._process_fade_request()
+        self._process_shed_request(now)
         while True:
             try:
                 binding, raw = self._queue.get_nowait()
@@ -364,6 +420,18 @@ class PressureRemapDaemon:
                 f"  Listening: {name}  [{classification.kind}: {classification.reason}]",
                 flush=True,
             )
+            # Surge holds bend, pressure and timbre per member channel for the
+            # life of the process, and nothing clears them (plan §7.9). A
+            # translator can prime a channel it has written before, but it
+            # cannot know what an earlier device -- or an earlier run of this
+            # one -- left behind, so the zone is written once at bind.
+            # MEASURED 2026-10-10: the appliance was playing notes a semitone
+            # or two off, with no bend anywhere in the stream Surge received,
+            # because one earlier use of the wheel had left channels bent.
+            # Sending exactly this cleared it.
+            if binding.translator is not None:
+                for reset_msg in binding.translator.zone_reset():
+                    self._send(reset_msg)
         self._connected_port_names = tuple(sorted(connected))
         return opened
 

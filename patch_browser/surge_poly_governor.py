@@ -21,17 +21,23 @@ from patch_browser.surge_playback import (
 )
 from patch_browser.governor_load import LoadSample, LoadTracker
 from patch_browser.governor_v2 import (
+    ATTACK_WINDOW_S,
+    REPEAT_WINDOW_S,
     adaptive_poll_interval,
     always_on_rest_top,
     always_on_target_limit,
     continuous_target_limit,
     rate_limited_target,
     rise_bias,
+    xrun_at_note_on,
+    xrun_warrants_emergency,
 )
 from patch_browser.poly_voice_tracker import (
     fade_actuation_enabled,
     read_active_voice_count,
-    write_fade_request,
+    read_last_note_on_at,
+    shed_enabled,
+    write_shed_request,
 )
 from patch_browser.ui_prefs import load_ui_preference
 
@@ -65,7 +71,44 @@ DEFAULT_POLL_SLOW_S = 0.15
 DEFAULT_XRUN_NUDGE = 8.0
 DEFAULT_MIN_HEADROOM = 3
 DEFAULT_REST_CAP = 0
-DEFAULT_JACK_BASELINE = -1.0
+# --- always_on jack constants: the ONE place they are set ----------------------
+# Derived 2026-10-12 from docs/measurements/capacity-fx-96x2-pi5-2026-10-12.md
+# (Pi 5, period 96 x 2 = 2000 us, 48 kHz, FX host on the trunk, corrected meter).
+# Replaces the #154 derivation (floor at raw 90), whose falsifier fired: overruns
+# began at dsp median 51-55 while that curve still allowed 38 voices at raw 55.
+#
+# How the controller uses them (_tick_v2_always_on, governor_v2.py):
+#   stress = raw - BASELINE. At stress <= recover_below = max(8, 3 * MIN_HEADROOM)
+#   = 9 it only recovers (+1 per 5 s, up to REST_CAP). Above 9 it steps down,
+#   1 per 0.25 s, toward smoothstep(stress / HARD) from REST_CAP to FLOOR, and
+#   a step below the sounding count sheds the oldest notes (MPE_POLY_SHED).
+#   So it steps down from raw BASELINE + 9 and is at FLOOR by raw BASELINE + HARD.
+#
+# Measured, dsp_percent median per window (per note: Crystals ~3.7, Cloud Horn
+# ~2.1 points; FX all-on +0.35):
+#   idle            7.0-13.2 (this run); 17-38 jackd figure at idle (#154)
+#   clean           Crystals 10: 48.2-48.5   Cloud Horn 18: 48.5-49.6 (0-1 events/20 s)
+#   rare/overruns   Crystals 11: 51.6-52.2   Cloud Horn 19: 50.8-51.1 (5-7/20 s)
+#   every window    Crystals 12: 55.4-55.7   Cloud Horn 20: 53.1-54.1
+#
+# BASELINE = 40 (unchanged). Step-down starts at raw 49: above every clean
+#   median except Cloud Horn 18's 49.6 (rare), below the first overrunning one
+#   (50.8). It is also the only value that keeps both idle datasets quiet: 38
+#   (#154) must stay <= 49. The candidate 20 would read that idle as stress 18
+#   and step down while nobody plays.
+# HARD = 15. Floor (4) at raw 55, where every window of both patches overran.
+#   At raw 52 the curve allows 9, at 50 it allows 15.
+# REST_CAP = 18. The most voices any patch sustained (Cloud Horn 18, rare);
+#   Crystals tops out at 10-11. 48 let Surge allocate 2.7x what any patch held.
+#
+# Closed-loop result, with shedding, from these numbers and the per-note costs
+# (tests/test_governor_response.py replays it): a held Crystals chord settles
+# at 10 voices, Cloud Horn at 17-18. The old 40 / 50 / 48 never cut either.
+# Valid only at 96 x 2 on this Pi 5 stack: load thresholds move with buffer
+# size (docs/POLY-GOVERNOR.md, "Buffer dependence").
+DEFAULT_JACK_BASELINE = 40.0
+DEFAULT_ALWAYS_ON_LIMIT_HARD = 15.0
+DEFAULT_ALWAYS_ON_REST_CAP = 18
 DEFAULT_LIMIT_MODE = "always_on"
 VERBOSE_TRACE_FILE = "poly-governor.trace"
 
@@ -181,7 +224,12 @@ def load_governor_config() -> GovernorConfig:
         step_up=_env_int("MPE_POLY_STEP_UP", DEFAULT_STEP_UP),
         governor_v2=governor_v2_enabled(),
         limit_soft_start=_env_float("MPE_POLY_LIMIT_SOFT_START", DEFAULT_LIMIT_SOFT_START),
-        limit_hard=_env_float("MPE_POLY_LIMIT_HARD", DEFAULT_LIMIT_HARD),
+        limit_hard=_env_float(
+            "MPE_POLY_LIMIT_HARD",
+            DEFAULT_ALWAYS_ON_LIMIT_HARD
+            if limit_mode_name() == "always_on"
+            else DEFAULT_LIMIT_HARD,
+        ),
         rise_enable=_env_bool("MPE_POLY_RISE_ENABLE", True),
         rise_full_rate=_env_float("MPE_POLY_RISE_FULL_RATE", DEFAULT_RISE_FULL_RATE),
         rise_bias_max=_env_float("MPE_POLY_RISE_BIAS_MAX", DEFAULT_RISE_BIAS_MAX),
@@ -199,7 +247,12 @@ def load_governor_config() -> GovernorConfig:
         poll_slow_s=poll_slow,
         xrun_nudge=_env_float("MPE_POLY_XRUN_NUDGE", DEFAULT_XRUN_NUDGE),
         min_headroom=_env_int("MPE_POLY_MIN_HEADROOM", DEFAULT_MIN_HEADROOM),
-        rest_cap=_env_int("MPE_POLY_REST_CAP", DEFAULT_REST_CAP),
+        rest_cap=_env_int(
+            "MPE_POLY_REST_CAP",
+            DEFAULT_ALWAYS_ON_REST_CAP
+            if limit_mode_name() == "always_on"
+            else DEFAULT_REST_CAP,
+        ),
         jack_baseline=_env_float("MPE_POLY_JACK_BASELINE", DEFAULT_JACK_BASELINE),
         emergency_xrun_only=_env_bool("MPE_POLY_EMERGENCY_XRUN_ONLY", True),
         limit_mode=limit_mode_name(),
@@ -256,6 +309,9 @@ class PolyGovernorJournal:
             f"step_up={config.step_up} "
             f"warm_window={config.patch_warm_window_s} "
             f"fade={int(fade_actuation_enabled())} "
+            f"shed={int(shed_enabled())} "
+            f"attack_window={ATTACK_WINDOW_S} "
+            f"repeat_window={REPEAT_WINDOW_S} "
             f"emergency_poly={poly_emergency()} "
             f"v2={int(governor_v2_active())} "
             f"mode={config.limit_mode} "
@@ -290,6 +346,25 @@ class PolyGovernorJournal:
             f'patch="{patch_name}" held={held_s:.2f}s'
         )
         self._emit(line)
+
+    def log_xrun_kept(
+        self,
+        *,
+        kind: str,
+        cpu: float,
+        raw_cpu: float | None,
+        stress: float,
+        limit: int | None,
+        counts: dict[str, int],
+    ) -> None:
+        """An xrun the emergency rule did not act on: logged, never hidden."""
+        raw_part = f" raw={raw_cpu:.1f}" if raw_cpu is not None else ""
+        self._emit(
+            f"poly-governor: xrun kept limit={limit} kind={kind} "
+            f"cpu={cpu:.1f}{raw_part} stress={stress:.1f} "
+            f"note_on={counts['note_on']} isolated={counts['isolated']} "
+            f"emergency={counts['emergency']}"
+        )
 
     def log_error(self, message: str) -> None:
         self._emit(f"poly-governor: tick error {message}")
@@ -358,10 +433,13 @@ class SurgePolyGovernor:
     Surge voice stealing on limit drop is engine behaviour — see
     docs/measurements/poly-governor-instrumentation-2026-08-21.md (Task C).
 
-    With ``MPE_POLY_GOVERNOR_FADE=1`` (default), step-down requests defer until
-    the MIDI voice tracker reports fewer sounding notes than the target limit,
-    avoiding note-on-triggered ``uber_release`` steals. Emergency still requests
-    proactive MIDI note-offs via ``governor-fade-request.json``.
+    Lowering Surge's limit does not stop sounding voices (allocation denial,
+    docs/POLY-GOVERNOR.md). With ``MPE_POLY_SHED=1`` (default) a step-down below
+    the sounding count asks the pressure remapper, which owns the note ledger,
+    to release the oldest notes (``governor-fade-request.json``; the policy is
+    ``poly_voice_tracker.plan_shed``). With it off, a step-down defers until the
+    ledger is under the target (``MPE_POLY_GOVERNOR_FADE=1``) or applies at
+    once while load is rising, as before 2026-10-12.
     """
 
     def __init__(
@@ -405,6 +483,7 @@ class SurgePolyGovernor:
         self._load_tracker = LoadTracker(
             cpu_monitor=self.cpu_monitor,
             surge_monitor=self.surge_monitor,
+            jack_baseline=self.config.jack_baseline,
         )
         self._last_step_down_at: float | None = None
         self._adaptive_poll_interval = self.config.poll_interval_s
@@ -412,6 +491,9 @@ class SurgePolyGovernor:
         self._last_dload_dt: float | None = None
         self._last_normalized_stress: float | None = None
         self._pre_engaged_bootstrapped = False
+        # Non-note-on xrun event times, for the emergency rule's repeat arm.
+        self._xrun_events: list[float] = []
+        self._xrun_counts = {"note_on": 0, "isolated": 0, "emergency": 0}
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -443,6 +525,7 @@ class SurgePolyGovernor:
             "effective_poly": self._effective_poly,
             "ceiling_poly": self._ceiling_poly,
             "floor_poly": self._floor_poly,
+            "xruns": dict(self._xrun_counts),
         }
 
     def _limits_ready(self) -> bool:
@@ -472,7 +555,14 @@ class SurgePolyGovernor:
         if isinstance(ceiling, (int, float)):
             self._ceiling_poly = clamp_poly_limit(int(ceiling))
         if isinstance(effective, (int, float)):
-            self._effective_poly = clamp_poly_limit(int(effective))
+            effective_limit = clamp_poly_limit(int(effective))
+            if effective_limit != self._effective_poly:
+                # Only a writer outside the governor changes this (a patch load
+                # sets the patch's on-load limit), and it can sit far above
+                # REST_CAP. Pull it to the rest cap at once, not one step per
+                # 0.25 s under load.
+                self._pre_engaged_bootstrapped = False
+            self._effective_poly = effective_limit
 
     def _load_rising(self, sample: LoadSample) -> bool:
         """True when stress is climbing — ramp apply sends OSC without fade deferral."""
@@ -506,8 +596,12 @@ class SurgePolyGovernor:
             self._pending_limit = None
             return new_limit
 
+        if shed_enabled():
+            write_shed_request(limit=new_limit, reason=reason)
+            self._pending_limit = None
+            return new_limit
+
         if reason == "emergency":
-            write_fade_request(release_count=active - new_limit, reason=reason)
             self._pending_limit = None
             return new_limit
 
@@ -831,17 +925,18 @@ class SurgePolyGovernor:
             return
 
         if sample.xrun_delta > 0 and cfg.emergency_xrun_only:
-            emergency = poly_emergency()
-            if self._effective_poly > emergency:
-                self._apply_limit(
-                    emergency,
-                    reason="emergency",
-                    cpu=cpu,
-                    raw_cpu=raw_cpu,
-                    held_s=0.0,
-                    minimum=emergency,
-                )
-                return
+            if self._xrun_emergency(sample, now=now):
+                emergency = poly_emergency()
+                if self._effective_poly > emergency:
+                    self._apply_limit(
+                        emergency,
+                        reason="emergency",
+                        cpu=cpu,
+                        raw_cpu=raw_cpu,
+                        held_s=0.0,
+                        minimum=emergency,
+                    )
+                    return
 
         if (
             not cfg.emergency_xrun_only
@@ -914,6 +1009,41 @@ class SurgePolyGovernor:
             )
 
         self._last_normalized_stress = stress
+
+    def _xrun_emergency(self, sample: LoadSample, *, now: float) -> bool:
+        """Classify one xrun event, count it, and apply the emergency rule.
+
+        The rule is ``governor_v2.xrun_warrants_emergency``. The ledger is read
+        only here, on a tick that saw an xrun, so it costs nothing in the
+        steady state.
+        """
+        stress = sample.normalized_load
+        at_note_on = xrun_at_note_on(now=now, last_note_on_at=read_last_note_on_at())
+        prior = [t for t in self._xrun_events if now - t <= REPEAT_WINDOW_S]
+        emergency = xrun_warrants_emergency(
+            stress=stress,
+            hard=self.config.limit_hard,
+            at_note_on=at_note_on,
+            prior_events=prior,
+            now=now,
+        )
+        if not at_note_on:
+            prior.append(now)
+        self._xrun_events = prior
+        if emergency:
+            self._xrun_counts["emergency"] += 1
+            return True
+        kind = "note_on" if at_note_on else "isolated"
+        self._xrun_counts[kind] += 1
+        self._journal.log_xrun_kept(
+            kind=kind,
+            cpu=sample.load,
+            raw_cpu=sample.raw_load,
+            stress=stress,
+            limit=self._effective_poly,
+            counts=self._xrun_counts,
+        )
+        return False
 
     def _maybe_bootstrap_pre_engaged(
         self,

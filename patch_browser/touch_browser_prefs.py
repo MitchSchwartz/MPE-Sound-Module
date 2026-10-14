@@ -282,6 +282,46 @@ class TouchBrowserPrefsMixin:
         else:
             self._toast("Looper tempo off", 1.2)
 
+    def _mod_wheel_switch_shown(self) -> bool:
+        """The play-screen mod-knob switch is on screen: laid out (FX host on)
+        and the loaded patch has something to choose. A patch with no mod-wheel
+        routing (`FxPolicy.switch_locked`, the test that greys Patch mod) sends
+        the knob to the effect either way, so the switch is not drawn and has
+        no hit area. Read per frame and per touch: a patch load needs no
+        relayout."""
+        rect = getattr(self, "mod_wheel_switch_rect", None)
+        policy = getattr(self, "fx_policy", None)
+        if rect is None or rect.w <= 0 or policy is None:
+            return False
+        return not policy.switch_locked
+
+    def _mod_wheel_switch_hit(self, pos: tuple[int, int]) -> bool:
+        return self._mod_wheel_switch_shown() and self.mod_wheel_switch_rect.contains(*pos)
+
+    def _toggle_mod_wheel_target(self) -> None:
+        """Play-screen switch: the loaded patch only; the next load re-resolves."""
+        from patch_browser.fx_policy import MOD_WHEEL_EFFECT, MOD_WHEEL_PATCH_FIRST
+
+        policy = self.fx_policy
+        if policy.switch_locked:
+            return
+        if policy.target == MOD_WHEEL_EFFECT:
+            policy.set_target(MOD_WHEEL_PATCH_FIRST)
+        else:
+            policy.set_target(MOD_WHEEL_EFFECT)
+        self._toast(policy.knob_label(), 1.2)
+
+    def _cycle_mod_wheel_default(self) -> None:
+        """Settings: the default every patch load starts from."""
+        from patch_browser.fx_policy import MOD_WHEEL_EFFECT, MOD_WHEEL_PATCH_FIRST
+
+        policy = self.fx_policy
+        if policy.global_target == MOD_WHEEL_EFFECT:
+            policy.set_global_default(MOD_WHEEL_PATCH_FIRST)
+        else:
+            policy.set_global_default(MOD_WHEEL_EFFECT)
+        self._layout_settings_content()
+
     def _toggle_poly_governor(self) -> None:
         self.poly_governor_enabled = not self.poly_governor_enabled
         self._save_ui_preference("poly_governor_enabled", self.poly_governor_enabled)
@@ -589,11 +629,43 @@ class TouchBrowserPrefsMixin:
 
     def _apply_volume(self, level: float, persist: bool = True) -> None:
         self.volume_level = max(VOLUME_MIN, min(VOLUME_MAX, level))
+        device = getattr(self, "device_volume", None)
+        if device is not None and device.active:
+            # The DAC is the level stage (patch_browser/device_volume.py). Surge
+            # sits at a fixed trim (DEVICE_MODE_SURGE_TRIM_DB, headroom for the
+            # FX and for chords) so nothing stacks, and the looper master is
+            # left alone because the DAC already moves the loops with
+            # everything else.
+            from patch_browser.device_volume import apply_surge_volume
+
+            if self.loader.osc_enabled:
+                apply_surge_volume(self.loader, device_active=True, level=self.volume_level)
+            device.set_position(self.volume_level, persist=persist)
+            return
         if self.loader.osc_enabled:
-            self.loader.set_volume(self.volume_level)
+            from patch_browser.device_volume import apply_surge_volume
+
+            apply_surge_volume(self.loader, device_active=False, level=self.volume_level)
         self._send_looper_volume(self.volume_level)
         if persist:
             self._save_volume_level()
+
+    def _poll_device_volume(self) -> None:
+        """Rebind the Vol fader after any graph (re)start — boot, hotplug, or an
+        output switch all rewrite jack.state. A file read per second; amixer runs
+        only when the binding actually changed."""
+        from patch_browser.audio_engine import read_jack_state
+        from patch_browser.device_volume import REBIND_POLL_S
+
+        now = time.monotonic()
+        if now < getattr(self, "_device_volume_next_poll", 0.0):
+            return
+        self._device_volume_next_poll = now + REBIND_POLL_S
+        if not self.device_volume.rebind(read_jack_state()):
+            return
+        position = self.device_volume.position()
+        self.volume_level = position if position is not None else self._load_volume_level()
+        self._apply_volume(self.volume_level, persist=False)
 
     def _apply_brightness(self, percent: int) -> None:
         self.brightness_percent = percent

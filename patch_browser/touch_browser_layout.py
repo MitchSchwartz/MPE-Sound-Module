@@ -5,6 +5,7 @@ from __future__ import annotations
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
 from patch_browser.patch_identity import patch_browse_subtitle
+from patch_browser.jump_strip import thumb_height
 from patch_browser.scroll_widgets import ScrollList
 from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
@@ -35,6 +36,10 @@ from patch_browser.touch_ui_constants import (
     LEFT_NAV_WIDTH,
     MIXER_BOTTOM_GAP,
     MIXER_LABEL_H,
+    MOD_WHEEL_SWITCH_W,
+    JUMP_STRIP_GAP,
+    JUMP_STRIP_THUMB_MIN_H,
+    JUMP_STRIP_W,
     NAV_FOLDER_TITLE_H,
     NORM_ROW_H,
     NORM_ROW_W,
@@ -255,12 +260,28 @@ class TouchBrowserLayoutMixin:
             NORM_ROW_W,
             NORM_ROW_H,
         )
+        self._layout_mod_wheel_row(bottom_row_y, action_row_h)
 
         self._layout_nav_buttons()
 
         panel_w = min(SETTINGS_PANEL_W, self.width - margin)
         self.settings_panel_rect = Rect(self.width - panel_w, margin, panel_w, self.height - margin * 2)
         self._layout_settings_content()
+    def _layout_mod_wheel_row(self, bottom_row_y: int, action_row_h: int) -> None:
+        """Mod-knob switch left of Norm. Only with MPE_FX_HOST on."""
+        policy = getattr(self, "fx_policy", None)
+        left = self.main_rect.x + DETAIL_TITLE_PAD_X
+        right = self.normalize_btn.x - 10
+        width = min(MOD_WHEEL_SWITCH_W, right - left)
+        if policy is None or not policy.enabled or width <= 0:
+            self.mod_wheel_switch_rect = Rect(0, 0, 0, 0)
+            return
+        self.mod_wheel_switch_rect = Rect(
+            right - width,
+            bottom_row_y + (action_row_h - NORM_ROW_H) // 2,
+            width,
+            NORM_ROW_H,
+        )
     def _settings_panel_x(self) -> int:
         """Animated X offset — panel slides in from the right edge."""
         hidden_x = self.width
@@ -371,12 +392,52 @@ class TouchBrowserLayoutMixin:
             row_height = PATCHES_ROW_HEIGHT
         else:
             row_height = 44
+        self._nav_list_full_rect = list_rect
         if not hasattr(self, "nav_list"):
             self.nav_list = ScrollList(list_rect, row_height=row_height)
         else:
             self.nav_list.rect = list_rect
             self.nav_list.row_height = row_height
             self.nav_list._clamp_scroll()
+        self._layout_jump_strip()
+
+    def _layout_jump_strip(self) -> None:
+        """Give a patch list that overflows a jump strip at its right edge.
+
+        The strip's width comes out of the list rect, so a row tap can never land
+        on the strip and the strip never covers a row. Re-run whenever the items
+        or the list geometry change (it depends on both).
+        """
+        full = getattr(self, "_nav_list_full_rect", None)
+        if full is None or not hasattr(self, "nav_list"):
+            self.jump_strip_rect = Rect(0, 0, 0, 0)
+            return
+        nav = self.nav_list
+        inner_h = full.h - nav.padding * 2
+        show = (
+            self.left_nav_mode == LeftNavMode.PATCHES
+            and not self.left_nav_collapsed
+            and nav.content_height() > inner_h
+        )
+        if not show:
+            self.jump_strip_rect = Rect(0, 0, 0, 0)
+            nav.rect = full
+        else:
+            self.jump_strip_rect = Rect(
+                full.right - JUMP_STRIP_W, full.y, JUMP_STRIP_W, full.h
+            )
+            nav.rect = Rect(full.x, full.y, full.w - JUMP_STRIP_W - JUMP_STRIP_GAP, full.h)
+        nav._clamp_scroll()
+
+    def _jump_strip_thumb_h(self) -> int:
+        rect = self.jump_strip_rect
+        nav = self.nav_list
+        return thumb_height(
+            rect.h,
+            nav.rect.h - nav.padding * 2,
+            nav.content_height(),
+            JUMP_STRIP_THUMB_MIN_H,
+        )
     def _layout_az_rail_letters(self) -> None:
         letters = AZ_RAIL_LETTERS
         count = len(letters)
@@ -439,7 +500,7 @@ class TouchBrowserLayoutMixin:
             defs.append(
                 {
                     "id": spec.channel_id,
-                    "label": spec.label,
+                    "label": self._mixer_control_label(control),
                     "min": spec.min_value,
                     "max": spec.max_value,
                     "enabled": True,

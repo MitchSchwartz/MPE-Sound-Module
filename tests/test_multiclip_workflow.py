@@ -385,10 +385,15 @@ class QuantizedSessionTests(Session):
     """
 
     def establish_grid(self) -> None:
-        """What on_grid_established does: later clips count in to the bar."""
+        """What on_grid_established does: later clips count in to the bar.
+
+        Only the ENGINE double is switched. The gestures used to be switched
+        too, by hand, via a `fs.quantized` flag — and that was the bug: the
+        flag was the bench's own idea of the mode, kept beside the truth
+        instead of read from it. They now ask `looper_timing` against live
+        grid state, so establishing the grid is all it takes.
+        """
         self.engine.quantized = True
-        for fs in self.fs_by_loop.values():
-            fs.quantized = True
 
     def record_first_then_grid(self, slot: int = 0) -> None:
         self.record_clip(slot)
@@ -457,8 +462,9 @@ class StopAllThenLaunchTests(Session):
     This combination had NO test in either direction, and a P0 shipped through
     the gap: `stop_all_loops` pauses every loop, and the matrix launch replied
     with `mute_off` — which does not lift a pause. Every launch after a Stop All
-    was silent. The fix was LAUNCH_COMMANDS (`pause_off` then `trigger`); this
-    is the coverage that should have caught it.
+    was silent. The fix was LAUNCH_COMMANDS (`trigger`, which lifts a pause;
+    it was `pause_off` then `trigger` until 2026-09-07); this is the coverage
+    that should have caught it.
     """
 
     def stop_all(self) -> None:

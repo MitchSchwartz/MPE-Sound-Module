@@ -100,6 +100,9 @@ _reconcile_engine() {
         mpe_engine_state_write "$MPE_ENGINE_NAME" jack ok "$(mpe_engine_sink_reason)" "$looper_label"
         mpe_engine_reconcile_reset
         mpe_reconcile_looper_if_orphaned "surge-on-graph"
+        # Once per Surge start (surge.state `started=`), not per tick: a
+        # Surge-only restart drops Surge -> every loop input.
+        mpe_reconcile_record_path_after_surge_start "surge-on-graph" || true
         return 0
     fi
 
@@ -138,11 +141,18 @@ _last_jack_probe=0
 
 # Batched systemctl pre-filter: fork Python (~400 ms on Pi) only when a looper
 # unit is non-active. Steady state is one systemctl call (~22 ms) every 30 s.
+#
+# mpe-looper-session is not in this list. It is device-gated: udev starts it
+# when an APC appears (config/99-apc-looper.rules), and with no APC it is
+# inactive by design. Listing it here would fork the reconciler every 30 s,
+# forever, on every appliance without an APC (~1.3% of a core). The python
+# reconciler still recovers it after an aborted calibration, because
+# calibration stops the engine too, and an inactive engine trips this filter.
+# It checks apc_present() first.
 _reconcile_looper_units_if_needed() {
     local script need=0 state
     local -a units=(
         mpe-sooperlooper.service
-        mpe-looper-session.service
         sl-watchdog.service
     )
     script="${MPE_MODULE_REPO}/scripts/ensure-looper-units-running.py"

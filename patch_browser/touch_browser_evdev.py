@@ -53,17 +53,25 @@ class TouchBrowserEvdevMixin:
             )
         self._handle_event(event)
     def _handle_evdev_browser_touch(self, kind: str, pos: tuple[int, int]) -> None:
+        if self._toast_action_touch(kind, pos):
+            return
         if kind == "down":
             self._touch_list_capture = False
             self._touch_browse_capture = False
             self._az_rail_capture = False
+            self._jump_strip_capture = False
             if self._handle_az_rail_touch("down", pos):
+                return
+            if self._handle_jump_strip_touch("down", pos):
                 return
             if self.detail_patch and self.normalize_btn.contains(*pos):
                 self._pending_norm_toggle = True
                 return
             if self.detail_patch and self.favorites_btn.contains(*pos):
                 self._pending_favorites_toggle = True
+                return
+            if self.detail_patch and self._mod_wheel_switch_hit(pos):
+                self._pending_mod_wheel_toggle = True
                 return
             if self._handle_browse_pointer_down(pos):
                 self._touch_browse_capture = True
@@ -76,6 +84,8 @@ class TouchBrowserEvdevMixin:
                 self._handle_mixer_down(pos)
         elif kind == "motion":
             if self._handle_az_rail_touch("motion", pos):
+                return
+            if self._handle_jump_strip_touch("motion", pos):
                 return
             if self._touch_browse_capture or self._browse_gesture_active():
                 self._handle_browse_pointer_move(pos)
@@ -107,8 +117,17 @@ class TouchBrowserEvdevMixin:
                 self._toggle_favorites()
                 self._touch_list_capture = False
                 return
+            if getattr(self, "_pending_mod_wheel_toggle", False):
+                self._pending_mod_wheel_toggle = False
+                self._toggle_mod_wheel_target()
+                self._touch_list_capture = False
+                return
 
             if self._handle_az_rail_touch("up", pos):
+                self._touch_list_capture = False
+                self._touch_browse_capture = False
+                return
+            if self._handle_jump_strip_touch("up", pos):
                 self._touch_list_capture = False
                 self._touch_browse_capture = False
                 return

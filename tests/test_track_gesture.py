@@ -38,6 +38,7 @@ def compositor() -> LedCompositor:
     """
     return LedCompositor(RecordingOut(), apc_label="mk1")
 from scripts.sooperlooper.loop_model import STATE_PLAYING, STATE_STOPPED
+from looper_timing import engine_controls
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
     SL_STATE_OFF,
@@ -144,8 +145,7 @@ class GridEstablishmentTests(unittest.TestCase):
         from scripts.sooperlooper.track_gesture import TrackGesture
 
         fs = TrackGesture(
-            loop=loop, hold_ms=1000.0, debounce_ms=0.0,
-            quantized=True, grid=grid,
+            loop=loop, hold_ms=1000.0, debounce_ms=0.0, grid=grid,
             on_grid_established=established_cb,
             on_phase_reanchor=reanchor_cb,
         )
@@ -188,6 +188,33 @@ class GridEstablishmentTests(unittest.TestCase):
         self.assertTrue(grid.established)
         self.assertEqual(seen, [(120.0, 1)])
 
+    def test_a_short_defining_take_is_refused_and_says_so(self) -> None:
+        """The 1.084 s take of 2026-09-06, through the gesture: no grid, one
+        loud line naming the BPM it would have been, and the next take is
+        free to define the grid instead."""
+        from unittest.mock import patch
+
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        seen = []
+        grid = GridState()
+        fs = self._fs(0, grid, lambda bpm, bars: seen.append((bpm, bars)))
+        self._start_defining_take(fs)
+        self._close_defining_take(fs)
+        lines = []
+        with patch("scripts.sooperlooper.track_gesture.log", lines.append):
+            fs.sync_from_sl(SL_STATE_PLAYING)
+            fs.sync_loop_len(1.084)
+            fs.sync_loop_pos(0.0)
+            fs.sync_loop_len(1.084)      # the engine keeps reporting it
+        self.assertFalse(grid.established)
+        self.assertEqual(seen, [])
+        refusals = [line for line in lines if "NOT accepted" in line]
+        self.assertEqual(len(refusals), 1, lines)
+        self.assertIn("221.4 BPM", refusals[0])
+        self.assertFalse(grid.is_pending(0))
+        self.assertTrue(grid.arm(1), "the next take must be able to define the grid")
+
     def test_grid_anchor_defers_until_loop_wrap(self) -> None:
         """Late PLAYING report: grid now, phase re-anchor at wrap."""
         from scripts.sooperlooper.sl_grid_state import GridState
@@ -214,12 +241,18 @@ class GridEstablishmentTests(unittest.TestCase):
         fs.sync_loop_pos(0.01)  # wrap
         self.assertEqual(reanchored, [120.0])
 
-    def test_hold_clear_keeps_the_grid_the_engine_reported_empty(self) -> None:
-        """Clearing the last clip empties the pads, not the session's tempo.
+    def test_hold_clear_drops_the_grid_once_the_engine_reports_empty(self) -> None:
+        """Clearing the last clip empties the pads AND the session's tempo.
 
-        Inverted 2026-08-30 on Mitch's call: "even if we stop all clips ... we
-        still need to reinitialize with those original settings. They should
-        never be cleared away." Track reset remains the way to start over.
+        Inverted twice. 2026-08-30 it asserted the tempo survived, on Mitch's
+        call: "even if we stop all clips ... they should never be cleared
+        away." 2026-09-06 he corrected the scope — that sentence is about STOP
+        ALL, and clear is a different gesture: "If we clear all clips, then the
+        grid should be cleared."
+
+        The timing half of the test is unchanged and still matters: the drop
+        waits for the ENGINE to report OFF. Dropping on the gesture alone would
+        act on a clear that had not happened yet.
         """
         from scripts.sooperlooper.sl_grid_state import GridState
 
@@ -239,8 +272,43 @@ class GridEstablishmentTests(unittest.TestCase):
         )
 
         fs.sync_from_sl(SL_STATE_OFF)
-        self.assertTrue(grid.established, "the tempo survives an empty session")
-        self.assertEqual(grid.bpm, 120.0, "and so does the tempo itself")
+        self.assertFalse(grid.established, "an emptied session has no tempo")
+        self.assertIsNone(grid.bpm)
+
+    def test_a_re_record_passing_through_off_does_not_drop_the_grid(self) -> None:
+        """An unanswered record intent means this loop's emptiness is not a fact.
+
+        Live under multigrid: `slot_runtime._execute_slot_ops` sends `undo_all`
+        immediately before a re-record, so the loop passes through OFF on its
+        way INTO a take. Reading that as a clear would drop the grid one
+        instant before the new clip records against it — and the clip would
+        then define a new grid. That is the tempo walk, rebuilt from parts.
+
+        Added with the 2026-09-06 restoration of the clear-drops-the-grid rule,
+        because it is the way that rule would have gone wrong.
+        """
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        grid = GridState()
+        fs = self._fs(0, grid)
+        self._start_defining_take(fs)
+        self._close_defining_take(fs)
+        fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(0.0)
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        self.assertTrue(grid.established)
+
+        fs._expect("recording")          # the record is out, unanswered
+        fs.sync_from_sl(SL_STATE_OFF)    # the undo_all echo arrives first
+        self.assertTrue(
+            grid.established,
+            "OFF with a record in flight is a re-record, not a clear",
+        )
+
+        # And the same OFF, with nothing outstanding, IS a clear.
+        fs._expect(None)
+        fs.sync_from_sl(SL_STATE_OFF)
+        self.assertFalse(grid.established, "an idle empty loop is a clear")
 
     def test_deleting_defining_clip_keeps_grid_while_other_clips_remain(self) -> None:
         from scripts.sooperlooper.sl_grid_state import GridState
@@ -282,8 +350,7 @@ class DoubleTapRecordsOneCycleTests(unittest.TestCase):
     def _fs(self, grid):
         from scripts.sooperlooper.track_gesture import TrackGesture
 
-        fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0,
-                            quantized=True, grid=grid)
+        fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0, grid=grid)
         fs.bind(MagicMock(), compositor(), 37)
         return fs
 
@@ -364,7 +431,7 @@ class QuantizedLaunchTests(unittest.TestCase):
     def _fs(self):
         from scripts.sooperlooper.track_gesture import TrackGesture
 
-        fs = TrackGesture(loop=2, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
+        fs = TrackGesture(loop=2, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), compositor(), 38)
         return fs
 
@@ -413,8 +480,18 @@ class QuantizedLaunchTests(unittest.TestCase):
 class StopAllIsImmediateTests(unittest.TestCase):
     """Stop All is a transport action; per-clip stop stays musical."""
 
-    def test_stop_all_lifts_quantize_then_restores_it(self) -> None:
-        from scripts.sooperlooper.track_gesture import build_track_gestures, stop_all_loops
+    def test_stop_all_lifts_quantize_and_settle_restores_it(self) -> None:
+        """The lift and the restore are now a second apart, on purpose.
+
+        Restoring in the same breath is the best explanation for the 2026-09-06
+        "stop all, and it just resumes again": `set` lands on the OSC thread
+        while `hit` waits for the audio thread, so `trigger` could run with
+        quantize already back at CYCLE, be deferred to the next boundary, and
+        fire after `pause_on`. Quantize now stays at 0 across that window.
+        """
+        from scripts.sooperlooper.track_gesture import (
+            build_track_gestures, settle_stop_all, stop_all_loops,
+        )
 
         osc = MagicMock()
         _, gestures = build_track_gestures(
@@ -424,27 +501,53 @@ class StopAllIsImmediateTests(unittest.TestCase):
         stop_all_loops(osc, num_loops=2, gestures=gestures)
 
         sent = [(c.args[0], c.args[1]) for c in osc.send_message.call_args_list]
-        quant = [v for path, v in sent if path == "/sl/-1/set"]
+        lifted = [v for path, v in sent if path == "/sl/-1/set"]
+        # WHICH controls, not just their values. Checking only values passes a
+        # version of `engine_controls` that silently drops a control from its
+        # output — the burst would then leave that quantizer engaged and Stop
+        # All would wait for a bar. Derived from the source so it cannot drift.
         self.assertEqual(
-            quant,
-            [["mute_quantized", 0.0], ["quantize", 0.0],
-             ["quantize", 0.0], ["mute_quantized", 1.0]],
-            "both quantizers lifted for the stop, then restored",
-        )
-        hits = [v for path, v in sent if path == "/sl/-1/hit"]
-        self.assertEqual(hits, ["mute_on", "trigger", "pause_on"])
+            lifted, [[c, v] for c, v in engine_controls(grid=False).items()],
+            "the whole control set is lifted, in order, in one burst")
+        self.assertEqual([v for path, v in sent if path == "/sl/-1/hit"],
+                         ["mute_on", "pause_on"])
+        order = [path for path, _v in sent]
+        self.assertLess(max(i for i, p in enumerate(order) if p.endswith("/set")),
+                        min(i for i, p in enumerate(order) if p.endswith("/hit")),
+                        "lifted BEFORE the mute, or Stop All waits for the bar")
 
-    def test_stop_all_rewinds_every_loop(self) -> None:
-        """The regression Mitch reported 2026-08-30.
+        settle_stop_all(osc, gestures, log=lambda _m: None)
+        sent = [(c.args[0], c.args[1]) for c in osc.send_message.call_args_list]
+        # Ordered and complete: `dict()` here would collapse the lift and the
+        # restore of the same control into one entry and lose the order, which
+        # is the whole content of this test. AGENTS.md: do not weaken an
+        # assertion to make a test pass.
+        every_set = [v for path, v in sent if path == "/sl/-1/set"]
+        free_form = [[c, v] for c, v in engine_controls(grid=False).items()]
+        self.assertEqual(every_set, free_form + free_form,
+                         "lift then restore, every control, both bursts")
+        restored = dict(v for path, v in sent if path == "/sl/-1/set")
+        # No grid in this rig, so the restore is free-form — INCLUDING
+        # mute_quantized. It used to go back to 1.0 unconditionally while
+        # quantize followed the grid, so a per-clip stop after a Stop All in a
+        # gridless session was deferred to a cycle boundary no tempo defined.
+        # Both controls now come from `looper_timing.engine_controls`, so they
+        # cannot disagree about the same state again.
+        self.assertEqual(restored.get("quantize"), 0.0)
+        self.assertEqual(restored.get("mute_quantized"), 0.0,
+                         "no grid means no quantized mute either")
 
-        Stop All froze each loop wherever it happened to be, so restarting
-        resumed mid-loop instead of from the top -- and loops came back at
-        different phases from each other. MEASURED on the appliance with four
-        loops stopped: 46%, 46%, 73% and 23% of the way through.
+    def test_stop_all_sends_no_trigger(self) -> None:
+        """Mitch, 2026-09-06: 'After I stop all clips, it just resumes again.'
 
-        `trigger` is the rewind, and it has to land BETWEEN the mute and the
-        pause: before the mute it would be audible, after the pause there is
-        nothing left running to rewind.
+        The burst used to be mute_on, trigger, pause_on -- the trigger added
+        2026-08-30 as a rewind so a relaunch came from the top. MEASURED
+        2026-09-07 on the real engine (tests/engine/test_engine_claims.py):
+        with that trigger a grid clip was still PLAYING 0.4 s and a full cycle
+        after Stop All at every one of five bar phases; without it, PAUSED in
+        5 of 5. The rewind is the launch's job -- `trigger` from PAUSED waits
+        for the bar and plays from the top -- and the mid-loop resumes of
+        08-30 were the launch's `pause_off`, not a missing rewind here.
         """
         from scripts.sooperlooper.track_gesture import build_track_gestures, stop_all_loops
 
@@ -457,21 +560,13 @@ class StopAllIsImmediateTests(unittest.TestCase):
 
         hits = [c.args[1] for c in osc.send_message.call_args_list
                 if c.args[0] == "/sl/-1/hit"]
-        self.assertIn("trigger", hits, "nothing rewound the loops")
-        self.assertLess(hits.index("mute_on"), hits.index("trigger"),
-                        "the rewind would be audible")
-        self.assertLess(hits.index("trigger"), hits.index("pause_on"),
-                        "paused first — the rewind lands on a stopped loop")
+        self.assertNotIn("trigger", hits,
+                         "a trigger in the Stop All burst keeps the loop playing")
+        self.assertLess(hits.index("mute_on"), hits.index("pause_on"),
+                        "mute first, so the pause lands on a silent loop")
 
-    def test_stop_all_restores_quantize_to_what_the_grid_says(self) -> None:
-        """Positive control: the restore is not an unconditional 1.0.
-
-        With no grid, every loop is deliberately free-form -- the take that
-        will DEFINE the grid must not be synced to a cycle inherited from the
-        previous session. An unconditional restore would reintroduce exactly
-        the imaginary-bar bug set_grid_active was written to kill.
-        """
-        from scripts.sooperlooper.track_gesture import build_track_gestures, stop_all_loops
+    def _grid_rig(self, established: bool):
+        from scripts.sooperlooper.track_gesture import build_track_gestures
         from scripts.sooperlooper.sl_grid_state import GridState
 
         osc = MagicMock()
@@ -480,19 +575,63 @@ class StopAllIsImmediateTests(unittest.TestCase):
             hold_ms=1000.0, debounce_ms=0.0
         )
         grid = GridState()
-        grid.established = True
-        grid.bpm = 120.0
-        grid.bars = 1
-        grid.cycle_s = 2.0
+        if established:
+            grid.established = True
+            grid.bpm = 120.0
+            grid.bars = 1
+            grid.cycle_s = 2.0
         for fs in gestures:
             fs.grid = grid
-        stop_all_loops(osc, num_loops=2, gestures=gestures)
+        return osc, gestures
 
-        quant = [v for path, v in
-                 ((c.args[0], c.args[1]) for c in osc.send_message.call_args_list)
-                 if path == "/sl/-1/set" and v[0] == "quantize"]
-        self.assertEqual(quant, [["quantize", 0.0], ["quantize", 1.0]],
+    @staticmethod
+    def _quantize_sets(osc):
+        return [v for path, v in
+                ((c.args[0], c.args[1]) for c in osc.send_message.call_args_list)
+                if path == "/sl/-1/set" and v[0] == "quantize"]
+
+    def test_stop_all_leaves_quantize_at_zero(self) -> None:
+        """The restore must NOT ride along with the pause.
+
+        `set` is applied on the OSC thread and `hit` is queued for the audio
+        thread, so restoring quantize in the same breath can put it back to
+        CYCLE before `trigger` is processed. The trigger is then DEFERRED to
+        the next boundary, fires after `pause_on`, and plays the loop from
+        zero — "I stop all clips and it just resumes again", reported
+        2026-09-06 and caught by the verify as "loop 0 state=4".
+        """
+        from scripts.sooperlooper.track_gesture import stop_all_loops
+
+        osc, gestures = self._grid_rig(established=True)
+        stop_all_loops(osc, num_loops=2, gestures=gestures)
+        self.assertEqual(self._quantize_sets(osc), [["quantize", 0.0]],
+                         "quantize must stay at 0 until the pause is confirmed")
+
+    def test_settle_restores_quantize_to_what_the_grid_says(self) -> None:
+        """Positive control: the restore is not an unconditional 1.0.
+
+        With no grid, every loop is deliberately free-form -- the take that
+        will DEFINE the grid must not be synced to a cycle inherited from the
+        previous session. An unconditional restore would reintroduce exactly
+        the imaginary-bar bug set_grid_active was written to kill.
+        """
+        from scripts.sooperlooper.track_gesture import (
+            settle_stop_all, stop_all_loops,
+        )
+
+        osc, gestures = self._grid_rig(established=True)
+        stop_all_loops(osc, num_loops=2, gestures=gestures)
+        settle_stop_all(osc, gestures, log=lambda _m: None)
+        self.assertEqual(self._quantize_sets(osc),
+                         [["quantize", 0.0], ["quantize", 1.0]],
                          "with a grid established the restore is 1.0")
+
+        osc, gestures = self._grid_rig(established=False)
+        stop_all_loops(osc, num_loops=2, gestures=gestures)
+        settle_stop_all(osc, gestures, log=lambda _m: None)
+        self.assertEqual(self._quantize_sets(osc),
+                         [["quantize", 0.0], ["quantize", 0.0]],
+                         "with no grid the restore is 0.0, not 1.0")
 
     def test_stop_all_skips_pending_on_off_muted_empty_loops(self) -> None:
         """Global mute leaves empties at sl=20; must not get pending=stopped."""
@@ -511,7 +650,7 @@ class StopAllIsImmediateTests(unittest.TestCase):
         """Only Stop All is immediate — a single pad stop still waits."""
         from scripts.sooperlooper.track_gesture import TrackGesture
 
-        fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
+        fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), compositor(), 37)
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.on_pad_down(); fs.on_pad_up()
@@ -735,7 +874,50 @@ class StopAllVerificationTests(unittest.TestCase):
             log=lines.append,
         )
         self.assertEqual(still, [])
-        self.assertIn("all 3 loops stopped", lines[0])
+        # NOT "all 3 loops stopped". Two of the three are empty, and an empty
+        # loop is always in STOPPED_STATES — it can never fail this check. The
+        # old wording made a one-loop test read as a three-loop one.
+        self.assertIn("all 1 loop(s) with audio stopped", lines[0])
+        self.assertIn("2 empty pad(s) not checked", lines[0])
+
+    def test_settle_re_pauses_a_loop_that_did_not_stop(self) -> None:
+        """The instrument has known since 2026-08-30 and only ever wrote it
+        down. Now it acts, and says that it did."""
+        from scripts.sooperlooper.track_gesture import settle_stop_all
+        from scripts.sooperlooper.sl_loop_states import (
+            SL_STATE_PAUSED, SL_STATE_PLAYING,
+        )
+
+        osc = MagicMock()
+        gestures = self._gestures(
+            [SL_STATE_PAUSED, SL_STATE_PLAYING, SL_STATE_PAUSED]
+        )
+        lines = []
+        still = settle_stop_all(osc, gestures, log=lines.append)
+
+        self.assertEqual(still, [(1, SL_STATE_PLAYING)])
+        hits = [(c.args[0], c.args[1]) for c in osc.send_message.call_args_list
+                if c.args[0].endswith("/hit")]
+        self.assertIn(("/sl/1/hit", "pause_on"), hits,
+                      "the offending loop must actually be paused again")
+        self.assertNotIn(("/sl/0/hit", "pause_on"), hits,
+                         "loops that stopped must be left alone")
+        self.assertTrue(any("CORRECT" in ln and "loop 1" in ln for ln in lines))
+
+    def test_settle_corrects_nothing_when_everything_stopped(self) -> None:
+        """Positive control: a corrector that always fires is a stutter."""
+        from scripts.sooperlooper.track_gesture import settle_stop_all
+        from scripts.sooperlooper.sl_loop_states import SL_STATE_PAUSED
+
+        osc = MagicMock()
+        still = settle_stop_all(
+            osc, self._gestures([SL_STATE_PAUSED, SL_STATE_PAUSED]),
+            log=lambda _m: None,
+        )
+        self.assertEqual(still, [])
+        hits = [c.args[1] for c in osc.send_message.call_args_list
+                if c.args[0].endswith("/hit")]
+        self.assertEqual(hits, [], "nothing was wrong — send nothing")
 
     def test_stop_all_returns_a_verification_deadline(self) -> None:
         """Asking in the same breath returns SL's PRE-stop state, which would

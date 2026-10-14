@@ -1,5 +1,5 @@
 [Unit]
-Description=SooperLooper engine (16 loops on the JACK graph)
+Description=SooperLooper engine (15 loops on the JACK graph)
 # Ordering only. Not Requires/BindsTo on mpe-jackd: a jackd restart must not tear
 # the engine down, because sl-watchdog's whole job is repairing the orphan that
 # leaves behind — and it cannot repair a unit systemd has stopped underneath it.

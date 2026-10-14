@@ -333,11 +333,36 @@ transport rather than the translation. About 1% of one 64×2 JACK period and two
 orders of magnitude below perceptible. Full result and method:
 [`classic-midi-router-hop-2026-08-28.md`](measurements/classic-midi-router-hop-2026-08-28.md).
 
-`measure_midi_osc_latency.py`, which this plan originally named, measures
-pad-down → OSC for the bench and is the wrong shape for a forwarding hop;
+`measure_midi_osc_latency.py`, which this plan originally named, measured
+pad-down → OSC for the bench and was the wrong shape for a forwarding hop
+(deleted 2026-09-07 — the bench's own `--measure-latency` covers it);
 `scripts/spike-router-hop-latency.py` was written for it instead. Unmeasured:
 cost under a live audio graph, and the fan-out case where one input bend becomes
 up to 15 output messages.
+
+**7.9 Per-channel state outlives the note — confirmed 2026-09-08.**
+`MidiChannelState` (`src/common/SurgeStorage.h`) holds `pitchBend`, `pressure`,
+`timbre` and `pan` **per channel**. Nothing clears them on note-off or in
+`allNotesOff`; only a new inbound message for that channel does. `SurgeVoice`
+*initialises from that state at voice creation* —
+`state.mpePitchBend.init(voiceChannelState->pitchBend / 8192.f)`,
+`timbreSource.init(...)`, `monoAftertouchSource.init(...)` — and tracks it live
+thereafter. *So a member channel released while any of those is non-zero
+re-pitches or re-colours the NEXT note allocated to it, for that note's whole
+life.* Anything per-channel must therefore be written to a freshly allocated
+channel BEFORE its note-on. Broadcasting only to currently-active voices, which
+is what `translate()` does today, is not sufficient. This is §7.6's release-tail
+hazard, except it outlives the tail.
+
+**7.10 Surge's MPE path assumes one note per member channel — confirmed
+2026-09-08.** `purgeHoldbuffer` in `SurgeSynthesizer.cpp`: *"in mpe it can't
+happen because each note is on a different channel (in theory)"*. *So a classic
+device cannot be collapsed onto one member channel while `--mpe-enable` is on.*
+The fan-out is load-bearing for reasons independent of expression — considered
+and rejected 2026-09-08. Note also what does NOT justify the fan-out: velocity
+rides in the note-on byte and is already per-note in plain MIDI, and channel
+pressure is one value for the whole keyboard. Only **poly** aftertouch (0xA0) is
+genuinely per-note.
 
 ---
 
@@ -377,3 +402,175 @@ up to 15 output messages.
 Multi-timbral / per-controller patches; MIDI output to external instruments;
 MIDI learn; DIN MIDI hardware; General MIDI program maps; Program Change to
 patch selection.
+
+---
+
+## 11. Field defect — inconsistent pitch on chords (OPEN, reported 2026-09-07)
+
+Reported by ear, Alesis VI61, no capture taken. Playing an A triad up and down:
+returning to the A sounded sharp (heard as roughly A#), while stopping all notes
+and replaying gave the correct A. Reliable one note at a time; appears with
+simultaneous notes. **The pitch bend wheel was not used.**
+
+### Ranked hypotheses
+
+**H1 — stale per-channel state on channel reuse. Real defect; NOT the cause of this report (see Capture 2).**
+`_pitch_bend`, channel pressure and `BROADCAST_CCS` in `translate()` all emit
+only to *currently active* voices. A channel released while one of those values
+was non-zero never receives the message that returns it to rest, and
+`all_notes_off` resets `_bend14` without sending anything either. Demonstrated
+in the pure translator for both bend and CC1: the value is delivered to the
+sounding channel, the channel is released dirty, the return-to-rest message
+reaches nobody, and a later note allocated there gets no correcting message.
+Combined with §7.9, that note inherits the stale value for its whole life —
+which matches the report's shape: a consistently wrong pitch, not a cut note,
+cleared by releasing everything and replaying onto a different channel.
+Polyphony-dependent because the channels can only diverge from each other when
+the active set keeps changing.
+*Confirmed by:* capture showing bend (0xE0), channel pressure (0xD0), CC1 or
+CC74 in the VI61 stream. *Refuted by:* a stream of note-on/off only.
+
+**H2 — poly governor voice stealing. WEAK, secondary.**
+`read_active_voice_count()` counts note-ons; Surge's polyphony limit counts
+voices, and a unison-N patch spends N per key. The governor's resting limit is 9
+(`ceiling 12 − min_headroom 3`), sliding to a floor of 4, so a chord can cross a
+limit a single note never reaches, and the headroom check at
+`surge_poly_governor.py:504-507` compares the two quantities directly. Rejected
+as primary because stealing cuts voices rather than holding a note sharp for its
+duration. *Cheap falsification:* `MPE_POLY_CEILING=64`, or stop
+`surge-poly-governor.service`, and replay the same triad.
+
+**H3 — switch Surge to classic mode when no MPE device is attached. REJECTED.**
+§7.1 makes MPE mode and bend range startup flags, so this costs a Surge restart
+on every hotplug and breaks acceptance criterion 5. §7.10 independently rules
+out the milder version of the same idea.
+
+### Capture 1 — 2026-09-13, VI61 on the laptop (no Pi, no Surge)
+
+`aseqdump -p 28:0,28:1`, 150 s. Chord was A–C#–E (notes 57/61/64). All traffic
+on port 28:0, channel 1. Totals: 26 note-on, 26 note-off, **109 channel
+aftertouch (0xD0)**, 241 CC1, **zero pitch bend, zero poly aftertouch**.
+
+- Single notes and overlapping notes: note messages only. No pressure, no CC.
+- Held chord, leaning in: channel aftertouch 0→53, then 0→82, returning to 0
+  *before* the keys were released.
+- Control section: CC1 0–127 from the mod wheel, so the recorder can see
+  controllers. The pitch wheel was not moved, so no bend is expected.
+- Nothing is subscribed to the VI61 on the laptop, and no CC1 appears during the
+  chord, so the display change Mitch saw while leaning is most likely the
+  keyboard showing its own aftertouch value, not feedback from the host.
+
+**Result for H1:** the VI61 keybed sends zone-wide channel aftertouch — the
+exact message class `translate()` broadcasts to active voices only. The input
+exists. But replaying this capture through `ClassicToMpe` left **no** dirty
+channel, because pressure returned to 0 while the chord was still held, so the
+rest value reached every sounding channel. H1 needs keys *released while
+pressure is still non-zero*; this capture never did that. Not confirmed, not
+refuted.
+
+### Capture 2 — 2026-09-13, targeted at H1 (laptop, no Surge)
+
+Six chords pressed hard and released quickly (the last four followed by a lone
+A), then free pitch-bend playing. 660 channel aftertouch, 553 pitch bend, 32
+note-on/off.
+
+- **In 14 of 14 releases, the VI61's pressure reached 0 before the first
+  note-off** — 30 to 1044 ms earlier, including quick releases from a peak of
+  127. The keybed's aftertouch lets go before the key contact opens, so the
+  zero is always delivered to the notes still held.
+- Replaying the capture through `ClassicToMpe` left no channel with stale
+  pressure or stale bend, and every lone A landed on a clean channel.
+
+**Result: H1 is not expressible through this keyboard's pressure in normal
+playing.** The translator defect is still real — a device whose pressure or
+wheel is non-zero at note-off would trigger it, and so would a single key
+lifted while the others keep pressing — but it does not explain the reported
+wrong A. The field defect has no confirmed mechanism. Next step needs sound:
+the VI61 on the Pi, reproducing by ear, with the input stream and the
+translator's output captured together.
+
+### Separate defect found while reading — RPN is never nulled
+
+`_control_change` sets `self._rpn` and never clears it on RPN null (127/127), so
+after a device declares its bend range, any later CC6 (Data Entry MSB, a common
+default assignment for a generic knob) is swallowed and rewrites
+`bend_semitones`. Reproduced: a stray `CC6=48` makes every subsequent bend 24×
+too wide. Independent of H1; unrelated to this field report, since it needs a
+bend to be expressed.
+
+### Capture 3 — 2026-10-10, on the appliance. CONFIRMED, and fixed.
+
+VI61 on the module, Surge live, `MPE_ROUTE_CLASSIC=1`, two simultaneous taps:
+the VI61's input (`28:0`) and what reaches Surge (`14:0`, Midi Through).
+
+- **Run A, no bend used:** 66 note-on each side, note sequences *identical*,
+  input on channel 1, output fanned across all 15 member channels, zero channel
+  anomalies, nothing left held. Mitch could not reproduce the fault.
+- **He then used the pitch wheel once, and the fault appeared.**
+- **Run B, wheel untouched throughout:** 222 note-on each side, identical, zero
+  anomalies, and **no pitch bend anywhere in either stream** — yet notes were
+  audibly shifted up and down. The wheel's own display read centre.
+- **Decisive test:** bend-centre, pressure 0 and timbre 0 sent to all 15 member
+  channels by hand. Mitch: *"Seems clean now."*
+
+**Mechanism (H1, confirmed).** One use of the wheel left member channels bent.
+The wheel's return to centre reached only the voices sounding at that moment, so
+every channel released while bent kept its bend. Surge holds channel state for
+the life of the process and a new voice initialises from it (§7.9), so each
+later note allocated to a dirty channel played at that channel's old bend, with
+no bend message in the stream. Polyphony-dependent because the channels can only
+diverge from each other when the set of sounding notes keeps changing; cured by
+releasing everything only when the retry happened to land on a clean channel.
+
+**Fix (`fix/classic-midi-stale-channel-state`).**
+
+1. `ClassicToMpe` tracks what each member channel was last *sent* — bend,
+   pressure, and the broadcast CCs — and `_note_on` writes whatever differs from
+   the zone before the note-on. A channel it has never written is unprimed and
+   gets written whatever the value, because unknown is not the same as at rest.
+2. `all_notes_off` drops every channel to unprimed: panic clears our state but
+   sends the channels nothing.
+3. `zone_reset()`, emitted by the router at device bind — the automated form of
+   the manual test above. Priming cannot fix what an earlier device or an
+   earlier run left on a channel, because the translator has no way to know
+   what Surge holds.
+4. RPN null (127/127) now closes the parameter, so a later CC6 from a generic
+   knob can no longer rewrite `bend_semitones`.
+
+Mutation-checked: restoring the old `if self._bend14 != BEND_CENTRE` guard fails
+six tests, including the measured field case. The APC golden-stream and router
+tests were updated to read a notes-only view, with one new test holding the
+priming itself to account — per channel, never after the note-on it belongs to.
+Full suite 2147 passed.
+
+**Not done:** H2 (the poly governor) was never falsified on the appliance, and
+no longer needs to be — the mechanism is confirmed and the governor is
+configured here with `MPE_POLY_REST_CAP=48`, not the defaults §11 originally
+quoted.
+
+**Shipped.** Merged to `dev` and deployed 2026-10-10 (`mpe-pressure-remap`
+restarted; Surge untouched). The bind-time reset was verified on the wire with a
+tap on `14:0` across a service restart: all 15 member channels written. Mitch
+reproduced the original failure sequence — play, use the wheel, play again — and
+confirmed it fixed 2026-10-11. §11 is closed.
+
+### What to do next, in order
+
+1. **Reproduce by ear on the Pi.** Plug the VI61 into the appliance, play the
+   A–C#–E triad until the wrong A is heard, and capture the VI61 input and the
+   router's output to Surge at the same time. The laptop captures cannot do
+   this — there is no Surge in that loop, so the fault cannot be heard there.
+   `rtmidi` is not installed on the laptop; `aseqdump -p <client:port>` with a
+   timestamp prefix was used instead.
+2. **Read the two streams against each other.** If Surge receives correct
+   messages and still sounds a sharp A, the fault is in Surge or the patch. If
+   the router's output is wrong, the fault is in our code.
+3. **H2 falsification, same session:** `MPE_POLY_CEILING=64`, or stop
+   `surge-poly-governor.service`, and replay the triad.
+4. **H1 fix, independent of this report:** in `_note_on`, emit the zone's
+   current value for every per-channel quantity before the note-on, *including
+   when that value is at rest*. The present guard
+   `if self._bend14 != BEND_CENTRE` is what allows the reset to be skipped, and
+   §7.9 says Surge reads the channel at voice creation, so ordering is
+   load-bearing. Not written yet, by decision. The RPN-null defect above should
+   be fixed alongside it.

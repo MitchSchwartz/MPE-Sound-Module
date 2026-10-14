@@ -1,5 +1,13 @@
 # The looper's timing model
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 Status: Intended behaviour, agreed with Mitch 2026-08-30. Implemented.
 
 This file exists because these rules have been re-derived, misremembered and
@@ -117,6 +125,15 @@ for display only (`display_bpm`).
 
 **Track reset (Shift+StopAll, held).** Nothing else. Not Stop All, not clearing
 every clip one at a time, not an empty session.
+
+> **CORRECTION 2026-09-07 — the paragraph above is WRONG and the code does the
+> opposite.** Clearing the last clip DOES drop the grid. The Mitch quote below
+> is about **Stop All**; it was applied to **clearing** as well, and that is the
+> whole error. He settled it on 2026-09-06: *"If we clear all clips, then the
+> grid should be cleared. If we stop all clips, that's different. That might
+> have been where the confusion came from."* The rule lives in
+> `sl_grid_state.GridState.note_loop_content`, which decides on engine state so
+> it holds however the clips were cleared. It has now been written three times.
 
 Mitch, 2026-08-30:
 

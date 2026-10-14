@@ -50,12 +50,22 @@ case "$1" in
         # "was:" banner. $ACTIVE_AFTER decides what the unit looks like.
         [ "${ACTIVE_AFTER:-yes}" = yes ] || exit 3
         echo active; exit 0 ;;
+    # ExecMainStatus of the last run. 69 = no APC connected (#154).
+    show) echo "${EXEC_STATUS:-1}"; exit 0 ;;
 esac
 exit 0
 """
 
 FAKE_RESTART = """#!/usr/bin/env bash
+# The marker says the restart was REACHED -- the gate's whole job is to keep
+# it from being reached for a commit CI has not passed.
+touch "${RESTART_MARKER:?}"
 exit ${RESTART_RC:-0}
+"""
+
+FAKE_GATE = """#!/usr/bin/env python3
+import os, sys
+sys.exit(int(os.environ.get("GATE_RC", "0")))
 """
 
 
@@ -72,17 +82,31 @@ class LooperDeployExitCodeTests(unittest.TestCase):
         restart.write_text(FAKE_RESTART)
         restart.chmod(0o755)
 
+        self.gate = scripts / "ci_gate.py"
+        self.gate.write_text(FAKE_GATE)
+        self.marker = self.tmp / "restart-reached"
+
         self.bin = self.tmp / "bin"
         self.bin.mkdir()
         systemctl = self.bin / "systemctl"
         systemctl.write_text(FAKE_SYSTEMCTL)
         systemctl.chmod(0o755)
 
-    def _run(self, *, restart_rc: int, active_after: str):
+    def _run(self, *, restart_rc: int = 0, active_after: str = "yes",
+             gate_rc: int = 0, gate_present: bool = True, skip_gate: bool = False,
+             exec_status: int = 1):
         env = dict(os.environ)
+        env["EXEC_STATUS"] = str(exec_status)
         env["PATH"] = f"{self.bin}:{env['PATH']}"
         env["RESTART_RC"] = str(restart_rc)
         env["ACTIVE_AFTER"] = active_after
+        env["GATE_RC"] = str(gate_rc)
+        env["RESTART_MARKER"] = str(self.marker)
+        env.pop("MPE_DEPLOY_SKIP_CI_GATE", None)
+        if skip_gate:
+            env["MPE_DEPLOY_SKIP_CI_GATE"] = "1"
+        if not gate_present:
+            self.gate.unlink()
         return subprocess.run(
             ["bash", str(self.tmp / "scripts" / "looper-deploy.sh"), "dev"],
             capture_output=True, text=True, env=env, cwd=self.tmp, timeout=60,
@@ -120,6 +144,51 @@ class LooperDeployExitCodeTests(unittest.TestCase):
             "unit inactive after a 'successful' restart and the deploy still "
             "reported success",
         )
+
+
+    def test_no_apc_connected_is_a_successful_deploy(self) -> None:
+        """No APC: the session exits 69 before loading code, and udev starts it on plug.
+
+        Nothing is left running pre-deploy code, so this is not the
+        2026-08-30 failure. Before #154 it was reported as one, every time.
+        """
+        r = self._run(restart_rc=0, active_after="no", exec_status=69)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no APC connected", r.stdout)
+        self.assertNotIn("session active", r.stdout)
+
+
+class LooperDeployCiGateTests(LooperDeployExitCodeTests):
+    """The gate keeps an unjudged commit away from the restart.
+
+    Same rig as above; what changes is scripts/ci_gate.py's exit code and
+    whether the restart script was ever reached.
+    """
+
+    def test_a_gated_commit_deploys(self) -> None:
+        r = self._run(gate_rc=0)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.marker.exists(), "the restart was never reached")
+
+    def test_a_refused_commit_fails_the_deploy_and_restarts_nothing(self) -> None:
+        for rc in (1, 2, 3):
+            self.marker.unlink(missing_ok=True)
+            r = self._run(gate_rc=rc)
+            self.assertNotEqual(r.returncode, 0, f"gate rc={rc} and the deploy succeeded")
+            self.assertFalse(self.marker.exists(), f"gate rc={rc} and the restart still ran")
+            self.assertIn("ORIG_HEAD", r.stderr, "the refusal must say how to put the checkout back")
+
+    def test_a_missing_gate_fails_the_deploy(self) -> None:
+        """A commit without the gate cannot be gated. Silence would be a pass."""
+        r = self._run(gate_present=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertFalse(self.marker.exists())
+
+    def test_the_gate_can_be_skipped_only_by_saying_so(self) -> None:
+        r = self._run(gate_rc=1, skip_gate=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("SKIPPED", r.stdout)
+        self.assertTrue(self.marker.exists())
 
 
 if __name__ == "__main__":

@@ -2,7 +2,13 @@
 
 *Last updated: 2026-08-17 (America/Toronto)*
 
-Canonical function-level map of the Raspberry Pi MPE sound appliance: boot order, systemd units, shell/Python entrypoints, call relationships, runtime state, and test coverage.
+> **A map, and a stale one.** It lists where things live; it does not say what
+> they do, and it predates several modules. For looper behaviour read the code —
+> [`../Documents/looper-audit-2026-09-07.md`](../Documents/looper-audit-2026-09-07.md)
+> maps it. Notably missing below: `looper_timing.py`, the only place that
+> decides when a player action takes effect.
+
+Function-level map of the Raspberry Pi MPE sound appliance: boot order, systemd units, shell/Python entrypoints, call relationships, runtime state, and test coverage.
 
 **Orientation:** [`AGENTS.md`](../AGENTS.md) · [`docs/PATHS.md`](PATHS.md) · [`COMMANDS.md`](../COMMANDS.md) · [`Documents/DIRECTION.md`](../Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](../Documents/DECISIONS.md) · [`Documents/specs/session-control-plane-spec.md`](../Documents/specs/session-control-plane-spec.md) (planned control plane — D15/D16 looper gates)
 
@@ -10,7 +16,7 @@ Canonical function-level map of the Raspberry Pi MPE sound appliance: boot order
 
 ## 1. Executive overview
 
-The MPE appliance is a headless **Surge XT** synthesizer on a Raspberry Pi, driven by a **touch patch browser** (pygame on DSI) or legacy OLED browser. **JACK** (`jackd2`) is the sole audio engine — Surge connects as a JACK client; there is no ALSA fallback. A **SooperLooper eval stack** (16 loops, APC mini grid) runs beside Surge on the same JACK graph when enabled via systemd. Supervisors (`surge-watchdog`, `sl-watchdog`) repair graph drift and rate-limit restarts. Runtime state lives in `/run/mpe` (tmpfs). Configuration is `/etc/mpe/mpe.env`.
+The MPE appliance is a headless **Surge XT** synthesizer on a Raspberry Pi, driven by a **touch patch browser** (pygame on DSI) or legacy OLED browser. **JACK** (`jackd2`) is the sole audio engine — Surge connects as a JACK client; there is no ALSA fallback. A **SooperLooper eval stack** (15 loops, APC mini grid) runs beside Surge on the same JACK graph when enabled via systemd. Supervisors (`surge-watchdog`, `sl-watchdog`) repair graph drift and rate-limit restarts. Runtime state lives in `/run/mpe` (tmpfs). Configuration is `/etc/mpe/mpe.env`.
 
 ### Subsystems (one-line purpose)
 
@@ -19,7 +25,7 @@ The MPE appliance is a headless **Surge XT** synthesizer on a Raspberry Pi, driv
 | 1 | **JACK / audio graph** | `jackd` on tier-selected DAC; shared buffer/rate; graph restarts on device change |
 | 2 | **Surge / audio engine** | Headless Surge XT CLI as JACK client; OSC patch load; MIDI via pressure remapper |
 | 3 | **Touch patch browser** | Fullscreen pygame UI: browse, load patches, mixer, settings, looper HUD |
-| 4 | **SooperLooper (eval)** | 16-loop engine + JACK wiring + grid sync — supervised production path when units enabled |
+| 4 | **SooperLooper (eval)** | 15-loop engine + JACK wiring + grid sync — supervised production path when units enabled |
 | 5 | **APC / MIDI bench** | APC mini clip grid, faders, transport; OSC to SooperLooper |
 | 6 | **Watchdogs** | Surge crash/JACK reconcile; SL graph repair, orphan detection, xrun alarms |
 | 7 | **USB / UAC2 host** | USB audio gadget, host-route watcher, stall recovery (profile-dependent) |
@@ -235,7 +241,7 @@ stateDiagram-v2
 **External interfaces:**
 - OSC **9951** (engine), **9961** (watchdog listen), **9953** (bench listen)
 - JACK client **`mpe-looper`**
-- 16 loops, `-t 40` default
+- 15 loops (`sl_limits.MAX_USABLE_LOOPS`), `-t 40` default; health OSC **9954**
 
 #### Function table — engine launcher
 
@@ -257,10 +263,11 @@ stateDiagram-v2
 | `main()` | sl-watchdog.py:332 | systemd | repair playback, alarm | Non-destructive repair only |
 | `apply_grid_sync()` | sl_grid_sync.py | apc-bench, CLI | OSC `/set` | Grid clock mode |
 | `plan_gesture()` / `plan_tap()` | loop_model.py | apc_footswitch | state machine | Clip pad gestures |
+| `when()` / `engine_controls()` | looper_timing.py | loop_model, slot_runtime, track_gesture, sl_grid_sync, looper_songs | Moment | **The only place that decides when an action takes effect** |
 | `LoopMix` / `CoalescingSender` | loop_mix.py | apc-bench | OSC wet levels | Fader law + auto-mix |
 | `GridView` / `pad_note()` | apc_grid.py | apc-bench | — | 8×2 clip grid |
 | `LoopFootswitch` | apc_footswitch.py | apc-bench | OSC `/hit`, `/undo_all` | Tap/hold/clear |
-| `build_footswitches()` | apc_footswitch.py:392 | apc-bench main | — | 16 loop controllers |
+| `build_footswitches()` | apc_footswitch.py:392 | apc-bench main | — | 15 loop controllers |
 
 ---
 
@@ -315,7 +322,7 @@ stateDiagram-v2
 | `mpe_patch_browser_unit()` | :11 | restart helpers | touch vs oled unit name |
 | `mpe_source_appliance_env()` | :28 | service scripts | Load `/etc/mpe/mpe.env` |
 | `_run_on_pi()` | configure-pi-paths.sh:26 | --local | Write mpe.env, install units |
-| `mpe_apply_dac_volume()` | dac-volume.sh | boot sync, set-dac-volume | Sound Blaster Speaker control |
+| `DeviceVolume.rebind()` | patch_browser/device_volume.py | touch UI loop on new jack.state | Bound DAC hardware level (device) or Surge trim (trim) |
 
 **External CLI (separate repo):** `mpe` from [mpe-cli](https://github.com/MitchSchwartz/mpe-cli) — `ping`, `status`, `logs`, `osc-check`, `restart`, `looper sl-*`.
 
@@ -412,9 +419,8 @@ flowchart LR
 | Library | Exports (functions) | Sourced by |
 |---------|---------------------|------------|
 | **audio-engine.sh** | 48 functions: state I/O, JACK probes, promote, reconcile, looper restart | `start-jackd.sh`, `start-surge-cli.sh`, `surge-watchdog.sh`, `run-sooperlooper.sh`, `set-surge-audio.sh`, `set-audio-profile.sh`, `restart-audio-graph.sh`, `bench-xruns.sh`, `uac2-stall-watchdog.sh`, `engine-guard.sh` |
-| **mpe-services.sh** | `_mpe_ui_mode_normalized`, `mpe_patch_browser_unit`, `mpe_enable_core_services`, `mpe_restart_core_services`, env readers | `configure-pi-paths.sh`, `set-dac-volume.sh`, `sync-audio-profile-on-boot.sh`, `set-surge-audio.sh`, `bench-xruns.sh` |
+| **mpe-services.sh** | `_mpe_ui_mode_normalized`, `mpe_patch_browser_unit`, `mpe_enable_core_services`, `mpe_restart_core_services`, env readers | `configure-pi-paths.sh`, `sync-audio-profile-on-boot.sh`, `set-surge-audio.sh`, `bench-xruns.sh` |
 | **paths.sh** | `mpe_apply_pi_home`, `mpe_pi_ssh`, repo path vars (`MPE_MODULE_REPO`, `SURGE_CLI`, `LOG_FILE`) | Nearly all scripts |
-| **dac-volume.sh** | `sound_blaster_card_index`, `mpe_apply_dac_volume` | `set-dac-volume.sh`, `restart-audio-graph.sh`, boot sync |
 | **engine-guard.sh** | `mpe_looper_engine_blocked`, `mpe_guard_looper_engine` | **Stale:** blocks `MPE_LOOPER_ENABLED=1` though SooperLooper works — see §8 |
 | **uac2-card.sh** | `uac2_card_index`, `uac2_appl_ptr`, rate helpers | `uac2-stall-watchdog.sh` |
 | **uac2-host-route.sh** | streaming mark/active/clear | stall watchdog, profile switch |
@@ -449,7 +455,7 @@ flowchart LR
 | `test_calibration_*.py` | Normalization calibration pipeline |
 | `test_uac2_*.py` | Gadget stall watchdog, card helpers |
 | `test_mpe_env_file.py` | Hermetic env (`MPE_ENV_FILE`) |
-| `test_dac_volume.sh` | DAC dB ↔ raw mapping |
+| `test_device_volume.py` | Vol fader device/trim choice + ALSA mapping, against real Pi `amixer contents` fixtures |
 
 Run: `python3 -m unittest discover -s tests -q`
 

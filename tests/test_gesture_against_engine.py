@@ -47,14 +47,17 @@ class _Wire(LedCompositor):
 
 
 class TrackGestureOnEngineTests(unittest.TestCase):
-    def _rig(self, *, quantized=True, grid=None, loop=0):
-        engine = FakeSlEngine(quantized=quantized)
+    def _rig(self, *, engine_quantizes=True, grid=None, loop=0):
+        # `engine_quantizes` configures the ENGINE DOUBLE only. The gesture no
+        # longer carries a quantize flag of its own: whether an action waits
+        # is asked of `looper_timing` per action, from live grid state.
+        engine = FakeSlEngine(quantized=engine_quantizes)
         midi = _Wire()
         # The gesture's clock is injected so the ring-out cap — the one exit
         # that survives a dead peak meter — can be driven from a test.
         self.clock = [0.0]
         fs = TrackGesture(loop=loop, hold_ms=800, debounce_ms=0,
-                            quantized=quantized, grid=grid,
+                            grid=grid,
                             now=lambda: self.clock[0])
         fs.bind(engine, midi, note=0)
         return engine, fs, midi
@@ -191,9 +194,12 @@ class TrackGestureOnEngineTests(unittest.TestCase):
         self.assertEqual(self._led(midi), LED_OFF)
 
     # --- grid lifetime, end to end ---------------------------------------
-    def test_the_grid_outlives_the_clip_that_defined_it(self) -> None:
+    def test_clearing_the_only_clip_drops_the_grid(self) -> None:
         grid = GridState()
-        engine, fs, _ = self._rig(grid=grid, quantized=False)
+        # A non-quantizing engine double, as this test has always used: it
+        # takes the take immediately so the clear can be exercised without
+        # driving boundaries.
+        engine, fs, _ = self._rig(grid=grid, engine_quantizes=False)
 
         self._tap(fs)
         engine.poll(fs)
@@ -206,13 +212,19 @@ class TrackGestureOnEngineTests(unittest.TestCase):
         fs.poll_hold_for_test = None
         fs._clear_loop()
         engine.poll(fs)
-        # The clip that defined the tempo is an ordinary clip. Clearing it used
-        # to take the whole grid with it, so the next take redefined the base
-        # unit — measured on the appliance 2026-08-30 as a tempo that walked
-        # 73.7 -> 34.6 -> 54.9 -> 179.3 BPM across four takes. Only an explicit
-        # track reset starts over now.
-        self.assertTrue(grid.established, "the session keeps its tempo")
-        self.assertIsNotNone(grid.bpm)
+        # Inverted 2026-09-06. Between 2026-08-30 and today this asserted the
+        # opposite, because the rule "the grid outlives its clips" had been
+        # derived from a quote about STOP ALL and applied to CLEAR as well.
+        # Mitch: "If we clear all clips, then the grid should be cleared. If we
+        # stop all clips, that's different."
+        #
+        # The clip that defined the tempo is still an ordinary clip — clearing
+        # it while OTHER clips remain must not touch the grid, and that is
+        # pinned by `test_deleting_defining_clip_keeps_grid_while_other_clips_
+        # remain` in test_track_gesture.py. This is the other case: it was the
+        # only clip, so the session is now empty and has no tempo.
+        self.assertFalse(grid.established, "an emptied session has no tempo")
+        self.assertIsNone(grid.bpm)
 
 
 if __name__ == "__main__":

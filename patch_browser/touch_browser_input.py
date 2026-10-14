@@ -42,6 +42,7 @@ class TouchBrowserInputMixin:
             Screen.BRIGHTNESS_MODAL,
             Screen.WIFI_MODAL,
             Screen.MIDI_SYNC_MODAL,
+            Screen.FX_EFFECT_MODAL,
         }
     )
 
@@ -79,6 +80,8 @@ class TouchBrowserInputMixin:
             self._close_wifi_modal()
         elif state == Screen.MIDI_SYNC_MODAL:
             self._close_midi_sync_modal()
+        elif state == Screen.FX_EFFECT_MODAL:
+            self._close_fx_effect_modal()
 
     def _try_dismiss_modal_backdrop(self, pos: tuple[int, int]) -> bool:
         if self.screen_state not in self._BACKDROP_DISMISS_SCREENS:
@@ -109,6 +112,7 @@ class TouchBrowserInputMixin:
             Screen.NAME_PROMPT,
             Screen.LOOPER_CONFIRM,
             Screen.LOOPER_NAME,
+            Screen.FX_EFFECT_MODAL,
         )
         panel_visible = self.screen_state == Screen.SETTINGS or self._settings_slide > 0.004
 
@@ -158,6 +162,8 @@ class TouchBrowserInputMixin:
                 self._draw_looper_confirm_modal()
             elif self.screen_state == Screen.LOOPER_NAME:
                 self._draw_looper_name_modal()
+            elif self.screen_state == Screen.FX_EFFECT_MODAL:
+                self._draw_fx_effect_modal()
         else:
             self._draw_browser()
         if getattr(self, "_audio_profile_switching", False):
@@ -198,6 +204,14 @@ class TouchBrowserInputMixin:
 
         if self.detail_patch and self.favorites_btn.contains(*pos):
             self._toggle_favorites()
+            return
+
+        if self.detail_patch and self._mod_wheel_switch_hit(pos):
+            self._toggle_mod_wheel_target()
+            return
+
+        if self._effect_label_tapped(pos):
+            self._open_fx_effect_modal()
             return
 
         if self._try_looper_menu_tap_at(pos):
@@ -303,6 +317,9 @@ class TouchBrowserInputMixin:
 
         if self._settings_rect_hit(self.settings_audio_drill_rect, local_pos):
             return "audio_drill"
+        wheel_rect = getattr(self, "mod_wheel_row_rect", None)
+        if wheel_rect is not None and self._settings_rect_hit(wheel_rect, local_pos):
+            return "mod_wheel"
         if self._settings_rect_hit(self.settings_advanced_header_rect, local_pos):
             return "advanced_toggle"
         if self._settings_rect_hit(self.cpu_meter_toggle_rect, local_pos):
@@ -351,6 +368,8 @@ class TouchBrowserInputMixin:
             self._toggle_peak_meter_visibility()
         elif hit == "looper_hud":
             self._toggle_looper_hud_visibility()
+        elif hit == "mod_wheel":
+            self._cycle_mod_wheel_default()
         elif hit == "looper_sync":
             if not getattr(self, "_midi_sync_switching", False):
                 self._open_midi_sync_modal()
@@ -740,6 +759,18 @@ class TouchBrowserInputMixin:
                     {"pos": pos, "rel": (0, 0), "buttons": (1, 0, 0)},
                 )
 
+        pointer_kind = {
+            pygame.MOUSEBUTTONDOWN: "down",
+            pygame.MOUSEBUTTONUP: "up",
+            pygame.MOUSEMOTION: "motion",
+        }.get(event.type)
+        if (
+            pointer_kind is not None
+            and getattr(event, "button", 1) == 1
+            and self._toast_action_touch(pointer_kind, event.pos)
+        ):
+            return
+
         if (
             self.screen_state == Screen.BROWSER
             and not self.left_nav_collapsed
@@ -828,8 +859,12 @@ class TouchBrowserInputMixin:
                 self._handle_wifi_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.MIDI_SYNC_MODAL:
                 self._handle_midi_sync_modal_pointer_down(event.pos)
+            elif self.screen_state == Screen.FX_EFFECT_MODAL:
+                self._handle_fx_effect_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.BROWSER:
                 if self._handle_az_rail_touch("down", event.pos):
+                    pass
+                elif self._handle_jump_strip_touch("down", event.pos):
                     pass
                 elif self.left_nav_mode != LeftNavMode.ALL_PATCHES:
                     self._handle_mixer_down(event.pos)
@@ -870,8 +905,12 @@ class TouchBrowserInputMixin:
                 self._handle_wifi_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.MIDI_SYNC_MODAL:
                 self._handle_midi_sync_modal_pointer_up(event.pos)
+            elif self.screen_state == Screen.FX_EFFECT_MODAL:
+                self._handle_fx_effect_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.BROWSER:
                 if self._handle_az_rail_touch("up", event.pos):
+                    return
+                if self._handle_jump_strip_touch("up", event.pos):
                     return
                 if self.screen_state != Screen.BROWSER:
                     return
@@ -882,6 +921,8 @@ class TouchBrowserInputMixin:
                     self._handle_browser_tap(event.pos)
         elif event.type == pygame.MOUSEMOTION:
             if self._handle_az_rail_touch("motion", event.pos):
+                pass
+            elif self._handle_jump_strip_touch("motion", event.pos):
                 pass
             elif self._picker_slider_channel and self.screen_state == Screen.THEME:
                 self._apply_picker_slider_channel(self._picker_slider_channel, event.pos)
@@ -903,6 +944,8 @@ class TouchBrowserInputMixin:
                 self._handle_midi_sync_modal_pointer_move(event.pos)
             elif self.screen_state == Screen.BRIGHTNESS_MODAL:
                 self._handle_brightness_modal_pointer_move(event.pos)
+            elif self.screen_state == Screen.FX_EFFECT_MODAL:
+                self._handle_fx_effect_modal_pointer_move(event.pos)
             self._handle_mixer_motion(event.pos)
 
     def _handle_keydown(self, event: pygame.event.Event) -> bool:

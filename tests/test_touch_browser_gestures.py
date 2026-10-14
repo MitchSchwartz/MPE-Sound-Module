@@ -198,6 +198,11 @@ class _NestedBrowseHost(TouchBrowserPatchesMixin):
             )
         )
         self.scanner.save_last_patch = mock.Mock()
+        # Favorites sections (2026-10-13): the stand-in groups by the fixture's
+        # own instrument; the real resolution is tested in test_favorites_sections.
+        self.scanner.favorite_sections.side_effect = lambda patches: {
+            str(p.get("path", "")): p.get("instrument_primary") or "other" for p in patches
+        }
         self.instrument_filter = None
 
     def _patch_passes_instrument_filter(self, patch: dict) -> bool:
@@ -209,6 +214,9 @@ class _NestedBrowseHost(TouchBrowserPatchesMixin):
         return self.instrument_filter is not None
 
     def _refresh_instrument_chips(self) -> None:
+        pass
+
+    def _layout_jump_strip(self) -> None:
         pass
 
     def _layout(self) -> None:

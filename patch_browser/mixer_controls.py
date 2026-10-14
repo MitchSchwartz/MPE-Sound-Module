@@ -1,4 +1,4 @@
-"""Reusable mixer fader bindings — one control per column (Vol / Tail / Touch / Norm).
+"""Reusable mixer fader bindings — one control per column (Vol / Tail / Touch / Norm / Patch mod / Effect).
 
 Fader semantics: docs/TOUCH_PATCH_BROWSER.md §Mixer faders (Tail ≠ Touch ≠ Norm).
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from patch_browser.fx_policy import EFFECT_FADER_LABEL, PATCH_MOD_FADER_LABEL
 from patch_browser.patch_hold import (
     DEFAULT_HOLD_MULT,
     HOLD_OFFSET_MAX,
@@ -98,7 +99,9 @@ class VolumeControl:
         return float(browser.volume_level)
 
     def default(self, browser) -> float:
-        return DEFAULT_VOLUME
+        device = getattr(browser, "device_volume", None)
+        position = device.default_position() if device is not None else None
+        return DEFAULT_VOLUME if position is None else position
 
     def write(self, browser, value: float, *, persist: bool) -> None:
         browser._apply_volume(max(self.spec.min_value, min(self.spec.max_value, value)))
@@ -111,6 +114,13 @@ class VolumeControl:
         return volume_fader_display_db(
             value, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX
         )
+
+    def format_for(self, browser, value: float) -> str:
+        """Device mode shows the DAC's own dB; trim mode shows the Surge trim."""
+        device = getattr(browser, "device_volume", None)
+        if device is not None and device.active:
+            return device.format_db()
+        return self.format(value)
 
     def persist(self, browser) -> None:
         pass
@@ -313,11 +323,109 @@ class TouchControl:
         browser.loader.pressure.save()
 
 
+class PatchModControl:
+    """On-screen mod wheel: sends CC 1 to Surge (via OSC), never to the FX.
+
+    Not persisted: it is a performance control, like the hardware wheel. The
+    handle follows the knob while CC 1 goes to Surge (`FxPolicy.poll_levels`).
+
+    A patch with no mod-wheel routing (`FxPolicy.patch_mod_locked`) greys it
+    out: it reads 0 and takes no input. The kept value is only hidden.
+    """
+
+    spec = MixerControlSpec("patch_mod", PATCH_MOD_FADER_LABEL, 0.0, 127.0)
+
+    def visible(self, browser) -> bool:
+        return bool(browser.detail_patch)
+
+    def enabled(self, browser) -> bool:
+        return not browser.fx_policy.patch_mod_locked
+
+    def read(self, browser) -> float:
+        if not self.enabled(browser):
+            return 0.0
+        return float(browser.fx_policy.patch_mod)
+
+    def default(self, browser) -> float:
+        return 0.0
+
+    def write(self, browser, value: float, *, persist: bool) -> None:
+        if not self.enabled(browser):
+            return
+        # The loader holds the same FxPolicy as browser.fx_policy.
+        browser.loader.send_patch_mod(value, final=persist)
+
+    def reset(self, browser) -> None:
+        if not self.enabled(browser):
+            return
+        self.write(browser, 0.0, persist=True)
+        browser._toast("Patch mod reset", 1.2)
+
+    def format(self, value: float) -> str:
+        return str(int(round(value)))
+
+    def persist(self, browser) -> None:
+        browser.fx_policy.finish_patch_mod()
+
+
+class EffectControl:
+    """FX host depth (0 = bypass). Shown only when MPE_FX_HOST is on.
+
+    A request to the remapper, which owns depth; the handle follows the depth
+    in force, so it moves when the hardware knob does. Its label names the
+    enabled effects (or counts them, or says "No FX"; `fx_policy.chain_label`),
+    and a tap on the label opens the effect picker.
+
+    With no effect ticked (`FxPolicy.effect_locked`) it is greyed out as Patch
+    mod is: it reads 0 and takes no input. Display only: the patch's stored
+    depth is kept, and comes back when an effect is ticked. The label still
+    opens the picker, which is how an effect gets ticked.
+    """
+
+    spec = MixerControlSpec("effect", EFFECT_FADER_LABEL, 0.0, 1.0)
+
+    def visible(self, browser) -> bool:
+        return bool(browser.detail_patch) and bool(browser.fx_policy.enabled)
+
+    def label_for(self, browser) -> str:
+        return browser._effect_fader_label()
+
+    def enabled(self, browser) -> bool:
+        return not browser.fx_policy.effect_locked
+
+    def read(self, browser) -> float:
+        if not self.enabled(browser):
+            return 0.0
+        return float(browser.fx_policy.depth)
+
+    def default(self, browser) -> float:
+        return 0.0
+
+    def write(self, browser, value: float, *, persist: bool) -> None:
+        if not self.enabled(browser):
+            return
+        browser.fx_policy.set_depth(value, final=persist)
+
+    def reset(self, browser) -> None:
+        if not self.enabled(browser):
+            return
+        browser.fx_policy.set_depth(0.0, final=True)
+        browser._toast("Effect off", 1.2)
+
+    def format(self, value: float) -> str:
+        return f"{round(max(0.0, min(1.0, value)) * 100)}%"
+
+    def persist(self, browser) -> None:
+        browser.fx_policy.finish_depth()
+
+
 _MIXER_CONTROLS: list[MixerControl] = [
     VolumeControl(),
     TailControl(),
     TouchControl(),
     NormControl(),
+    PatchModControl(),
+    EffectControl(),
 ]
 
 

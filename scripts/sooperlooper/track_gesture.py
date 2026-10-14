@@ -87,11 +87,14 @@ from sl_grid_sync import (
     detect_loop_wrap,
     should_defer_phase_anchor,
 )
+import looper_timing as timing
+from looper_timing import send_engine_controls
 from sl_loop_states import (
     ACTIVE_PLAY,
     ACTIVE_RECORD,
     SL_STATE_OFF,
     SL_STATE_OFF_MUTED,
+    EMPTY_STATES,
     SL_STATE_OVERDUBBING,
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
@@ -188,7 +191,6 @@ class TrackGesture:
         debounce_ms: float,
         hold_blink_start_ms: float = 500.0,
         num_loops: int = MAX_USABLE_LOOPS,
-        quantized: bool = True,
         grid: GridState | None = None,
         on_grid_established=None,
         on_phase_reanchor=None,
@@ -235,9 +237,11 @@ class TrackGesture:
         self._now = now
         self._last_loop_pos = 0.0
         self._phase_reanchor_at = 0.0
-        # Is this loop waiting for cycle boundaries? False in free-form, where
-        # arming a quantize wait strands the pad on a boundary that never comes.
-        self.quantized = quantized
+        # There is no `self.quantized` any more, and its absence is the fix.
+        # It was set once from MPE_SL_SYNC_MODE at bench startup and never
+        # updated, so it recorded the MODE the instrument booted in rather
+        # than whether a grid actually exists now. Whether an action waits is
+        # asked of `looper_timing`, per action, at the moment of the press.
         self.num_loops = num_loops
         self.hold_s = hold_ms / 1000.0
         self.hold_blink_start_s = hold_blink_start_ms / 1000.0
@@ -335,6 +339,30 @@ class TrackGesture:
     # The live deferral is `_phase_reanchor_at` plus `_try_commit_phase_reanchor`,
     # driven from `sync_loop_len` / `sync_loop_pos`, and it is untouched.
 
+    def _holds_audio(self, sl_state: int) -> bool:
+        """Is there a clip in this loop? Two engine facts, no policy.
+
+        The grid rule is one sentence and lives in `GridState`: no loop holds
+        audio, no grid. This is only how the question gets asked, and it needs
+        two things the state code alone will not tell you.
+
+        1. **Empty has two spellings.** Stop All mutes every loop, so a loop
+           that never held a take reports OFF_MUTED (20), not OFF (0).
+           MEASURED 2026-09-06: at the Stop All, loops 1-14 each reported 20
+           once; loop 0, the one with audio, never did.
+
+        2. **A record in flight is a clip arriving.** `slot_runtime` sends
+           `undo_all` immediately before a re-record, so the loop passes
+           through OFF on its way INTO a take. A real clear leaves nothing
+           outstanding — MEASURED the same evening, `-> undo_all` is followed
+           by `bench=idle`.
+
+        `loop_len` looks like the better signal and is not: the one consumer
+        of it, `slot_surface.on_loop_len`, keeps only non-zero values, so it
+        is a latch and cannot say "empty".
+        """
+        return sl_state not in EMPTY_STATES or self._pending is not None
+
     def sync_from_sl(self, sl_state: int) -> bool:
         """Mirror SooperLooper state → bench LED (all loops incl. 0)."""
         prev_sl = self.sl_state
@@ -379,7 +407,7 @@ class TrackGesture:
             self._maybe_establish_grid()
 
         if self.grid is not None:
-            if self.grid.note_loop_content(self.loop, sl_state != SL_STATE_OFF):
+            if self.grid.note_loop_content(self.loop, self._holds_audio(sl_state)):
                 log(f"loop {self.loop}: last clip cleared — grid dropped, "
                     f"next take defines a new one")
                 if self._on_grid_dropped is not None:
@@ -608,6 +636,13 @@ class TrackGesture:
             return
         derived = self.grid.establish(self.loop, self.loop_len)
         if derived is None:
+            if self.grid.refused:
+                log(
+                    f"loop {self.loop}: !! take NOT accepted as the grid's defining "
+                    f"take — {self.grid.refused}. This clip plays free-form; the "
+                    "next take defines the grid. (The seven bars of 2026-09-06.)"
+                )
+                self.grid.refused = None
             return
         bpm, bars = derived
         log(
@@ -888,7 +923,6 @@ class TrackGesture:
             pending=self._pending,
             grid_established=self.grid is None or self.grid.established,
             is_defining=self.grid is not None and self.grid.is_pending(self.loop),
-            quantized=self.quantized,
             tail_capture_enabled=RING_OUT_ENABLED,
         )
         if not (
@@ -996,7 +1030,6 @@ def build_track_gestures(
     hold_ms: float,
     debounce_ms: float,
     hold_blink_start_ms: float = 500.0,
-    quantized: bool = True,
     grid: GridState | None = None,
     view: GridView | None = None,
     on_grid_established=None,
@@ -1022,7 +1055,6 @@ def build_track_gestures(
             debounce_ms=debounce_ms,
             hold_blink_start_ms=hold_blink_start_ms,
             num_loops=num_loops,
-            quantized=quantized,
             grid=grid,
             on_grid_established=on_grid_established,
             on_phase_reanchor=on_phase_reanchor,
@@ -1153,11 +1185,55 @@ def verify_stop_all(gestures: list["TrackGesture"], *, log=log) -> list[tuple[in
         for fs in gestures
         if fs.sl_state not in STOPPED_STATES
     ]
+    # An empty loop is ALWAYS "stopped" — OFF and OFF_MUTED are both in
+    # STOPPED_STATES — so counting all fifteen made this read as a fifteen-loop
+    # check when fourteen of them were free passes. On a session with one clip
+    # it was a one-loop check reporting "all 15 loops stopped", which is the
+    # instrument flattering itself. Say how many were actually testable.
+    checkable = [fs for fs in gestures if fs.sl_state not in EMPTY_STATES]
+    empty = len(gestures) - len(checkable)
     if still_active:
         detail = ", ".join(f"loop {i} state={st}" for i, st in still_active)
         log(f"stop all VERIFY: {len(still_active)} loop(s) did NOT stop -- {detail}")
     else:
-        log(f"stop all VERIFY: all {len(gestures)} loops stopped")
+        log(f"stop all VERIFY: all {len(checkable)} loop(s) with audio stopped "
+            f"({empty} empty pad(s) not checked)")
+    return still_active
+
+
+def settle_stop_all(osc, gestures: list["TrackGesture"], *, log=log):
+    """One second after Stop All: check, correct, then restore quantize.
+
+    Three jobs that all have to happen after the engine has answered:
+
+      * `verify_stop_all` says what actually happened.
+      * anything still sounding is paused again, unquantized, and the
+        correction is logged. The instrument has known about this failure
+        since 2026-08-30 and has only ever written it down.
+      * quantize goes back to what the grid says. The restore was moved here
+        on the guess that a deferred `trigger` was surviving the pause; the
+        trigger itself was the cause and is gone (see `stop_all_loops`).
+        MEASURED 2026-09-07: a loop paused by the burst stays paused through
+        this restore.
+
+    Returns the loops that were still active, after the correction attempt.
+    """
+    still_active = verify_stop_all(gestures, log=log)
+    for loop, state in still_active:
+        log(f"stop all CORRECT: loop {loop} still at state={state} — pausing again")
+        osc.send_message(f"/sl/{loop}/hit", "pause_on")
+
+    grid = next((fs.grid for fs in gestures if fs.grid is not None), None)
+    grid_active = bool(grid is not None and grid.established and grid.bpm)
+    # Back to what the grid says, through the one function that knows what
+    # these controls mean. This restore used to be written out here, and it
+    # did not agree with itself: `quantize` followed the grid while
+    # `mute_quantized` went back to 1.0 UNCONDITIONALLY. So after a Stop All
+    # in a session with no grid, every later per-clip stop was deferred to a
+    # cycle boundary that no tempo defined — a stop that waited up to a whole
+    # loop while `set_grid_active` believed it had turned that off. Nobody
+    # found it by reading, because the two lines are in different files.
+    send_engine_controls(osc.send_message, grid=grid_active)
     return still_active
 
 
@@ -1183,41 +1259,46 @@ def stop_all_loops(
     # a musical edit; Stop All is a transport action — when you hit it you want
     # silence now, not at the end of the bar.
     #
-    # mute_quantized is lifted for the duration, then restored, so the per-clip
-    # behaviour is untouched. SL drains its non-realtime queue in order, so the
-    # restore cannot overtake the mute.
+    # mute_quantized and quantize are lifted for the duration and restored in
+    # `settle_stop_all`, once the engine has confirmed the pause, so the
+    # per-clip behaviour is untouched.
     #
-    # `trigger` is what REWINDS. Without it `pause_on` freezes every loop
-    # wherever it happened to be, and the launch path (`pause_off` + `trigger`)
-    # then resumes from that stored position — so Stop All followed by a
-    # restart came back mid-loop instead of from the top, and the loops came
-    # back at different phases from each other. MEASURED 2026-08-30 with four
-    # loops stopped: pos 3.719/8.052 (46%), 3.731/8.052 (46%), 11.783/16.104
-    # (73%), 3.719/16.104 (23%).
+    # No `trigger`. The burst used to be mute_on, trigger, pause_on, the
+    # trigger added 2026-08-30 as a REWIND so a relaunch came from the top.
+    # MEASURED 2026-09-07 on the real engine (tests/engine/test_engine_claims
+    # .py, SooperLooper 1.7.9 under a JACK dummy backend): with that trigger a
+    # clip on the grid read PLAYING 0.4 s after Stop All and was still playing
+    # a full cycle later, at every one of five bar phases tried — it never
+    # paused. Without it: PAUSED within 0.4 s in 5 of 5, still paused after
+    # the settle restore. That is "I stop all clips and it just resumes"
+    # (reported 2026-09-06; caught by `verify_stop_all` at 23:59:05 as "1
+    # loop(s) did NOT stop -- loop 0 state=4"). What made the appliance stop
+    # at all was `settle_stop_all`'s corrective pause_on, a second late.
     #
-    # quantize is lifted alongside mute_quantized because a quantized trigger
-    # is DEFERRED to the next cycle, which here would rewind a loop up to a
-    # full cycle after the player asked for silence.
+    # The rewind is not lost. The launch is `trigger` alone, and MEASURED the
+    # same day: `trigger` from PAUSED with quantize at CYCLE waits for the bar
+    # and plays from position 0; from MUTE likewise. The mid-loop resumes of
+    # 2026-08-30 (pos 46%/46%/73%/23%) were the launch's `pause_off`, which
+    # resumes AT ONCE from the stored position — not a missing rewind here.
+    # See `slot_runtime.LAUNCH_COMMANDS`.
     #
-    # NOTE, and it corrects a comment in sl_grid_sync.set_grid_active: trigger
-    # DOES lift a pause. MEASURED 2026-08-30 — a loop in state 14 (Paused),
-    # sent `trigger` with quantize at 0, went to state 4 (Playing) from
-    # position 0. The earlier "verified: a paused loop stays Paused through
-    # trigger" was almost certainly read with quantize at CYCLE, where the
-    # trigger is merely deferred. A deferred trigger and an ignored trigger
-    # look identical from outside, which is the reading-the-same-either-way
-    # shape this project keeps paying for.
-    osc.send_message("/sl/-1/set", ["mute_quantized", 0.0])
-    osc.send_message("/sl/-1/set", ["quantize", 0.0])
+    # The earlier story for the resume — `set` lands ahead of a queued `hit`,
+    # so the quantize restore overtook the trigger — was reasoned from the
+    # send order, never measured, and is wrong twice over: no restore is
+    # sent in this window any more and the loop still resumed; and per-loop
+    # `set` and `hit` are pushed onto the SAME realtime queue (engine.cpp,
+    # push_control_event / push_command_event → _event_queue), in order.
+    # The quantize restore stays in `settle_stop_all` because it is harmless
+    # there, not because moving it fixed anything.
+    # Immediate by construction. `looper_timing` says Stop All never waits,
+    # and the controls that would make it wait are cleared here before the
+    # mute rather than being trusted to already be right.
+    assert timing.when(
+        timing.STOP_ALL, timing.Session(grid=grid_active, sounding=True)
+    ).immediate, "looper_timing says Stop All waits; this burst assumes it does not"
+    send_engine_controls(osc.send_message, grid=False)
     osc.send_message("/sl/-1/hit", "mute_on")
-    osc.send_message("/sl/-1/hit", "trigger")
     osc.send_message("/sl/-1/hit", "pause_on")
-    # Back to what the grid says this loop should be, NOT unconditionally 1.0:
-    # with no grid established every loop is deliberately free-form and a
-    # quantize of 1 here would sync the take that is supposed to DEFINE the
-    # grid to a cycle inherited from the previous session.
-    osc.send_message("/sl/-1/set", ["quantize", 1.0 if grid_active else 0.0])
-    osc.send_message("/sl/-1/set", ["mute_quantized", 1.0])
     if grid_active:
         # Through the one seam. This was a raw `/set tempo` with the phase mark
         # hand-paired beside it — a fourth copy of the three lines, and the one

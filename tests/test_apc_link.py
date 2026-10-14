@@ -100,7 +100,7 @@ class LinkHealthTests(unittest.TestCase):
         self.reader = True
         self.reopens = 0
         self._orig = apc_link.port_subscriptions
-        apc_link.port_subscriptions = lambda key: (self.reader, True)
+        apc_link.port_subscriptions = lambda key, **_names: (self.reader, True)
 
     def tearDown(self) -> None:
         apc_link.port_subscriptions = self._orig
@@ -112,8 +112,8 @@ class LinkHealthTests(unittest.TestCase):
                 self.reader = True
             return reopen_works
 
-        return LinkHealth("APC MINI", on_lost=on_lost, log=self.logs.append,
-                          check_s=2.0, now=self.clock)
+        return LinkHealth("APC MINI", reader="in", writer="out", on_lost=on_lost,
+                          log=self.logs.append, check_s=2.0, now=self.clock)
 
     def test_a_healthy_link_does_nothing(self) -> None:
         h = self._health()
@@ -165,8 +165,8 @@ class LinkHealthTests(unittest.TestCase):
         def on_lost() -> bool:
             return True          # claims success, never restores the reader
 
-        h2 = LinkHealth("APC MINI", on_lost=on_lost, log=self.logs.append,
-                        check_s=2.0, now=self.clock)
+        h2 = LinkHealth("APC MINI", reader="in", writer="out", on_lost=on_lost,
+                        log=self.logs.append, check_s=2.0, now=self.clock)
         h2.poll()
         self.assertFalse(h2.healthy)
         self.assertTrue(any("still no reader" in m for m in self.logs))

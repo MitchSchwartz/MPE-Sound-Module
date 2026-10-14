@@ -84,7 +84,6 @@ def _gesture(*, osc, compositor, clock, multigrid: bool) -> TrackGesture:
         hold_ms=HOLD_MS,
         debounce_ms=DEBOUNCE_MS,
         hold_blink_start_ms=BLINK_MS,
-        quantized=False,
         multigrid=multigrid,
     )
     fs.bind(osc, compositor, NOTE)

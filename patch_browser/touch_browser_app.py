@@ -22,6 +22,7 @@ from patch_browser.shutdown_trace import log_shutdown_event
 from patch_browser.backlight import BacklightController
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
+from patch_browser.fx_policy import FxPolicy
 from patch_browser.patch_loader import PatchLoader
 from patch_browser.patch_scanner import FAVORITES_NAME, SURGE_PATCH_DIRS, PatchScanner, favorites_display_name
 from patch_browser.scroll_widgets import ContentScrollArea, ScrollList
@@ -49,6 +50,7 @@ from patch_browser.touch_browser_normalization import TouchBrowserNormalizationM
 from patch_browser.touch_browser_patches import TouchBrowserPatchesMixin
 from patch_browser.touch_browser_prefs import TouchBrowserPrefsMixin
 from patch_browser.touch_browser_brightness_modal import TouchBrowserBrightnessModalMixin
+from patch_browser.touch_browser_fx_effect_modal import TouchBrowserFxEffectModalMixin
 from patch_browser.touch_browser_settings import TouchBrowserSettingsMixin
 from patch_browser.touch_browser_terminal import TerminalMixin
 from patch_browser.touch_browser_audio_profile_modal import TouchBrowserAudioProfileModalMixin
@@ -77,6 +79,7 @@ class TouchPatchBrowser(
     TouchBrowserPrefsMixin,
     TouchBrowserSettingsMixin,
     TouchBrowserBrightnessModalMixin,
+    TouchBrowserFxEffectModalMixin,
     TouchBrowserAudioProfileModalMixin,
     TouchBrowserAudioOutputModalMixin,
     TouchBrowserSurgeAudioModalMixin,
@@ -142,12 +145,17 @@ class TouchPatchBrowser(
         self.font_lg = self._load_font(34)
         self.font_md = self._load_font(22)
         self.font_sm = self._load_font(18)
+        # Jump-strip section tags: three letters in a 40 px strip.
+        self.font_xs = self._load_font(15)
 
         self.backlight = BacklightController()
         self.backlight.restore_saved()
 
         self.scanner = PatchScanner(SURGE_PATCH_DIRS)
-        self.loader = PatchLoader()
+        # One policy object, shared with the loader so every patch load
+        # resolves it (fx_policy.py).
+        self.fx_policy = FxPolicy()
+        self.loader = PatchLoader(fx_policy=self.fx_policy)
         self.scanner.bind_sidecar_loader(self.loader)
         self.surge_monitor = SurgeMonitor()
         self.cpu_monitor = SurgeCpuMonitor(self.surge_monitor)
@@ -168,6 +176,9 @@ class TouchPatchBrowser(
         self.all_patches_letter_index: dict[str, int] = {}
         self.az_rail_rect = Rect(0, 0, 0, 0)
         self.az_rail_letter_rects: list[tuple[str, Rect]] = []
+        self.jump_strip_rect = Rect(0, 0, 0, 0)
+        self._jump_strip_capture = False
+        self._jump_strip_cell: int | None = None
         self.nav_all_btn = Rect(0, 0, 0, 0)
         self.nav_current_btn = Rect(0, 0, 0, 0)
         self._all_patches_saved_scroll = 0.0
@@ -188,6 +199,9 @@ class TouchPatchBrowser(
         self._init_context_menu_state()
 
         self.volume_level = self._load_volume_level()
+        from patch_browser.device_volume import DeviceVolume
+
+        self.device_volume = DeviceVolume()
         # Draw-loop pacing state (see _frame_rate_for). Start "active" so the first
         # second after boot runs smooth while the UI settles.
         self._last_active_frame_at = time.monotonic()
@@ -198,6 +212,9 @@ class TouchPatchBrowser(
         self.brightness_percent = self.backlight.get_percent()
         self.toast_message = ""
         self.toast_until = 0.0
+        #: (button label, callback) offered on the toast, or None.
+        self.toast_action: tuple[str, object] | None = None
+        self._toast_action_down = False
         self._loader_toast_active = False
         self._loader_toast_base = ""
         self.power_action: str | None = None
@@ -211,6 +228,7 @@ class TouchPatchBrowser(
         self._mixer_drag_moved = False
         self._pending_norm_toggle = False
         self._pending_favorites_toggle = False
+        self._pending_mod_wheel_toggle = False
         self.mixer_channels: list[MixerChannel] = []
         self._scan_dirty = False
         self._pending_last_patch: dict | None = None
@@ -386,15 +404,44 @@ class TouchPatchBrowser(
 
     def _pressed(self, target_id: str) -> bool:
         return self._touch_press.is_pressed(target_id)
-    def _toast(self, message: str, seconds: float = 2.0) -> None:
+    def _toast(self, message: str, seconds: float = 2.0, *, action=None) -> None:
+        """Show a message for `seconds`. `action`: (button label, callback), a
+        button on the toast (Undo) that runs the callback once when tapped.
+        There is one toast: a new one replaces it, and its button with it."""
         self._loader_toast_active = False
         self._loader_toast_base = ""
         self.toast_message = message
         self.toast_until = time.time() + seconds
+        self.toast_action = action
+        self._toast_action_down = False
 
     def _clear_toast(self) -> None:
         self.toast_message = ""
         self.toast_until = 0.0
+        self.toast_action = None
+        self._toast_action_down = False
+
+    def _toast_action_touch(self, kind: str, pos: tuple[int, int]) -> bool:
+        """The toast's button, ahead of everything under it. True when taken.
+
+        Press and release both on the button runs the action, once; a press
+        that slides off does nothing. Only on the browser screen, the one the
+        button is drawn on (`_toast_action_rect`).
+        """
+        if kind == "down":
+            rect = self._toast_action_rect()
+            self._toast_action_down = rect is not None and rect.contains(*pos)
+            return self._toast_action_down
+        if not self._toast_action_down:
+            return False
+        if kind == "up":
+            self._toast_action_down = False
+            rect = self._toast_action_rect()
+            action = self.toast_action
+            if rect is not None and rect.contains(*pos) and action is not None:
+                self._clear_toast()
+                action[1]()
+        return True
 
     def _start_loader_toast(self, base: str) -> None:
         from patch_browser.audio_engine import toast_loader_base
@@ -404,6 +451,8 @@ class TouchPatchBrowser(
             return
         self._loader_toast_base = normalized
         self._loader_toast_active = True
+        self.toast_action = None
+        self._toast_action_down = False
         self.toast_until = time.time() + 86400.0
         self._tick_loader_toast()
 
@@ -498,6 +547,7 @@ class TouchPatchBrowser(
                 and (
                     self.nav_list.is_interacting()
                     or getattr(self, "_az_rail_capture", False)
+                    or getattr(self, "_jump_strip_capture", False)
                 )
             ):
                 self._scan_dirty = False
@@ -506,6 +556,8 @@ class TouchPatchBrowser(
             self._drain_evdev_touch_queue()
             self._poll_audio_profile_switch()
             self._poll_surge_audio_switch()
+            self._poll_device_volume()
+            self.fx_policy.poll_levels()
             self._poll_engine_recovery_toast()
             self._poll_restart_bench_result()
             terminal_dirty = self._poll_terminal()
@@ -569,6 +621,8 @@ class TouchPatchBrowser(
             self._screen_recorder.close()
         self.cpu_monitor.stop()
         self.peak_monitor.stop()
+        # A change made in the last STORE_WRITE_DELAY_S is still pending.
+        self.fx_policy.flush_store()
         pygame.quit()
 
 

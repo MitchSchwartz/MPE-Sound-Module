@@ -2,8 +2,9 @@
 # Parallel fail-open graph for SooperLooper eval (B1 + multi-loop listen path).
 #
 # Listen path: engine common_out -> playback (internal mix), NOT per-loop outs.
-# Fail-open:   Surge -> playback stays connected.
-# Record path: Surge -> every loopN_in (16-pad APC clip grid).
+# Fail-open:   the fan-out source -> playback stays connected unless an insert carries it.
+# Record path: the fan-out source -> every loopN_in (16-pad APC clip grid).
+#              Both decided by patch_browser/audio_routing.py, not here.
 #
 # Usage:
 #   wire-jack-graph.sh [connect|rewire]
@@ -20,7 +21,9 @@ LOOPS="${MPE_SL_LOOPS:-15}"  # 15 usable max — see sl_limits.py
 STEM_CHANNELS="${MPE_USB_STEM_CHANNELS:-2}"
 STEM_FIRST_CH=3   # 1/2 are the master pair
 JACK_CLIENT="${MPE_SL_JACK_CLIENT:-mpe-looper}"
-SURGE_CLIENT="${MPE_SL_SURGE_CLIENT:-Surge XT}"
+# Surge's client name, and every rule about where its output goes, live in
+# the routing authority.
+ROUTING="${SCRIPT_DIR}/../../patch_browser/audio_routing.py"
 
 FAILURES=0
 
@@ -109,14 +112,36 @@ connect_stems() {
   log "stems: loop0..$((wired - 1)) -> playback_${STEM_FIRST_CH}..$((STEM_FIRST_CH + wired - 1)) (mono fold, ${available} ports available)"
 }
 
+# Where Surge's live signal goes is not decided here. The routing authority
+# (patch_browser/audio_routing.py) reads the graph as it is and answers with the
+# edges to ADD: the fan-out source -- Surge, or the FX host when it is on the
+# trunk -- into every loop input, and into playback unless the live monitor is
+# carrying it. It never proposes an edge to a destination Surge already
+# reaches by any route, so this pass cannot double the live signal underneath
+# an insert. That used to be a hand-written `live_monitor_carrying` here, which
+# knew one insert by name and would have reconnected Surge -> playback beneath
+# the next one.
+#
+# One `jack_lsp -c` and one python3 per pass (~0.5 s on the Pi), replacing four
+# `jack_lsp -c` calls and 32 unconditional jack_connects. Runs at engine start
+# and on a watchdog repair, never on a timer.
 connect_graph() {
-  local i
-  for i in $(seq 0 $((LOOPS - 1))); do
-    try_jack jack_connect "${SURGE_CLIENT}:out_1" "${JACK_CLIENT}:loop${i}_in_1"
-    try_jack jack_connect "${SURGE_CLIENT}:out_2" "${JACK_CLIENT}:loop${i}_in_2"
-  done
-  try_jack jack_connect "${SURGE_CLIENT}:out_1" "system:playback_1"
-  try_jack jack_connect "${SURGE_CLIENT}:out_2" "system:playback_2"
+  local plan rc src dst
+  # A failed jack_lsp hands the authority an empty graph, which it answers
+  # fail-open (everything direct) rather than with nothing.
+  plan="$({ jack_lsp -c 2>/dev/null || true; } | python3 "${ROUTING}" plan --loops "${LOOPS}")" && rc=0 || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    FAILURES=$((FAILURES + 1))
+    log "FAILED: routing authority exited ${rc} -- Surge record/monitor path not wired"
+  elif [ -z "$plan" ]; then
+    log "Surge path: every destination already reached"
+  else
+    while IFS=$'\t' read -r src dst; do
+      [ -n "$src" ] || continue
+      try_jack jack_connect "$src" "$dst"
+    done <<< "$plan"
+    log "Surge path: $(printf '%s\n' "$plan" | wc -l) edge(s) added from the fan-out source"
+  fi
   try_jack jack_connect "${JACK_CLIENT}:common_out_1" "system:playback_1"
   try_jack jack_connect "${JACK_CLIENT}:common_out_2" "system:playback_2"
 }
@@ -131,7 +156,7 @@ set_dry_all() {
 wire_connect() {
   need_cmd jack_connect
   need_cmd oscsend
-  log "connect-only (${MODE}): Surge -> loop0..$((LOOPS - 1)) in; common_out -> playback"
+  log "connect-only (${MODE}): fan-out source -> loop0..$((LOOPS - 1)) in; common_out -> playback"
   connect_graph
   connect_stems
   set_dry_all
@@ -149,7 +174,7 @@ wire_rewire() {
   connect_graph
   connect_stems
   set_dry_all
-  log "dry=0 on loops 0..$((LOOPS - 1)); common_out -> playback; Surge parallel fail-open"
+  log "dry=0 on loops 0..$((LOOPS - 1)); common_out -> playback; fan-out source parallel fail-open"
 }
 
 case "${MODE}" in

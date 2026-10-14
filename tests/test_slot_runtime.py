@@ -312,8 +312,11 @@ class LaunchAfterStopAll(RuntimeCase):
     shipped. `stop_all_loops` sends `pause_on` to every loop, and the matrix's
     launch used to send only `mute_off` — which does not lift a pause. The clip
     loaded, the pad lit, and nothing came out. The single-clip path had always
-    sent `pause_off` + `trigger`; the matrix was a sibling that never inherited
-    the rule.
+    lifted the pause; the matrix was a sibling that never inherited the rule.
+
+    The lift is `trigger` alone. MEASURED 2026-09-07 on the real engine: it
+    lifts a pause, waits for the bar and plays from the top, while the
+    `pause_off` that used to go first resumes at once mid-loop.
     """
 
     def test_launch_lifts_a_pause_rather_than_only_unmuting(self) -> None:
@@ -322,10 +325,10 @@ class LaunchAfterStopAll(RuntimeCase):
         self.rt.press(0, 1, sl_state=SL_STATE_OFF)
         hits = [a[0] for p, a in self.sent if p.endswith("/hit")]
         self.assertIn(
-            "pause_off", hits,
+            "trigger", hits,
             "a launch after Stop All is silent unless the pause is lifted",
         )
-        self.assertIn("trigger", hits)
+        self.assertNotIn("pause_off", hits, "pause_off resumes mid-loop at once")
 
     def test_relaunching_a_dirty_active_slot_also_lifts_the_pause(self) -> None:
         """The 'already bound, just unmute' shortcut needs the rule too."""
@@ -334,14 +337,14 @@ class LaunchAfterStopAll(RuntimeCase):
         )
         self.rt._launch(SlotPlan(action=ACT_LAUNCH, track=0, slot=0))
         hits = [a[0] for p, a in self.sent if p.endswith("/hit")]
-        self.assertIn("pause_off", hits)
         self.assertIn("trigger", hits)
+        self.assertNotIn("pause_off", hits)
 
     def test_no_launch_path_relies_on_mute_off_alone(self) -> None:
         """One answer to 'how do you start a loop', not two that drift."""
         from slot_runtime import LAUNCH_COMMANDS
 
-        self.assertEqual(LAUNCH_COMMANDS, ("pause_off", "trigger"))
+        self.assertEqual(LAUNCH_COMMANDS, ("trigger",))
         source = Path("scripts/sooperlooper/slot_runtime.py").read_text()
         self.assertNotIn(
             '["mute_off"]', source,
@@ -588,3 +591,50 @@ class StartingIntoSilenceTests(RuntimeCase):
         self.clock[0] = DEFERRED_LAUNCH_GRACE_S + 1.0
         self.rt.expire_deferred(1, sl_state=SL_STATE_PAUSED)
         self.assertTrue(self.rt.has_deferred(1), "the grid launch was dropped")
+
+
+class TimingSessionHonestyTests(unittest.TestCase):
+    """What this runtime tells `looper_timing` it knows.
+
+    It is handed a `grid_boundary()` callable and, by its own docstring, "has
+    no business knowing what a GridState is". So it can answer "a boundary is
+    computable" and cannot answer "a grid is established" — two different
+    facts. It used to pass the first under the name of the second, and nothing
+    failed, because the only rules it asks are gated on sounding and never read
+    the field. That is an accident holding a wrong value in place.
+    """
+
+    def setUp(self) -> None:
+        self.dir = Path(tempfile.mkdtemp())
+        self.boundary: list[float | None] = [None]
+        self.rt = SlotRuntime(
+            send=lambda p, a: None,
+            clips_dir=self.dir,
+            num_tracks=15,
+            log=lambda _m: None,
+            now=lambda: 0.0,
+            session_sounding=lambda: False,
+            grid_boundary=lambda: self.boundary[0],
+        )
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_it_declares_the_grid_unknown_rather_than_guessing(self) -> None:
+        for boundary in (None, 12.5):
+            with self.subTest(boundary=boundary):
+                self.boundary[0] = boundary
+                session = self.rt.timing_session(SL_STATE_OFF)
+                self.assertIsNone(
+                    session.grid,
+                    "this runtime cannot tell whether a grid is ESTABLISHED; "
+                    "a computable boundary is a different fact and must not be "
+                    "passed under this name",
+                )
+
+    def test_a_rule_that_needs_the_grid_refuses_rather_than_reads_a_guess(self) -> None:
+        """The refusal is the enforcement — proof the None is not inert."""
+        import looper_timing as timing
+
+        with self.assertRaises(ValueError):
+            timing.when(timing.RECORD_START, self.rt.timing_session(SL_STATE_OFF))

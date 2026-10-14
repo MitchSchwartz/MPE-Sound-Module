@@ -236,7 +236,7 @@ def _surface(wire: Wire, tmp: Path):
     by_loop = {}
     for loop in range(15):
         fs = TrackGesture(loop=loop, hold_ms=2000, debounce_ms=0,
-                          multigrid=True, quantized=True)
+                          multigrid=True)
         fs.bind(None, None, None)
         by_loop[loop] = fs
     surface = SlotSurface(

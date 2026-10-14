@@ -1,10 +1,34 @@
 # Output dB meter — design and cost
 
-*Written 2026-08-16 (America/Toronto). Not built. Measurements below are from the live appliance; cost figures are estimates and flagged as such.*
+*Written 2026-08-16 (America/Toronto), before it was built. Measurements below are from the live appliance; cost figures are estimates and flagged as such.*
 
 **The ask:** a normal output meter on the touch UI showing total system output in dBFS, so patch levels can be set by eye and clipping is visible before it is audible.
 
 **Related:** [`LATENCY-SPIKE.md`](LATENCY-SPIKE.md) · [`AGENTS.md`](../AGENTS.md) §Audio output safety
+
+## As built (updated 2026-10-11)
+
+The design below shipped as `native/mpe-peak-meter`, with two changes on 2026-10-11:
+
+- **The tap is post-FX.** The meter's inputs follow the fan-out source that
+  `patch_browser/audio_routing.py` names: `mpe-fx-host:out_N` while the FX host
+  carries the trunk, otherwise `Surge XT:out_N`. Exactly one of them, never both
+  (both would sum and read up to 6 dB hot). Before this, the tap sat on Surge,
+  so the FX host's added peaks (phaser up to +5.4 dB) and its ±1.0 clamp were
+  invisible: audible clipping read as −3 dBFS. The C mirror is checked against
+  the authority over every fake-JACK graph in `tests/test_audio_routing.py`.
+- **Clip latch.** A window whose sample peak is ≥ 0.999 writes `clip=1`, held
+  for 8 writes (1.6 s), on that same post-FX signal. The UI outlines the bar
+  and fills it red while it is up.
+
+What did **not** move: `wired=` / `online=` still mean "Surge's outputs are on
+the graph" (`audio-engine.sh`'s on-graph probe), and `surge_playback=` still
+means "can you hear yourself play" (`sl-watchdog`). Neither depends on where
+the meter listens.
+
+The meter is still pre-hardware-mixer: in device mode the Vol fader moves the
+DAC, after the meter, and Surge sits at a fixed −6 dB
+(`DEVICE_MODE_SURGE_TRIM_DB`) to leave headroom for chords and effects.
 
 ---
 
@@ -20,6 +44,8 @@ Two measured facts, both of which remove the cost people usually assume:
 The appliance runs `256 × 3 @ 48 kHz` (~5.33 ms/period) with **0 xruns**. That period budget is the constraint everything below respects.
 
 ## Where to tap
+
+*(Original design. As built, the Surge leg is the fan-out source: see above.)*
 
 Connect the meter's two input ports to the **same sources as `system:playback_1/2`**:
 
@@ -87,5 +113,5 @@ Per the appliance's own measurement habit: the stub run is the experiment, the m
 
 - Does the touch UI have screen space, or does the meter need a mode/overlay?
 - Should it read pre- or post-`amixer`? The tap above is **pre**-hardware-mixer, so it shows what the software graph produces, not what leaves the DAC. Post-mixer level cannot be measured in JACK at all — worth stating on the UI so the reading is not misread as speaker output.
-- **Vol fader vs DAC:** the touch **Vol** fader trims Surge `amp/volume` in software (`~/.patch_browser_volume.json`). **`MPE_DAC_VOLUME_DB`** sets the Sound Blaster **Speaker** step via `scripts/set-dac-volume.sh` — a separate, post-graph stage. Binding Vol to `amixer` would need card/control detection per profile (standalone vs usb-host), persistence, and a clear UX split from per-patch norm; not started.
+- **Vol fader vs DAC:** on a card with one unambiguous hardware volume the touch **Vol** fader *is* the DAC level (post-graph, so this meter does not move with it) and Surge sits at a fixed −6 dB; otherwise it trims Surge `amp/volume`. See `patch_browser/device_volume.py`.
 - Peak only, or peak + RMS/LUFS? Peak answers "am I clipping"; RMS answers "is this patch as loud as that one". The stated need is both, so probably both bars.

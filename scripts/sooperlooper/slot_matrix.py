@@ -32,10 +32,6 @@ from dataclasses import dataclass, field, replace
 from led_table import SCENE_LED_BLINK, SCENE_LED_OFF, SCENE_LED_ON
 from sl_loop_states import ACTIVE_PLAY, SL_STATE_MUTE, SL_STATE_PAUSED, ACTIVE_RECORD
 
-from sl_limits import MAX_USABLE_LOOPS
-
-# 15 — the engine ceiling, not a layout choice. See sl_limits.py.
-NUM_TRACKS = MAX_USABLE_LOOPS
 NUM_SLOTS = 8
 
 # What the player has asked for and the boundary has not yet delivered.

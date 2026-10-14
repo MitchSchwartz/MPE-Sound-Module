@@ -24,10 +24,111 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install test dependencies
         timeout-minutes: 3
-        run: pip install python-osc
+        run: pip install python-osc numpy
       - name: Run unit tests
         timeout-minutes: 10
+        # The FX DSP self-test has its own job (fx-selftest, below). The
+        # wire-format tests in tests/test_fx_host.py still build its binary
+        # here and use its parser; only the DSP checks are skipped.
+        env:
+          FX_SELFTEST_SKIP: "1"
         run: python3 -m unittest discover -s tests
+
+  # The FX DSP self-test (native/mpe-fx-host/fx_selftest.c), run only when
+  # what it tests changes: the FX host's C, its Python protocol and tests, or
+  # this workflow. It added about 3 min to the unittest job when it ran there
+  # on every push. Here it runs once per core and once serially, side by side,
+  # and the two must print the same bytes. The job always reports, so a skip
+  # shows as a notice, not as a missing check.
+  fx-selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Did the FX code change?
+        id: changed
+        timeout-minutes: 2
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          paths=(native/mpe-fx-host tests/test_fx_host.py patch_browser/fx_host_protocol.py
+                 .github/workflows/test.yml)
+          # No base to compare with (a new branch, a fetch that fails): run.
+          if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] \
+              || ! git fetch --quiet --depth=1 origin "$BASE"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "No base commit to compare with: running the FX self-test."
+            exit 0
+          fi
+          changed=$(git diff --name-only "$BASE" HEAD -- "${paths[@]}")
+          if [ -n "$changed" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            printf 'FX code changed since %s:\n%s\n' "$BASE" "$changed"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=FX self-test skipped::Nothing under ${paths[*]} changed since $BASE."
+          fi
+      - name: Install test dependencies
+        if: steps.changed.outputs.run == 'true'
+        timeout-minutes: 3
+        run: pip install python-osc numpy
+      - name: Run the FX self-test, parallel and serial
+        if: steps.changed.outputs.run == 'true'
+        timeout-minutes: 15
+        env:
+          FX_SELFTEST_FORCE: "1"
+          FX_SELFTEST_SERIAL: "1"
+        run: python3 -m unittest tests.test_fx_host -v
+
+  # The compiled JACK clients. Nothing else in CI touches them: the binaries are
+  # gitignored and built on the appliance by their start scripts, so a C file
+  # that stopped compiling would have reached the Pi and failed there, at the
+  # moment the unit tried to start. -Werror here and not in the Makefile on
+  # purpose — a warning must not stop Mitch getting sound out of a Pi at a gig.
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libjack-dev
+        timeout-minutes: 3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libjack-jackd2-dev
+      - name: Build native clients
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          for dir in native/*/; do
+            [ -f "$dir/Makefile" ] || continue
+            echo "== $dir"
+            make -C "$dir" clean
+            make -C "$dir" CFLAGS="-O2 -Wall -Wextra -Werror -std=c11"
+          done
+
+  # The real engine. SooperLooper 1.7.9 on headless JACK, built from source in
+  # tests/engine/Dockerfile, driven over OSC by tests/engine/. These are the
+  # only tests in the repo that can contradict a claim about what the engine
+  # does; the unittest job above runs against a hand-written double. Real
+  # time inside (a take on the grid costs a cycle of wall clock), so the
+  # budget is generous.
+  engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the engine image
+        timeout-minutes: 15
+        run: docker build -t mpe-sl-engine:1.7.9 tests/engine
+      - name: Install test dependencies
+        timeout-minutes: 3
+        run: pip install python-osc numpy
+      - name: Run engine tests
+        timeout-minutes: 10
+        env:
+          MPE_ENGINE_TESTS: "1"
+        run: python3 -m unittest tests.engine.test_engine_claims -v
 
   shell-tests:
     runs-on: ubuntu-latest

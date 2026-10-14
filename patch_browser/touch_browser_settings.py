@@ -7,6 +7,7 @@ import pygame
 from patch_browser.audio_profile import profile_settings_label
 from patch_browser.audio_output import output_settings_label
 from patch_browser.draw_primitives import draw_chevron
+from patch_browser.fx_policy import mod_wheel_target_label
 from patch_browser.geometry import Rect
 from patch_browser.scroll_widgets import draw_vertical_scroll_edge_hints
 from patch_browser.midi_sync_settings import settings_summary_lines
@@ -89,6 +90,17 @@ class TouchBrowserSettingsMixin:
         self.settings_audio_drill_rect = Rect(pad, y, inner_w, audio_h)
         y += audio_h + SETTINGS_ROW_GAP
 
+        self.mod_wheel_row_rect = Rect(pad, y, 0, 0)
+        policy = getattr(self, "fx_policy", None)
+        if policy is not None and policy.enabled:
+            wheel_h = self._settings_chevron_row_height(
+                "Mod wheel",
+                mod_wheel_target_label(policy.global_target),
+                inner_w,
+            )
+            self.mod_wheel_row_rect = Rect(pad, y, inner_w, wheel_h)
+            y += wheel_h + SETTINGS_ROW_GAP
+
         y = self._layout_settings_section_header(pad, inner_w, y, "Display")
         brightness_h = self._settings_chevron_row_height(
             "Brightness",
@@ -160,6 +172,7 @@ class TouchBrowserSettingsMixin:
         y = SETTINGS_ROW_GAP
         self._settings_section_headers = []
         self.settings_audio_drill_rect = Rect(pad, y, 0, 0)
+        self.mod_wheel_row_rect = Rect(pad, y, 0, 0)
         self.settings_advanced_header_rect = Rect(pad, y, 0, 0)
         self.brightness_row_rect = Rect(pad, y, 0, 0)
         self.theme_btn_rect = Rect(pad, y, 0, 0)
@@ -492,6 +505,15 @@ class TouchBrowserSettingsMixin:
                 self._audio_settings_summary_lines(),
                 pressed=self._pressed("settings:audio_drill"),
             )
+
+            wheel_rect = getattr(self, "mod_wheel_row_rect", None)
+            if wheel_rect is not None and wheel_rect.h > 0:
+                self._draw_settings_chevron_row(
+                    self._panel_local_to_screen(wheel_rect, scrolled=True),
+                    "Mod wheel",
+                    mod_wheel_target_label(self.fx_policy.global_target),
+                    pressed=self._pressed("settings:mod_wheel"),
+                )
 
             brightness_row = self._panel_local_to_screen(self.brightness_row_rect, scrolled=True)
             self._draw_settings_chevron_row(

@@ -42,10 +42,14 @@ ENABLED=(
 # Installed but deliberately NOT enabled. Present so the file exists for manual
 # start or for a future profile that turns them on.
 #
-# Do NOT add mpe-peak-meter here. It gates on MPE_PEAK_METER inside
+# Do NOT add mpe-peak-meter, mpe-live-monitor or mpe-fx-host here. The meter gates on MPE_PEAK_METER inside
 # start-mpe-peak-meter.sh (exit 0 when off), so it is safe to leave enabled — and
 # listing it ran `systemctl disable` on every deploy, silently switching the OUT
 # meter off again with MPE_PEAK_METER=1 still set and nothing in the journal.
+# mpe-live-monitor gates the same way on MPE_LIVE_MONITOR and is omitted for the
+# same reason.
+# mpe-fx-host gates the same way on MPE_FX_HOST and is omitted for the same
+# reason.
 # A unit that disables itself on each provisioning run is the ghost-unit pattern
 # (Documents/DECISIONS.md 2026-08-15: a state that reads the same broken or fine).
 # mpe-restart-bench is in NEITHER list on purpose. It is a manually-triggered
@@ -83,6 +87,12 @@ DISABLED=(
     #   mpe looper on   ->  systemctl start mpe-sooperlooper mpe-looper-session sl-watchdog
     # See Documents/DECISIONS.md 2026-08-18 and DIRECTION.md D15 (adopt/kill verdict).
     mpe-sooperlooper
+    # mpe-looper-session has no [Install] section since 2026-10-11. udev
+    # starts it when an APC is plugged in (config/99-apc-looper.rules). It
+    # stays in this list because `systemctl disable` removes the leftover
+    # multi-user.target.wants link on appliances that enabled it before then.
+    # Without that, the unit would still start at boot with no APC (one
+    # clean exit 69, no restart loop, but a start for nothing).
     mpe-looper-session
     sl-watchdog
     # Phase 1 snapshot publisher. Installed, not started: measured at 0.39% of a

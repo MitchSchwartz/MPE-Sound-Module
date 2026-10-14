@@ -26,6 +26,20 @@ BPM_MIN = float(os.environ.get("MPE_LOOPER_BPM_MIN", "20"))
 BPM_MAX = float(os.environ.get("MPE_LOOPER_BPM_MAX", "300"))
 MAX_BARS = int(os.environ.get("MPE_LOOPER_MAX_BARS", "8"))
 
+#: A take shorter than this cannot DEFINE the grid. It still loops -- it plays
+#: free-form at its own length -- it just does not become the session's bar.
+#:
+#: The evening of 2026-09-06: five grids in four minutes, defined by takes of
+#: 1.285, 1.084, 1.802, 1.225 and 3.697 s, read as 187, 221, 133, 196 and 130
+#: BPM. The 1.084 s one made the next 7.59 s take land as exactly seven bars,
+#: which is the engine quantizing correctly against a bar that was never a
+#: bar. `derive_tempo`'s only guard was 20-300 BPM, so 221 was accepted
+#: without a word. 1.5 s is one bar of four at 160 BPM: anything shorter is a
+#: fumbled first tap, a two-beat idea, or a tempo no first loop has -- and a
+#: refused take costs one more take, while an accepted one poisons every clip
+#: after it. Env-tunable because it is a musical judgement, not a fact.
+MIN_DEFINING_TAKE_S = float(os.environ.get("MPE_LOOPER_MIN_DEFINING_TAKE_S", "1.5"))
+
 
 #: Bar counts a first take may be read as. Powers of two because that is what
 #: music does: nobody plays a three-bar phrase and then wonders why.
@@ -143,6 +157,9 @@ class GridState:
         #: is what the grid COUNTS.
         self.cycle_s: float | None = None
         self.defined_by: int | None = None
+        #: Why the last `establish` said no, for the caller to log. Cleared by
+        #: the next `arm`. None when nothing has been refused.
+        self.refused: str | None = None
         self._pending: int | None = None
         self._occupied: set[int] = set()
 
@@ -151,6 +168,7 @@ class GridState:
         if self.established or self._pending is not None:
             return False
         self._pending = loop
+        self.refused = None
         return True
 
     def is_pending(self, loop: int) -> bool:
@@ -163,6 +181,17 @@ class GridState:
     def establish(self, loop: int, loop_len: float) -> tuple[float, int] | None:
         """Capture tempo from the defining take. Returns (bpm, bars) or None."""
         if self.established or self._pending != loop:
+            return None
+        if 0.0 < loop_len < MIN_DEFINING_TAKE_S:
+            one_bar = BEATS_PER_BAR * 60.0 / loop_len
+            self.refused = (
+                f"{loop_len:.3f}s is shorter than the {MIN_DEFINING_TAKE_S:.1f}s a "
+                f"defining take needs (it would be 1 bar @ {one_bar:.1f} BPM)"
+            )
+            # Not pending any more: the NEXT take gets to define the grid.
+            # Leaving this one pending would block every later arm, and
+            # nothing would ever establish.
+            self._pending = None
             return None
         derived = derive_tempo(loop_len)
         if derived is None:
@@ -215,36 +244,40 @@ class GridState:
         }
 
     def note_loop_content(self, loop: int, occupied: bool) -> bool:
-        """Track which loops hold audio. Always returns False — see below.
+        """No loop holds audio, no grid. Returns True when that just happened.
 
-        This USED to drop the whole grid when the last clip was cleared, on the
-        rationale "no clips, no grid": otherwise a fresh take gets quantized to
-        the tempo of a grid whose clips are all gone.
+        Mitch, 2026-09-06: *"No clips playing, grid remains. All clips cleared
+        or deleted, grid is deleted."* Stop All pauses, so the clips are still
+        there and the grid stays. Clearing empties the buffers, and an empty
+        session has no tempo.
 
-        Mitch's call, 2026-08-30, and it is his instrument:
+        Never fires before the grid exists or while a defining take is pending;
+        neither is a session with anything to lose. The caller decides what
+        "holds audio" means — see `TrackGesture._holds_audio`.
 
-            "Even if we stop all clips, and even if the second track is two
-            bars compared to the established base unit length that the first
-            recorded clip establishes, we still need to reinitialize with those
-            original settings. They should never be cleared away."
+        HISTORY, because this rule has now been written three times:
 
-        The base unit is a property of the SESSION, not of whichever clips
-        happen to exist right now. Losing it because the pads went empty is how
-        a stable tempo turned into 73.7, then 34.6, then 54.9, then 179.3 BPM
-        across four consecutive takes.
+          2026-08-15 (eb7cae4) — introduced, exactly as above.
+          2026-08-30 (b4446a3) — removed, made to always return False, citing
+            Mitch's *"even if we stop all clips ... they should never be
+            cleared away."* That sentence is about STOP ALL; it was applied to
+            CLEAR as well, which is the whole error.
+          2026-09-06 — restored, and scoped to clear only.
 
-        The tradeoff, stated because it is real: the take after you clear
-        everything is now counted in and length-quantized rather than
-        free-form. Redefining the tempo takes an explicit track reset, which
-        calls `reset()`. That is the only thing that clears a grid now.
-
-        Occupancy is still tracked — callers use it, and it costs nothing.
+        The 2026-08-30 commit also blamed this rule for a tempo that walked
+        73.7 -> 34.6 -> 54.9 -> 179.3 BPM. That diagnosis was wrong. MEASURED
+        2026-09-06: the walk comes from nothing checking the take that DEFINES
+        the grid — a 1.084 s first take was accepted as "1 bar @ 221.4 BPM".
+        Dropping the grid on clear neither caused it nor prevents it.
         """
         if occupied:
             self._occupied.add(loop)
         else:
             self._occupied.discard(loop)
-        return False
+        if self._occupied or not self.established or self._pending is not None:
+            return False
+        self.reset()
+        return True
 
     def mark_phase_zero(self, now: float) -> None:
         """The grid's downbeat is NOW.

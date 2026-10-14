@@ -8,6 +8,8 @@ import struct
 import time
 from pathlib import Path
 
+from patch_browser.fx_policy import FxPolicy
+from patch_browser.patch_fx import PatchFxStore
 from patch_browser.patch_hold import (
     PatchHoldStore,
     effective_aeg_value,
@@ -49,6 +51,8 @@ class PatchLoader:
         hold_store=None,
         pressure_store=None,
         osc_out_port: int = OSC_OUT_PORT,
+        fx_policy: FxPolicy | None = None,
+        fx_store: PatchFxStore | None = None,
     ):
         try:
             from pythonosc import udp_client
@@ -66,9 +70,17 @@ class PatchLoader:
         self.normalization = normalization_store or PatchNormalizationStore()
         self.hold = hold_store or PatchHoldStore()
         self.pressure = pressure_store or PatchPressureStore()
+        self.fx_policy = fx_policy or FxPolicy()
+        # Each patch's effect setup; the policy reads it at load and writes it
+        # back (debounced), resolved patch value first, then the global default.
+        self.fx_store = fx_store or PatchFxStore()
+        self.fx_policy.bind_store(self.fx_store)
         self.osc_host = osc_host
         self.osc_out_port = osc_out_port
         self.user_volume_trim = 1.0
+        # Fixed attenuation after the fader law, in dB. 0 in trim mode; device
+        # mode passes device_volume.DEVICE_MODE_SURGE_TRIM_DB.
+        self._headroom_db = 0.0
         self._patch_gain_linear = 1.0
         self._norm_active = False
         self._loaded_patch_name: str | None = None
@@ -77,9 +89,14 @@ class PatchLoader:
         self._native_poly_limit: int | None = None
         self._effective_poly_limit: int | None = None
 
-    def set_volume(self, volume=1.0):
-        """Set user volume trim (stacks on per-patch normalization baseline)."""
+    def set_volume(self, volume=1.0, *, headroom_db: float = 0.0):
+        """Set user volume trim (stacks on per-patch normalization baseline).
+
+        `headroom_db` is a fixed gain applied after the fader law; every call
+        states it, so leaving device mode for trim mode returns it to 0.
+        """
         self.user_volume_trim = float(volume)
+        self._headroom_db = float(headroom_db)
         return self._send_combined_volume()
 
     def _volume_cap(self) -> float:
@@ -99,7 +116,7 @@ class PatchLoader:
             fader_min=VOLUME_MIN,
             fader_max=VOLUME_MAX,
             norm_active=self._norm_active,
-        )
+        ) * db_to_linear(self._headroom_db)
         try:
             self.osc_client.send_message("/param/a/amp/volume", combined)
             self.osc_client.send_message("/param/b/amp/volume", combined)
@@ -247,6 +264,32 @@ class PatchLoader:
             print(f"Error applying Hold via OSC: {e}")
             return False
 
+    def send_patch_mod(self, value: float, *, final: bool = True) -> bool:
+        """Patch mod fader: set Surge's mod wheel. fx_policy builds the message."""
+        if not self.osc_enabled:
+            return False
+        address, args = self.fx_policy.set_patch_mod(value, final=final)
+        try:
+            self.osc_client.send_message(address, args)
+            return True
+        except Exception as e:
+            print(f"Error sending patch mod via OSC: {e}")
+            return False
+
+    def _resend_patch_mod(self) -> None:
+        """After a load, give Surge the Patch mod fader's value again.
+
+        Surge may not keep its mod wheel across a patch load (unverified), and
+        nothing else re-sends it: switching patches moves neither fader, so the
+        fader's value has to be what the new patch hears. Only with the FX
+        host on (otherwise the knob reaches Surge directly and the fader does
+        not follow it), only once the value is known, and never to a patch
+        with no mod-wheel routing (`patch_mod_locked`: its fader sends nothing).
+        """
+        policy = self.fx_policy
+        if policy.enabled and policy.patch_mod_known and not policy.patch_mod_locked:
+            self.send_patch_mod(policy.patch_mod, final=True)
+
     def refresh_hold(self, patch_name: str) -> bool:
         """Re-apply Hold multiplier to the current patch baseline."""
         if not self.osc_enabled:
@@ -312,6 +355,12 @@ class PatchLoader:
             if not self._capture_hold_baseline(patch_name):
                 print(f"Hold baseline query failed for {patch_name}; using stored values if any")
             self._send_hold_osc(patch_name)
+            # The source file, not the Reuse Single copy: same routings, and
+            # the copy may not exist when the feature is off.
+            self.fx_policy.on_patch_loaded(
+                patch_path, patch_name=patch_name, stable_key=stable_key
+            )
+            self._resend_patch_mod()
             return True
         except Exception as e:
             print(f"Error loading patch via OSC: {e}")

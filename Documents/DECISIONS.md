@@ -1,8 +1,310 @@
 # Engineering decisions log
 
-Dated rows agents and humans can trust over stale specs. Full research lives in
+> **This is a log, not a description of the instrument.** Each row was true when
+> it was written and several have since been overtaken by the code; where that
+> is known a `CORRECTION` note is inline, but **absence of a correction is not
+> evidence a row is current** — it took a full audit to find the four below.
+> Read it for *why* a decision was made, who made it, and what was measured on
+> the day. For what the looper does now, read the code:
+> `Documents/looper-audit-2026-09-07.md` maps which module answers which
+> question. Never change code to match a row here.
+
+Dated rows recording decisions as they were made. Full research lives in
 OM-Repo [`internal/projects/mpe-synth-launch/research/`](https://github.com/opsMachine/OM-Repo/tree/main/internal/projects/mpe-synth-launch/research).
 Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md).
+
+---
+
+## 2026-09-07 — The count-in eats what you play before the bar; the surface called every good take a failure
+
+Mitch, 2026-09-07: *"the second column doesn't seem to record the initial
+loop only the after loop, and it happens no matter what order I do it and
+whether it's the second loop or the first one."*
+
+**The symptom is the count-in, and it is not column-specific.** From the
+appliance journal, press to actual RECORDING:
+
+| press | recording began | swallowed | grid |
+|---|---|---|---|
+| 15:22:48.094 | 15:22:48.149 | 0.06 s | none — defining take |
+| 15:24:21.258 | 15:24:21.324 | 0.07 s | none — defining take |
+| 15:23:10.716 | 15:23:11.288 | 0.57 s | 3.62 s cycle |
+| 15:23:21.601 | 15:23:22.157 | 0.56 s | 3.62 s cycle |
+| 15:24:27.710 | 15:24:29.980 | **2.27 s** | 2.18 s cycle |
+
+With no grid the take starts in ~60 ms. With a grid the pad arms
+(WAIT_START) and the engine records nothing until the next bar line, so
+everything played in that window is gone. The wait is however far the press
+lands from the bar, up to a full cycle. What survives is what is played
+after the bar plus whatever the ring-out overdub catches, which is exactly
+"only the after loop". The column is irrelevant: the variable is whether a
+grid exists yet. This is the designed count-in ("Later clips count in and
+quantize"), working as specified. Whether it should behave that way is a
+musical question and is **open** — no code changed for it.
+
+**The surface reported every successful take as a failure.** Closing a take
+drops the loop into the ring-out overdub, so it enters ACTIVE_PLAY twice —
+OVERDUBBING when the take closes, PLAYING when the ring-out ends — and
+`SlotSurface._maybe_mark_recorded` runs on both. The first registered the
+take; the second found the slot legitimately occupied and logged *"engine
+reached PLAYING but the take was NOT registered — slot N already holds a
+take ... The pad will read empty and the next press will record again."*
+MEASURED: 6 of 6 successful takes in the session, each followed by that
+line. Every word false. It is the house bug shape once more — a reading
+identical whether the appliance is fine or broken, here inverted — and it
+sent this investigation at the wrong target until the timestamps corrected
+it. Fixed by remembering which slot the buffer's current content was
+registered into, dropped the moment the track records again. Not keyed on
+take length: on a grid every take is exactly one cycle, so lengths cannot
+tell two takes apart. The genuine case it was written for — a take reaching
+PLAYING while the bound slot holds different audio — still reports, and has
+a test.
+
+---
+
+## 2026-09-07 — The deploy is gated on CI; the fader path is observable; a short take cannot define the grid
+
+**Gate.** `scripts/ci_gate.py` asks GitHub's check-runs API whether the commit
+about to be deployed has a completed, successful run of every job in
+`.github/workflows/test.yml` — `unittest`, `engine`, `shell-tests`. A run in
+progress is waited for (15 min); a red job, a missing job, a commit GitHub
+has not seen, or an API it cannot reach is a refusal. Two callers: `mpe looper
+deploy` runs it on the Pi **before** `git reset`, from the target commit's own
+copy of the script, so the checkout never moves for an ungated commit
+(mpe-cli branch `feat/deploy-ci-gate`, awaiting merge); `scripts/looper-deploy.sh`
+runs it again after the reset and refuses to restart anything, printing the
+`ORIG_HEAD` rollback. `MPE_DEPLOY_SKIP_CI_GATE=1` skips both and says so.
+The repo is public, so no token is needed. A gate that passes when it cannot
+see is not a gate: exit codes 1, 2 and 3 all mean "do not deploy".
+
+**Faders.** `LoopMix.seed_from_engine` returns what it decided (`SEED_ECHO`,
+`SEED_ECHO_SENT`, `SEED_NEAR`, `SEED_ADOPTED`, `SEED_UNKNOWN_LOOP`) and the
+bench logs every fader move (`bench: fader col N cc=V -> loop0=0.8123`) and
+every adoption. Three hours of the 2026-09-06 journal held zero fader lines
+while a level regression was being reported; that cannot recur. Off with
+`MPE_APC_FADER_LOG=0`. The one real-engine test the path never had is in
+`tests/engine`: production's messages, `wet` reads back, the loop keeps
+PLAYING, the neighbour is untouched, the master reaches every loop.
+
+**Defining take.** `MPE_LOOPER_MIN_DEFINING_TAKE_S` (default 1.5 s, one bar
+of four at 160 BPM). A shorter first take plays free-form and does **not**
+become the bar; the gesture logs `!! take NOT accepted as the grid's defining
+take — 1.084s ... (it would be 1 bar @ 221.4 BPM)` and the next take defines.
+Of the five grids established on the evening of 2026-09-06, four are now
+refused and the 1.802 s and 3.697 s ones stand. `derive_tempo` is untouched;
+this is a rule about *defining*, not arithmetic. A musical judgement, so it is
+an environment variable, not a constant.
+
+**Engine claims pinned the same day** (`tests/engine`, 20 tests): a take held
+2.5 cycles lands as 3; `overdub` while RECORDING closes the take on the bar;
+`overdub` on a playing loop toggles at once even under quantize; the
+one-argument `load_loop` is discarded and the three-argument form lands a
+PAUSED clip at position 0; with `smart_eighths` on, **every** `set tempo`
+under 60 BPM doubles `eighth_per_cycle` again (8 → 16 → 32), which is why
+`sl_grid_sync` turns it off first.
+
+**cloud-init.** `cloud-init status` on the SD image said `error — Failed due
+to systemd unit failure`. No unit had failed. `apply-appliance-hygiene.sh`
+disabled the four classic cloud-init units; Raspberry Pi OS trixie's
+cloud-init 25.2 runs as `cloud-init-main` plus a network stage, which the
+script did not know, so the local and network stages ran every boot and the
+config and final stages never did. cloud-init touches no NetworkManager
+profile (the link-local eth0 fix is on disk and survives it). The script now
+disables the two newer units too and writes `/etc/cloud/cloud-init.disabled`,
+the documented off switch. Not a crash factor. Applied to the SD image and
+**verified by a warm reboot at 13:21**: `cloud-init status` → `disabled`, eth0
+came up link-local on its own, `mpe-sooperlooper`, `mpe-looper-session` (on
+b553f20), `mpe-netconsole` and the crash-probe timer were active 30 s after
+boot, the previous boot's journal was still there, no unit failed. That is
+the first time the boot path enabled this morning has been seen to work.
+
+**sl-health after an engine restart.** The first deploy of b553f20 failed at
+`sl-health`: "no reply from loops [8, 9] reading rec_thresh/dry", seconds
+after `sl-restart`. The same probe passed 3 of 3 within the minute and 3 of 3
+on the next three restarts — 1 false FAIL in 4. `check_loops_writable` now
+asks a silent loop once more after 2 s and names the loops that answered only
+on retry; a loop silent through the retry is still unreachable, and a phantom
+(reads, drops writes) is still a phantom.
+
+**systemd owns the engine.** Enabling `mpe-sooperlooper.service` at boot this
+morning changed who owns the engine, and `restart-sooperlooper.sh` had not
+heard: it still stopped the unit and launched a manual engine ("manual bench
+owns the engine"). MEASURED on the first deploy after the reboot,
+13:26:03–13:26:26: the session restart pulled the unit back in (`Wants=`),
+`run-sooperlooper.sh` reaped the manual engine as a stray, the unit's graph
+verify failed against the half-torn-down graph, `Restart=always` brought a
+third engine up five seconds later, and the freshly restarted session sat on
+a dead engine for six seconds. `sl-restart` now restarts the unit when it is
+enabled and waits for its graph; the manual path remains for hosts without
+the unit or with it disabled (the pre-09-07 opt-in layout).
+
+**The hygiene script and the gadget.** `apply-appliance-hygiene.sh --dry-run`
+under `sudo` on the SD image answered *would: systemctl disable --now
+usb-audio-gadget.service*. Two faults: it asked "is the profile usb-host?" of
+an environment `sudo` strips of every `MPE_*` variable, and the real answer in
+`/etc/mpe/mpe.env` is `standalone` with `MPE_USB_GADGET_PERSIST=1`, the gadget
+enabled and active by design, which that question never considered. The
+decision now belongs to `scripts/lib/gadget-persist.sh`, the same library
+`setup-usb-audio-gadget.sh` asks at boot, fed from the env file when the
+environment is bare; an unreadable answer keeps the gadget. Of the other
+three "unapplied" items the dry run listed, the v3d blacklist, the IRQ
+affinity and the manager stop timeout were in place (the script printed
+"would: install" unconditionally; it now says "already installed"). WiFi
+powersave was really on: `nmcli dev set` is a runtime setting a reboot
+forgets, so the script now also persists it on every wireless profile.
+`tests/test_appliance_hygiene.sh` runs the real script in dry-run against
+fake tools for six cases.
+
+---
+
+## 2026-09-07 — The real engine is in the test suite; what it said on day one
+
+`tests/engine/` runs SooperLooper 1.7.9 (the appliance's version, with its
+liblo 0.32 patch, on Debian trixie like the Pi) on a headless JACK dummy
+backend in a container, launched as `run-sooperlooper.sh` launches it, and
+drives it with the production grid code (`GridState.establish`,
+`apply_established_grid`, `stop_all_loops`). Opt-in with `MPE_ENGINE_TESTS=1`;
+a CI job builds the image and runs it on every push. Real time inside: a clip
+on the grid costs a cycle of wall clock, on purpose.
+
+**Rule from here:** a claim about what the engine does is a test in
+`tests/engine/`, or it is a guess. Comments that say MEASURED name the test.
+
+**What the engine said on the first day**, each pinned as a test:
+
+- A `record` hit while WAIT_START is **ignored** — not a cancel, not the stop.
+  `test_gesture_against_engine.py` said "would reach the engine as CANCEL";
+  the bench's rule (never send while pending) stands, its reason was wrong.
+- A muted empty loop reads 20, and `undo_all` does **not** lift the mute; only
+  `mute_off` does. That is why `EMPTY_STATES` has two members.
+- On the established grid a mid-bar `record` waits for the bar and lands
+  exactly one cycle long — the two numbers `fake_sl_engine.boundary()` is
+  handed. With `sync_source` NONE neither happens; the harness's reset now
+  sends the appliance's startup configuration for that reason.
+- **Stop All, as `stop_all_loops` sends it, does not pause a grid clip: 0 of 5
+  bar phases.** The same burst without its `trigger` pauses 5 of 5, stays
+  paused through the settle's quantize restore, and `trigger` at launch plays
+  from the top anyway — the rewind the `trigger` was added for on 2026-08-30.
+  The 2026-09-06 "restore overtakes the hit" hypothesis is refuted (no restore
+  is sent in the failing case). `settle_stop_all`'s corrective `pause_on` is
+  what stops the appliance today, a second late. Pinned as an
+  `expectedFailure` until the `trigger` goes.
+- Launch: `trigger` alone from PAUSED waits for the bar and starts from the
+  top; `pause_off` resumes at once from wherever the clip stopped. Production
+  launches with `("pause_off", "trigger")` (`slot_runtime.LAUNCH_COMMANDS`,
+  `loop_model`, `looper_songs`), which is the 2026-08-30 "came back mid-loop"
+  measurement, explained. **Done the same day:** Stop All sends `mute_on`,
+  `pause_on` and no `trigger`; every launch path sends `trigger` alone
+  (`slot_runtime.LAUNCH_COMMANDS == ("trigger",)`, `loop_model`,
+  `looper_songs`). The fake engine now models `pause_off` as measured
+  (PAUSED → PLAYING at once). The known-bad burst stays in `tests/engine` as
+  a test that asserts the clip keeps PLAYING, so a reintroduced `trigger`
+  fails there rather than on stage. The `expectedFailure` is gone: 14 engine
+  tests pass, 2053 unit tests pass.
+
+---
+
+## 2026-09-07 — The appliance journal is persistent; the looper comes up at boot
+
+**Journal.** After this morning's reboot the SD image had one boot in
+`journalctl --list-boots` and an empty `/var/log/journal`: last night's looper
+session, the Stop All failure at 23:59:05, the fader-regression window and two
+screen crashes were erased. The journal is the only instrument that has ever
+caught a looper regression on the appliance. `Storage=persistent`, capped at
+200 MB, is now written by `bootstrap-pi5-looper.sh` on every deploy.
+`docs/STORAGE-ROBUSTNESS.md` Phase 1 item 3 still wants a volatile journal for
+the shipped product (SD writes share IRQ 41 with the WiFi); that remains the
+product stance, this is the development stance, and the cost on IRQ 41 is
+unmeasured.
+
+**Boot.** `mpe-sooperlooper` and `mpe-looper-session` are enabled on the SD
+image at Mitch's request (2026-09-07), superseding the 2026-08-18 opt-in whose
+motivating measurement `install-units.sh` already marks VOID. This is
+`systemctl enable` on one box; the installer still ships them opt-in.
+`sl-watchdog` was left as it was (disabled).
+
+**Full-Pi crashes (two since 2026-09-06), instruments only.** Mitch: the
+crashes were the whole Pi, not the screen. Nothing survived them: the journal
+was volatile, there is no pstore, no coredump, and `wtmpdb` has no boot
+history. This boot's evidence is clean (`get_rsts=1000`, a power-on reset —
+consistent with a power cycle; no mmc, USB, OOM or lockup messages; 5.0 V on
+EXT5V; 67 °C; RT throttling on; the hardware watchdog armed at 60 s, which
+means a kernel that stopped scheduling would have rebooted itself within a
+minute). Three instruments were installed on the SD image for the next one:
+`SyncIntervalSec=15s` on the journal (bootstrap owns it); `mpe-crash-probe.timer`
+writing one health line a minute (temp, load, throttle flags, 5 V rail,
+free memory — two forks per run); and `mpe-netconsole.service`, kernel
+messages over the lab cable to the laptop (`~/mpe-netconsole.log`, listener
+`mpe-netconsole.service` in the user manager). The netconsole path is blocked
+by the laptop's ufw until `sudo ufw allow in on enx000010022734 to any port
+6666 proto udp` is run. The probe and netconsole units live only on the
+appliance (`/etc/systemd/system/mpe-crash-probe.*`, `mpe-netconsole.service`,
+`/usr/local/sbin/mpe-crash-probe.sh`); remove with `systemctl disable --now`
+when the investigation closes.
+
+**Lab cable.** `raspberrypi5.local` "timing out" was never the WiFi. The Pi's
+Ethernet port is cabled to the laptop's USB-ethernet dongle (link-local on the
+laptop side), and the Pi's `Wired connection 1` profile was DHCP: MEASURED in
+NetworkManager's journal, the lease timed out every 45 s, the activation
+failed, the IPv6 link-local was withdrawn and re-announced, four times, then a
+five-minute pause, all day. The laptop's resolver handed ssh that address
+without a scope. IPv4 mDNS over WiFi was measured working in both directions.
+Fix on the SD image: `Wired connection 1` is `ipv4.method link-local`,
+`ipv6.method link-local` (matching the laptop's profile; `ipv4.link-local=
+fallback` on NM 1.52 did not rescue the activation). The USB image still has
+the DHCP profile. Rollback is `ipv4.method auto ipv6.method auto`. If the
+Ethernet port is ever meant for a real LAN, this is the decision to revisit.
+
+---
+
+## 2026-09-06 — Stop keeps the grid, clear drops it (supersedes the 2026-08-30 code change)
+
+**Decision (Mitch, 2026-09-06):** *"If we clear all clips, then the grid should
+be cleared. If we stop all clips, that's different. That might have been where
+the confusion came from."*
+
+It was. On 2026-08-30 `b4446a3` made `GridState.note_loop_content` always return
+`False`, so nothing but an explicit track reset could clear a grid. The
+justification was Mitch's line *"even if we stop all clips ... they should never
+be cleared away"* — a sentence about **Stop All**, applied to **clear**.
+
+**That change never reached this file.** The "No clips, no grid" rule below
+(2026-08-15) stayed written while the code did the opposite for a week. The log
+was right and the code was wrong, which is the wrong way round for a document
+that exists to be trusted over the source.
+
+**The rule, restored and now scoped:**
+
+| Gesture | Engine result | Grid |
+|---|---|---|
+| Stop All | loops with audio → `PAUSED` (14) | **kept** — the session still has clips |
+| Clear last clip (pad hold) | loop → `OFF` (0) | **dropped** — next take defines a new one |
+| Track reset (Shift+StopAll long) | all loops → `OFF` | **dropped** |
+
+Told apart by engine state, never by bench bookkeeping, so it stays true however
+the clips were cleared.
+
+**Two traps, both measured on the appliance 2026-09-06, both now pinned by tests:**
+
+1. `stop_all_loops` sends `mute_on` to `/sl/-1`, so **every loop that never held
+   a take reports `OFF_MUTED` (20), not `OFF` (0)**. Observed: at the Stop All,
+   loops 1-14 each reported 20 exactly once; loop 0, the one with audio, never
+   did. Classifying occupancy as `!= SL_STATE_OFF` would count fourteen empty
+   pads as occupied and no clear could empty the session again. Ask
+   `sl_loop_states.EMPTY_STATES`, never a single code.
+2. Under multigrid, `slot_runtime._execute_slot_ops` sends `undo_all`
+   immediately before a re-record, so a loop passes through `OFF` on its way
+   **into** a take. The drop is therefore gated on there being no unanswered
+   intent (`TrackGesture._pending`): empty **and** idle is a clear; empty with a
+   record outstanding is not.
+
+**Not fixed here, and it is the bigger one.** The tempo walk blamed on this rule
+in the 2026-08-30 commit (73.7 → 34.6 → 54.9 → 179.3 BPM) has a different
+cause: nothing sanity-checks the take that DEFINES the grid. Measured the same
+evening — a 1.084 s first take was accepted as "1 bar @ 221.4 BPM", and the next
+7.59 s take landed as exactly seven cycles. The only guard is
+`20 <= bpm <= 300`. See
+[`Documents/reviews/why-the-looper-bugs-recur-2026-09-06.md`](reviews/why-the-looper-bugs-recur-2026-09-06.md).
 
 ---
 
@@ -163,6 +465,10 @@ uses the same **stop-then-weld** path:
 1. **Stop** — pad sends `record` stop; length fixes immediately (clip 0) or at the
    quantised bar (grid clips).
 2. **Tail pass** — parallel record on scratch loop 15 while main loop plays at fixed N.
+   <!-- CORRECTION 2026-09-07: superseded. a99cf63 deleted this pipeline; there
+   is no scratch loop. The take closes into one in-place overdub. Also settles
+   the loop 14 vs 15 discrepancy elsewhere in this file: neither, there is no
+   scratch buffer and all 15 loops are tracks. -->
 3. **Weld once** — offline merge at wrap seam; no second copy of release already in the buffer.
 
 **Why:** Tier 2 duplicated release, did not stop on the pad, and was an AI compromise —
@@ -171,7 +477,10 @@ not Mitch’s model. Ear-failed on Pi 2026-08-18–19.
 **Defaults:** `MPE_SL_TAIL_CAPTURE=1`, `MPE_SL_SEAM_WELD=1`. Set `MPE_SL_SEAM_WELD=0`
 for stop-only (no reload merge) while tuning latency.
 
-**Canon:** `Documents/specs/looper-loop-seam-spec.md` §Stop-then-weld.
+**Canon was** `Documents/specs/looper-loop-seam-spec.md` §Stop-then-weld — a file
+deleted 2026-09-07 describing a pipeline deleted in `a99cf63`. Neither
+`MPE_SL_SEAM_WELD` nor the scratch loop exists. The ring-out is captured in place
+by `scripts/sooperlooper/tail_phase.py`.
 
 ---
 
@@ -502,7 +811,17 @@ since `8d7a426` was never needed.
 **Correction 2026-08-15 — the unit is fixed at one bar, deliberately.** This
 entry originally claimed `eighth_per_cycle` was "sized to the first take". It is
 not: it is set to 8 once at startup and never changed, so the quantize unit is
-always one bar. That is the *correct* behaviour — clips count in to the next
+always one bar.
+
+> **CORRECTION 2026-09-07 — this sentence has been false since 2026-08-30.**
+> `eighth_per_cycle` is `8 * bars`, written on every grid establishment by
+> `sl_grid_sync.establish_grid_clock`. The quantize unit is therefore **the
+> whole first take**, not one bar of it: a four-bar defining take means later
+> clips join every four bars. Pinned by
+> `tests/test_sl_grid_sync.TheQuantizeUnitIsTheWholeTakeTests`. The paragraph
+> below describes the world as it stood two weeks before it was read.
+
+ That is the *correct* behaviour — clips count in to the next
 **bar**, not to the end of a multi-bar phrase — but it was true by accident
 rather than by decision, and the canon asserted a mechanism that does not exist.
 `derive_tempo` still returns `bars`, and `on_grid_established` still ignores it.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -44,11 +45,10 @@ class LoadTracker:
         self.surge_monitor = surge_monitor
         self.meter_mode = (meter_mode or os.environ.get("MPE_POLY_GOVERNOR_METER", "auto")).strip().lower()
         self.meter_max_age_s = meter_max_age_s
-        env_base = os.environ.get("MPE_POLY_JACK_BASELINE", "-1").strip()
-        try:
-            self._baseline_env = float(env_base) if jack_baseline is None else jack_baseline
-        except ValueError:
-            self._baseline_env = -1.0
+        # The baseline is set in one place (surge_poly_governor
+        # DEFAULT_JACK_BASELINE / MPE_POLY_JACK_BASELINE via GovernorConfig) and
+        # handed in. None or < 0 means learn it from the first samples.
+        self._baseline_env = -1.0 if jack_baseline is None else float(jack_baseline)
         self._baseline_learned: float | None = None
         self._baseline_window: list[float] = []
         self._baseline_logged = False
@@ -183,9 +183,13 @@ class LoadTracker:
         try:
             value = float(raw)
         except ValueError:
+            # Includes the meter's own "invalid" marker.
             return None, None
-        clamped = max(0.0, min(100.0, value))
-        return clamped, clamped
+        # jack_cpu_load() is 0-100. Anything else is a broken instrument, and a
+        # clamp would turn it into a plausible reading (#154). Treat it as stale.
+        if not math.isfinite(value) or value < 0.0 or value > 100.0:
+            return None, None
+        return value, value
 
     def _read_proc_cpu(self) -> float | None:
         if self.cpu_monitor is not None:

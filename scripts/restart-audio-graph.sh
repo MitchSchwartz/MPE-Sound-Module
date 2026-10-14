@@ -186,9 +186,8 @@ fi
 
 if mpe_restart_audio_graph; then
     echo "restart-audio-graph: restarted $UNIT"
-    # shellcheck source=lib/dac-volume.sh
-    source "$SCRIPT_DIR/lib/dac-volume.sh"
-    mpe_apply_dac_volume || true
+    # Output level is not set here: the touch UI rebinds on the new jack.state
+    # (patch_browser/device_volume.py), per device, after ALSA's own restore.
 else
     echo "restart-audio-graph: FAILED to restart $UNIT" >&2
     exit 1

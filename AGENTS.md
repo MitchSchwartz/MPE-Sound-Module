@@ -34,7 +34,20 @@ to write a value of this kind, stop and put it somewhere else.
 
 **Product:** Raspberry Pi MPE sound module (Surge XT headless + patch browser UI).
 
-**Before looper / Phase 2 work:** [`Documents/DIRECTION.md`](Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](Documents/DECISIONS.md) · OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md)
+**Before looper work — the code is the documentation.** No document in this repo
+describes what the looper does, and several state the opposite of what it does.
+Start at [`Documents/looper-audit-2026-09-07.md`](Documents/looper-audit-2026-09-07.md),
+which maps which module answers which question, then read that module. Timing
+(does an action wait for the boundary?) is `scripts/sooperlooper/looper_timing.py`
+and nowhere else; routing (what a control does on which edge) is
+`scripts/sooperlooper/binding_table.py` and nowhere else. Both refuse a second
+opinion, in the test suite and at import.
+
+[`Documents/DIRECTION.md`](Documents/DIRECTION.md) and
+[`Documents/DECISIONS.md`](Documents/DECISIONS.md) are history: read them for
+*why* something was decided and what was measured, never for what is true now.
+Everything in `Documents/specs/` is stamped HISTORY for the same reason.
+Phase 2 direction also in OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md).
 
 **Before adding any polling loop, watchdog tick, or timer:** CPU is the scarcest resource
 on this appliance — a `python3` fork is ~400 ms on the Pi, so once every 5 s is **9% of a
@@ -54,24 +67,36 @@ core, forever**. Compute cost × cadence and put it in the PR. Rules and measure
 3. **Never raise a level to diagnose silence.** If you expect sound and hear none, the cause is almost always routing, a stopped service, or a wrong device — not gain. Turning it up to find out is exactly how the damage happens. Check `mpe-yolo jack-status`, `osc-check`, and the unit states first.
 4. **Restore any level you change**, and say in your summary that you changed it.
 
-**There are three gain stages in series.** A level that is safe at one is not safe end to end:
+**There are four gain stages, plus the opt-in FX insert, and they are not all in series.** A level that is
+safe at one is not safe end to end:
 
-| Stage | Control |
-|---|---|
-| Surge patch output | OSC `/param/a/amp/volume`, `/param/b/amp/volume` (UDP 53280) |
-| Looper | `MPE_SL_LOOP_GAIN`, `MPE_SL_LOOP_GAIN_LAW` |
-| Hardware mixer | `MPE_DAC_VOLUME_DB` in `/etc/mpe/mpe.env` → `scripts/set-dac-volume.sh` (`amixer` on Sound Blaster **Speaker**) |
+| Stage | Control | Reaches |
+|---|---|---|
+| Surge patch output | OSC `/param/a/amp/volume`, `/param/b/amp/volume` (UDP 53280) | everything — it is upstream of the fan-out |
+| FX insert (opt-in, `MPE_FX_HOST`) | `native/mpe-fx-host`, UDP 9958 (`patch_browser/fx_host_protocol.py`) | the trunk: playback and every loop input. The OUT meter reads after it (`mpe-peak-meter` taps the fan-out source), so its level and clip latch include these peaks and the clamp. Enabled effects run in series (Drive → Auto-wah → Phaser → Flanger → Chorus → Rotary → Tremolo; ids are append-only, the rotary 5 and the auto-wah 6), each at the shared depth times its own level (0–1, per patch; all 1 is the old single depth). Mixes toward wet, never on top; a static gain per knob position (no limiter) gives back the mix's loss on keys, then one makeup gain per chain (`FX_MAKEUP_DB`, +1 dB × the loudest enabled effect's depth, set in `fx_dsp.h` only): any effect alone reads the input + makeup within 0.3 dB on keys, any chain −0.6…+1.35 dB around it (the self-test's bounds); other material differs (narrow tones up to +2.5 dB over). Peaks exceed the input (at full, on the worst test signal: chorus +4 dB, tremolo +4.4, rotary and auto-wah +6, phaser +7, flanger +7.4, all seven +16.7); keys at −9 dBFS (device mode) clamp in no mask, worst −0.5 dBFS. Clamped to ±1.0; depth 0 or no effect enabled is the input unchanged |
+| Live monitor | `native/mpe-live-monitor`, driven by `scripts/sooperlooper/live_monitor.py` (UDP 9957) | what you hear yourself at, never what is captured |
+| Looper | `MPE_SL_LOOP_GAIN`, `MPE_SL_LOOP_GAIN_LAW`, per-loop `wet` via `loop_mix.py` | loop playback only |
+| Hardware mixer | Bound DAC's playback element, owned by `patch_browser/device_volume.py` | everything |
 
-**Hardware output is the Sound Blaster Play! 3** (card index varies by hotplug — scripts detect by name). The playback control is **`Speaker`** — there is no `PCM` control on this card. Scale **0–88 raw**, dB ≈ `(raw − 88) × 0.5`. Appliance default: **`MPE_DAC_VOLUME_DB=-12`** (raw **64**). Previous defaults: 76 (−6 dB), 48 (−20 dB).
+**Surge's output fans out; it is not a chain.** `Surge XT:out_N` goes to
+`system:playback_N` (what you hear) *and* to every `mpe-looper:loopM_in_N` (what
+gets captured) from the same port. That is why a gain stage can sit on the
+monitor branch and leave the capture untouched, and why `MPE_LIVE_MONITOR=1`
+inserts `mpe-live-monitor` between Surge and playback rather than upstream of
+the split. Two consequences worth holding on to: a take is always captured at
+full scale no matter what you were monitoring at, and **both paths must never be
+connected at once** — direct *and* through the insert is two copies of your live
+playing, the same fault a loop with `dry > 0` produces.
 
-Treat the **dB figure as the real number**, not the percentage — `amixer`'s percentage is not perceived loudness. Read or set via:
+**The Vol fader is the DAC level when the bound card allows it.** Exactly one writable, dB-carrying, playback-only volume element → *device* mode: the fader sets that element, and Surge's trim is fixed at **−6 dB** (`DEVICE_MODE_SURGE_TRIM_DB` in `device_volume.py`, the only place it is set). That is headroom: normalization calibrates single notes to −18 LUFS / −3 dBTP, and live chords with pressure plus the FX host's added peaks reached 0 dBFS at unity (2026-09-13 to 2026-10-11). The DAC's analogue range makes the 6 dB up; the stored DAC level is deliberately *not* raised on upgrade, because a jump in loudness is the dangerous direction — raise the fader. Anything else → *trim* mode (the old Surge trim, unchanged). Measured 2026-09-13: FiiO KA1 `PCM` (−63.5..0 dB) and Sound Blaster `Speaker` (−44..0 dB) are device; Scarlett 4i4 (four `Line` volumes) is trim.
 
-```bash
-./scripts/set-dac-volume.sh --show
-./scripts/set-dac-volume.sh   # applies /etc/mpe/mpe.env
-```
+Levels are remembered per USB model in `~/.patch_browser_device_volume.json` (dB). A model never seen starts at **`MPE_DAC_VOLUME_DB`** (default **−12**). The UI rebinds on every new `jack.state` — after ALSA's own `90-alsa-restore.rules`, which otherwise re-imposes a stale saved level on every plug.
+
+Treat the **dB figure as the real number**. The fader position is ALSA's perceptual mapping (what alsamixer and `amixer -M` show), not raw steps. Read on the Pi via `amixer -c <card> contents`.
 
 **Loops sum.** A per-loop gain that is fine alone is not fine with 16 playing at once. Bring level up *after* the loops are running, never before.
+
+**Measurement harnesses make sound too.** They load patches only through `scripts/load-patch-osc.py` (the UI's volume path, so the device-mode trim holds), play only through `patch_browser/measure_midi.py` (velocity 20 unless `--velocity`, member channels only, at most 15 voices), and edit `/etc/mpe/mpe.env` only through `scripts/lib/measure-env.sh` (writes only on a real change, restored byte for byte by the exit trap). Do not add a second copy of any of the three.
 
 **You cannot infer the output device.** Cards 0 (Pi headphone jack), 2 and 3 (HDMI) also exist. Which one reaches Mitch's ears is not visible from the appliance — assume the worst case.
 
@@ -94,8 +119,8 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 | `mpe record [file] [fps]` | Touch UI screen capture |
 | `mpe pull-videos [-o DIR] [--delete-source]` | Download demo videos |
 | `mpe restart surge\|touch\|all` | Restart fixed systemd units |
-| `mpe looper sl-clips [local\|pi]` | SooperLooper eval: generate 16 fixture WAVs (default: pi) |
-| `mpe looper sl-smoke [local\|pi]` | SooperLooper eval: 16-loop load/trigger smoke (default: pi) |
+| `mpe looper sl-clips [local\|pi]` | SooperLooper eval: generate 15 fixture WAVs (default: pi) |
+| `mpe looper sl-smoke [local\|pi]` | SooperLooper eval: 15-loop load/trigger smoke (default: pi) |
 | `mpe looper sl-restart [local\|pi]` | Restart SooperLooper on JACK + wire record path (default: pi) |
 
 **Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `pull-videos` (skip `--delete-source` for zero writes), `looper sl-clips local` (fixture generation only).
@@ -204,7 +229,10 @@ Repo path on Pi: `~/MPE-Module` (override via `MPE_MODULE_REPO` in `/etc/mpe/mpe
 | Topic | Doc |
 |-------|-----|
 | **Code map (function-level, boot/lifecycle)** | [`docs/CODE-MAP.md`](docs/CODE-MAP.md) |
-| **Phase 2 direction + locked decisions** | [`Documents/DIRECTION.md`](Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](Documents/DECISIONS.md) |
+| **What the looper does** | the code — [`Documents/looper-audit-2026-09-07.md`](Documents/looper-audit-2026-09-07.md) maps it |
+| **When an action takes effect** | `scripts/sooperlooper/looper_timing.py` (the only place) |
+| **What a control does** | `scripts/sooperlooper/binding_table.py` (the only place) |
+| Phase 2 direction + why decisions were made (history) | [`Documents/DIRECTION.md`](Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](Documents/DECISIONS.md) |
 | Git branches + Pi testing | [`docs/GIT-WORKFLOW.md`](docs/GIT-WORKFLOW.md) |
 | Paths / env vars | [`docs/PATHS.md`](docs/PATHS.md) |
 | USB desk tether (`usb-host`) | [`docs/USB-AUDIO-HOST.md`](docs/USB-AUDIO-HOST.md) |
@@ -224,6 +252,12 @@ python3 -m unittest discover -s tests -q
 ```
 
 Run before opening PRs to `dev`.
+
+The FX DSP self-test (`native/mpe-fx-host`, about 30 s on 16 cores) is skipped
+when its sources hash to a run that already passed on this machine
+(`~/.cache/mpe-fx-selftest/`). The skip prints its reason; it is not a pass.
+`FX_SELFTEST_FORCE=1` runs it, `FX_SELFTEST_JOBS=1` runs it serially, and CI
+runs it in its own `fx-selftest` job only when the FX code changes.
 
 ### Never ask Mitch to run a test you could have run yourself
 
