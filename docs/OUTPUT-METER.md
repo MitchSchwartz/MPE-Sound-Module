@@ -27,7 +27,7 @@ means "can you hear yourself play" (`sl-watchdog`). Neither depends on where
 the meter listens.
 
 The meter is still pre-hardware-mixer: in device mode the Vol fader moves the
-DAC, after the meter, and Surge sits at a fixed −6 dB
+DAC, after the meter, and Surge sits at a fixed −9 dB
 (`DEVICE_MODE_SURGE_TRIM_DB`) to leave headroom for chords and effects.
 
 ---
@@ -113,5 +113,5 @@ Per the appliance's own measurement habit: the stub run is the experiment, the m
 
 - Does the touch UI have screen space, or does the meter need a mode/overlay?
 - Should it read pre- or post-`amixer`? The tap above is **pre**-hardware-mixer, so it shows what the software graph produces, not what leaves the DAC. Post-mixer level cannot be measured in JACK at all — worth stating on the UI so the reading is not misread as speaker output.
-- **Vol fader vs DAC:** on a card with one unambiguous hardware volume the touch **Vol** fader *is* the DAC level (post-graph, so this meter does not move with it) and Surge sits at a fixed −6 dB; otherwise it trims Surge `amp/volume`. See `patch_browser/device_volume.py`.
+- **Vol fader vs DAC:** on a card with one unambiguous hardware volume the touch **Vol** fader *is* the DAC level (post-graph, so this meter does not move with it) and Surge sits at a fixed −9 dB; otherwise it trims Surge `amp/volume`. See `patch_browser/device_volume.py`.
 - Peak only, or peak + RMS/LUFS? Peak answers "am I clipping"; RMS answers "is this patch as loud as that one". The stated need is both, so probably both bars.
