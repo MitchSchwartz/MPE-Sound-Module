@@ -100,7 +100,7 @@ def _trim_expected(level: float, loader: PatchLoader) -> float:
 
 class HeadroomConstant(unittest.TestCase):
     def test_it_is_six_db_down(self):
-        self.assertEqual(dv.DEVICE_MODE_SURGE_TRIM_DB, -6.0)
+        self.assertEqual(dv.DEVICE_MODE_SURGE_TRIM_DB, -9.0)
 
     def test_it_is_set_in_one_place(self):
         """One authority: no second literal headroom anywhere in the code."""
@@ -125,11 +125,11 @@ class DeviceMode(unittest.TestCase):
                 self.assertEqual(device.positions, [level], "the fader still moves the DAC")
 
     def test_normalization_gain_is_unchanged_underneath(self):
-        """+6 dB of norm gain and -6 dB of headroom: unity, not a re-clamped gain."""
-        loader = _loader(norm_gain_db=6.0)
+        """+9 dB of norm gain and -9 dB of headroom: unity, not a re-clamped gain."""
+        loader = _loader(norm_gain_db=9.0)
         Browser(loader, FakeDevice(active=True))._apply_volume(0.5)
         self.assertAlmostEqual(loader.osc_client.amp(), 1.0, places=12)
-        self.assertAlmostEqual(loader._patch_gain_linear, db_to_linear(6.0))
+        self.assertAlmostEqual(loader._patch_gain_linear, db_to_linear(9.0))
 
     def test_a_patch_load_keeps_the_headroom(self):
         """refresh_patch_volume re-sends the combined level; it must not drop to unity."""
