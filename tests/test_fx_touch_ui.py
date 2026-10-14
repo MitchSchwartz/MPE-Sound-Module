@@ -47,137 +47,21 @@ from patch_browser.touch_browser_fx_effect_modal import (  # noqa: E402
 
 SCREEN_W, SCREEN_H = 800, 480
 
-#: Pixel widths of every label the switch can show (`mod_knob_labels`) in the
-#: UI font (DejaVu Sans, which the appliance loads first), measured with
-#: pygame-ce 2.5.8 on 2026-10-11. The fake pygame cannot measure glyphs, so the
-#: fit tests measure through these (`_measure`), and a label missing from the
-#: table is a KeyError. Change a label and
-#: `test_measured_widths_cover_every_label` fails until re-measured.
-LABEL_PX = {
-    22: {
-        "Mod knob \u2192 Patch mod": 232,
-        "Mod knob \u2192 No FX": 184,
-        "Mod knob \u2192 Chorus": 196,
-        "Mod knob \u2192 1 FX": 170,
-        "Mod knob \u2192 Drive": 179,
-        "Mod knob \u2192 Drive+Chorus": 266,
-        "Mod knob \u2192 2 FX": 170,
-        "Mod knob \u2192 Phaser": 194,
-        "Mod knob \u2192 Phaser+Chorus": 280,
-        "Mod knob \u2192 Drive+Phaser": 264,
-        "Mod knob \u2192 Drive+Phaser+Chorus": 350,
-        "Mod knob \u2192 3 FX": 170,
-        "Mod knob \u2192 Tremolo": 207,
-        "Mod knob \u2192 Chorus+Tremolo": 294,
-        "Mod knob \u2192 Drive+Tremolo": 277,
-        "Mod knob \u2192 Drive+Chorus+Tremolo": 364,
-        "Mod knob \u2192 Phaser+Tremolo": 291,
-        "Mod knob \u2192 Phaser+Chorus+Tremolo": 378,
-        "Mod knob \u2192 Drive+Phaser+Tremolo": 361,
-        "Mod knob \u2192 Drive+Phaser+Chorus+Tremolo": 448,
-        "Mod knob \u2192 4 FX": 170,
-        "Mod knob \u2192 Flanger": 202,
-        "Mod knob \u2192 Flanger+Chorus": 288,
-        "Mod knob \u2192 Drive+Flanger": 272,
-        "Mod knob \u2192 Drive+Flanger+Chorus": 358,
-        "Mod knob \u2192 Phaser+Flanger": 286,
-        "Mod knob \u2192 Phaser+Flanger+Chorus": 372,
-        "Mod knob \u2192 Drive+Phaser+Flanger": 356,
-        "Mod knob \u2192 Drive+Phaser+Flanger+Chorus": 442,
-        "Mod knob \u2192 Flanger+Tremolo": 299,
-        "Mod knob \u2192 Flanger+Chorus+Tremolo": 386,
-        "Mod knob \u2192 Drive+Flanger+Tremolo": 369,
-        "Mod knob \u2192 Drive+Flanger+Chorus+Tremolo": 456,
-        "Mod knob \u2192 Phaser+Flanger+Tremolo": 383,
-        "Mod knob \u2192 Phaser+Flanger+Chorus+Tremolo": 470,
-        "Mod knob \u2192 Drive+Phaser+Flanger+Tremolo": 453,
-        "Mod knob \u2192 Drive+Phaser+Flanger+Chorus+Tremolo": 540,
-        "Mod knob \u2192 5 FX": 170,
-    },
-    18: {
-        "Mod knob \u2192 Patch mod": 188,
-        "Mod knob \u2192 No FX": 149,
-        "Mod knob \u2192 Chorus": 158,
-        "Mod knob \u2192 1 FX": 137,
-        "Mod knob \u2192 Drive": 146,
-        "Mod knob \u2192 Drive+Chorus": 216,
-        "Mod knob \u2192 2 FX": 137,
-        "Mod knob \u2192 Phaser": 157,
-        "Mod knob \u2192 Phaser+Chorus": 227,
-        "Mod knob \u2192 Drive+Phaser": 215,
-        "Mod knob \u2192 Drive+Phaser+Chorus": 285,
-        "Mod knob \u2192 3 FX": 137,
-        "Mod knob \u2192 Tremolo": 170,
-        "Mod knob \u2192 Chorus+Tremolo": 240,
-        "Mod knob \u2192 Drive+Tremolo": 228,
-        "Mod knob \u2192 Drive+Chorus+Tremolo": 298,
-        "Mod knob \u2192 Phaser+Tremolo": 239,
-        "Mod knob \u2192 Phaser+Chorus+Tremolo": 309,
-        "Mod knob \u2192 Drive+Phaser+Tremolo": 297,
-        "Mod knob \u2192 Drive+Phaser+Chorus+Tremolo": 367,
-        "Mod knob \u2192 4 FX": 137,
-        "Mod knob \u2192 Flanger": 163,
-        "Mod knob \u2192 Flanger+Chorus": 233,
-        "Mod knob \u2192 Drive+Flanger": 221,
-        "Mod knob \u2192 Drive+Flanger+Chorus": 291,
-        "Mod knob \u2192 Phaser+Flanger": 232,
-        "Mod knob \u2192 Phaser+Flanger+Chorus": 302,
-        "Mod knob \u2192 Drive+Phaser+Flanger": 290,
-        "Mod knob \u2192 Drive+Phaser+Flanger+Chorus": 360,
-        "Mod knob \u2192 Flanger+Tremolo": 245,
-        "Mod knob \u2192 Flanger+Chorus+Tremolo": 315,
-        "Mod knob \u2192 Drive+Flanger+Tremolo": 303,
-        "Mod knob \u2192 Drive+Flanger+Chorus+Tremolo": 373,
-        "Mod knob \u2192 Phaser+Flanger+Tremolo": 314,
-        "Mod knob \u2192 Phaser+Flanger+Chorus+Tremolo": 384,
-        "Mod knob \u2192 Drive+Phaser+Flanger+Tremolo": 372,
-        "Mod knob \u2192 Drive+Phaser+Flanger+Chorus+Tremolo": 442,
-        "Mod knob \u2192 5 FX": 137,
-    },
-}
-
-#: Fader labels in the 18 px font (`font_sm`), measured the same way: Patch mod
-#: and every label the Effect fader can show (`chain_labels`).
-FADER_LABEL_PX_18 = {
-    "Patch mod": 86,
-    "No FX": 47,
-    "Chorus": 56,
-    "1 FX": 35,
-    "Drive": 44,
-    "Drive+Chorus": 114,
-    "2 FX": 35,
-    "Phaser": 55,
-    "Phaser+Chorus": 125,
-    "Drive+Phaser": 113,
-    "Drive+Phaser+Chorus": 183,
-    "3 FX": 35,
-    "Tremolo": 69,
-    "Chorus+Tremolo": 138,
-    "Drive+Tremolo": 126,
-    "Drive+Chorus+Tremolo": 196,
-    "Phaser+Tremolo": 137,
-    "Phaser+Chorus+Tremolo": 207,
-    "Drive+Phaser+Tremolo": 195,
-    "Drive+Phaser+Chorus+Tremolo": 265,
-    "4 FX": 35,
-    "Flanger": 61,
-    "Flanger+Chorus": 131,
-    "Drive+Flanger": 119,
-    "Drive+Flanger+Chorus": 189,
-    "Phaser+Flanger": 130,
-    "Phaser+Flanger+Chorus": 200,
-    "Drive+Phaser+Flanger": 188,
-    "Drive+Phaser+Flanger+Chorus": 258,
-    "Flanger+Tremolo": 143,
-    "Flanger+Chorus+Tremolo": 213,
-    "Drive+Flanger+Tremolo": 201,
-    "Drive+Flanger+Chorus+Tremolo": 271,
-    "Phaser+Flanger+Tremolo": 212,
-    "Phaser+Flanger+Chorus+Tremolo": 282,
-    "Drive+Phaser+Flanger+Tremolo": 270,
-    "Drive+Phaser+Flanger+Chorus+Tremolo": 340,
-    "5 FX": 35,
-}
+#: Pixel widths of every label the switch can show (`mod_knob_labels`) at 22
+#: and 18 px, and of every fader label at 18 px (Patch mod and every label the
+#: Effect fader can show, `chain_labels`), in the UI font: what
+#: `TouchPatchBrowser._load_font` loads, `pygame.font.match_font("dejavusans")`
+#: (DejaVu Sans Condensed on the appliance and the laptop). Measured with
+#: pygame-ce 2.5.8 with `font.size(text)[0]`: on 2026-10-11 for the five
+#: effects' 32 masks, and again on 2026-10-13 for all 128 with the rotary and
+#: the auto-wah (every 2026-10-11 width came out the same). Kept as a fixture,
+#: 136 labels a size. The fake pygame cannot measure glyphs, so the fit tests
+#: measure through these (`_measure`), and a label missing from the table is a
+#: KeyError. Change a label and `test_measured_widths_cover_every_label` fails
+#: until re-measured.
+_PX = json.loads((Path(__file__).resolve().parent / "fixtures" / "fx-label-px.json").read_text())
+LABEL_PX = {22: _PX["mod_knob_22"], 18: _PX["mod_knob_18"]}
+FADER_LABEL_PX_18 = _PX["fader_18"]
 #: The smallest touch target the picker's controls may have.
 MIN_TARGET_PX = 44
 
@@ -945,20 +829,29 @@ class EffectPickerTests(_BrowserCase):
                     self.assertFalse(_overlaps(a, b), (a, b))
                 self.assertEqual([eid for _r, eid in options], list(fx_host_protocol.CHAIN_ORDER))
 
-    def test_five_rows_and_done_fit_at_800x480(self) -> None:
-        """F4: Flanger is the fifth row, between Phaser and Chorus, and the
-        panel still fits the screen with every row a full touch target. The
-        title is measured at a real DejaVu Sans 22 px line height (26 px, as
-        pygame-ce reports it), not the fake font's."""
+    def test_seven_rows_and_done_fit_at_800x480(self) -> None:
+        """Seven rows in run order (the auto-wah after the drive, the rotary
+        before the tremolo), each a full touch target, at least 6 px apart, and
+        the panel inside the screen with room to spare above and below. Done
+        sits in the header row, right of the title and above the first row.
+        The title is measured at a real DejaVu Sans 22 px line height (26 px,
+        as pygame-ce reports it), not the fake font's."""
         browser = self._browser(collapsed=False)
         with mock.patch.object(browser.font_md, "get_height", return_value=26):
             panel, options, done = browser._fx_effect_modal_layout()
         names = [fx_host_protocol.EFFECT_NAMES[eid] for _r, eid in options]
-        self.assertEqual(names, ["Drive", "Phaser", "Flanger", "Chorus", "Tremolo"])
+        self.assertEqual(names, ["Drive", "Auto-wah", "Phaser", "Flanger", "Chorus", "Rotary", "Tremolo"])
         self.assertTrue(_inside(panel, Rect(0, 0, SCREEN_W, SCREEN_H)), panel)
+        self.assertGreaterEqual(panel.y, 16)
+        self.assertLessEqual(panel.bottom, SCREEN_H - 16)
         self.assertTrue(all(r.h >= MIN_TARGET_PX for r, _ in options))
+        for (a, _), (b, _) in zip(options, options[1:]):
+            self.assertGreaterEqual(b.y - a.bottom, 6)
         self.assertGreaterEqual(done.h, MIN_TARGET_PX)
-        self.assertGreater(done.y, options[-1][0].bottom)
+        self.assertLess(done.bottom, options[0][0].y)
+        self.assertEqual(done.right, panel.right - 24)
+        # The title ("Effects", 68 px at 22) has the header's left side to itself.
+        self.assertGreaterEqual(done.x - (panel.x + 24), 68 + 24)
 
     def test_modal_draw_does_not_raise(self) -> None:
         browser = self._browser(collapsed=True)
@@ -970,7 +863,8 @@ class EffectPickerTests(_BrowserCase):
 #: Effect names in DejaVu Sans 22 (font_md) and the slider's widest value in
 #: DejaVu Sans 18 (font_sm), measured with pygame-ce 2.5.8 on 2026-10-13
 #: (`pygame.font.match_font("dejavusans")`, as the app loads it).
-EFFECT_NAME_PX_22 = {"Drive": 53, "Phaser": 68, "Flanger": 76, "Chorus": 70, "Tremolo": 82}
+EFFECT_NAME_PX_22 = {"Drive": 53, "Phaser": 68, "Flanger": 76, "Chorus": 70, "Tremolo": 82, "Rotary": 66,
+                     "Auto-wah": 95}
 LEVEL_VALUE_PX_18 = {"100%": 45}
 
 

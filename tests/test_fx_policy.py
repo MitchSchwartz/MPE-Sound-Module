@@ -403,6 +403,17 @@ C, D, P, T = (1 << fx_host_protocol.EFFECT_CHORUS), (1 << fx_host_protocol.EFFEC
     1 << fx_host_protocol.EFFECT_PHASER
 ), (1 << fx_host_protocol.EFFECT_TREMOLO)
 F = 1 << fx_host_protocol.EFFECT_FLANGER
+R = 1 << fx_host_protocol.EFFECT_ROTARY
+W = 1 << fx_host_protocol.EFFECT_AUTO_WAH
+
+#: The run order as (bit, name), written out here rather than read from the
+#: protocol, so the generated rows below check it instead of restating it.
+_RUN = ((D, "Drive"), (W, "Auto-wah"), (P, "Phaser"), (F, "Flanger"), (C, "Chorus"), (R, "Rotary"), (T, "Tremolo"))
+
+
+def _expected(mask: int) -> tuple[str, str]:
+    names = [name for bit, name in _RUN if mask & bit]
+    return ("+".join(names) or "No FX", f"{len(names)} FX" if names else "No FX")
 
 
 class ChainLabelTests(unittest.TestCase):
@@ -443,10 +454,36 @@ class ChainLabelTests(unittest.TestCase):
         P | F | C | T: ("Phaser+Flanger+Chorus+Tremolo", "4 FX"),
         D | P | F | C | T: ("Drive+Phaser+Flanger+Chorus+Tremolo", "5 FX"),
     }
+    #: The masks with the rotary or the auto-wah (2026-10-13): a few written
+    #: out, the other 90 generated from `_RUN` (`full_truth`).
+    TRUTH_NEW = {
+        R: ("Rotary", "1 FX"),
+        W: ("Auto-wah", "1 FX"),
+        D | W: ("Drive+Auto-wah", "2 FX"),
+        C | R: ("Chorus+Rotary", "2 FX"),
+        R | T: ("Rotary+Tremolo", "2 FX"),
+        W | R: ("Auto-wah+Rotary", "2 FX"),
+        W | P | C | R: ("Auto-wah+Phaser+Chorus+Rotary", "4 FX"),
+        D | W | P | F | C | R | T: ("Drive+Auto-wah+Phaser+Flanger+Chorus+Rotary+Tremolo", "7 FX"),
+    }
+
+    @classmethod
+    def full_truth(cls) -> dict[int, tuple[str, str]]:
+        out = dict(cls.TRUTH)
+        for mask in range(32, 128):
+            out[mask] = cls.TRUTH_NEW.get(mask, _expected(mask))
+        return out
+
+    def test_the_generator_agrees_with_the_written_rows(self) -> None:
+        for mask, want in list(self.TRUTH.items()) + list(self.TRUTH_NEW.items()):
+            with self.subTest(mask=mask):
+                self.assertEqual(_expected(mask), want)
 
     def test_every_mask_both_forms(self) -> None:
-        self.assertEqual(set(self.TRUTH), set(range(fx_host_protocol.MASK_ALL + 1)))
-        for mask, (names, count) in self.TRUTH.items():
+        truth = self.full_truth()
+        self.assertEqual(set(truth), set(range(fx_host_protocol.MASK_ALL + 1)))
+        self.assertEqual(len(truth), 128)
+        for mask, (names, count) in truth.items():
             with self.subTest(mask=mask):
                 self.assertEqual(fx_policy.chain_label(mask), names)
                 self.assertEqual(fx_policy.chain_label(mask, lambda _t: True), names)
@@ -468,7 +505,7 @@ class ChainLabelTests(unittest.TestCase):
         self.assertEqual(fx_policy.mod_knob_label(CC1_TO_SURGE, C | D, lambda _t: False), "Mod knob \u2192 Patch mod")
 
     def test_label_lists_cover_every_state(self) -> None:
-        want = {label for pair in self.TRUTH.values() for label in pair}
+        want = {label for pair in self.full_truth().values() for label in pair}
         self.assertEqual(set(fx_policy.chain_labels()), want)
         self.assertEqual(
             set(fx_policy.mod_knob_labels()),
@@ -1021,7 +1058,7 @@ class FxHostSenderTests(unittest.TestCase):
         sent: list[bytes] = []
         sender = fx_policy.FxHostSender(send=sent.append, log=None)
         ones = fx_host_protocol.LEVELS_DEFAULT
-        half_drive = (1.0, 0.5, 1.0, 1.0, 1.0)
+        half_drive = (1.0, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0)
         self.assertTrue(sender.send(C, 0.5))
         self.assertFalse(sender.send(C, 0.5))
         self.assertFalse(sender.send(C, 0.5, ones))  # no levels is every level 1.0
@@ -1040,14 +1077,16 @@ class FxHostSenderTests(unittest.TestCase):
                 fx_host_protocol.encode_chain_levels(0, 0.75, half_drive),
             ],
         )
-        self.assertEqual(sent[3], b"chainl 9 0.750000 1.000000 0.500000 1.000000 1.000000 1.000000")
+        self.assertEqual(
+            sent[3], b"chainl 9 0.750000 1.000000 0.500000 1.000000 1.000000 1.000000 1.000000 1.000000"
+        )
 
     def test_bad_mask_is_logged_not_raised(self) -> None:
         said: list[str] = []
         sender = fx_policy.FxHostSender(send=lambda _p: None, log=said.append)
         self.assertFalse(sender.send(fx_host_protocol.MASK_ALL + 1, 0.5))
         self.assertFalse(sender.send(C, float("nan")))
-        self.assertFalse(sender.send(C, 0.5, (1.0, float("nan"), 1.0, 1.0, 1.0)))
+        self.assertFalse(sender.send(C, 0.5, (1.0, float("nan"), 1.0, 1.0, 1.0, 1.0, 1.0)))
         self.assertFalse(sender.send(C, 0.5, (1.0, 1.0)))
         self.assertEqual(len(said), 4)
 
@@ -1114,7 +1153,11 @@ class RemapDaemonCc1Tests(unittest.TestCase):
             daemon._cc1.refresh(1e6)
             daemon._handle_incoming(None, [0xB0, 1, 127], 0.0)
         self.assertEqual(emitted, [])
-        self.assertEqual(wire, [b"chainl 10 1.000000 1.000000 0.250000 1.000000 0.500000 1.000000"])
+        # A five-entry levels list (written before the rotary and the
+        # auto-wah) reads them as 1.0.
+        self.assertEqual(
+            wire, [b"chainl 10 1.000000 1.000000 0.250000 1.000000 0.500000 1.000000 1.000000 1.000000"]
+        )
 
     def test_on_but_routed_to_surge_forwards(self) -> None:
         _module, daemon, emitted = self._daemon("1")
