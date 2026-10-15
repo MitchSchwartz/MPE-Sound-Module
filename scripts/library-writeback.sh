@@ -47,7 +47,9 @@ if [ -z "$MPE_PERSONAL_REPO" ] || [ ! -e "$MPE_PERSONAL_REPO/.git" ]; then
     exit 1
 fi
 
+# One date for the whole run: a midnight crossing must not split the archive and the trim.
 DATE_TAG="$(date +%Y-%m-%d)"
+export MPE_ARCHIVE_DATE_TAG="$DATE_TAG"
 if [ "$CAPTURE" = 1 ]; then
     "$SCRIPT_DIR/provision/capture-external-state.sh"
 fi

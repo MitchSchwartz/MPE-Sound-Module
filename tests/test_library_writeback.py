@@ -80,6 +80,36 @@ class WritebackTests(unittest.TestCase):
         files = git(self.repo, "ls-files").splitlines()
         self.assertFalse(any("looper-songs" in f for f in files))
 
+    def test_a_run_that_crosses_midnight_still_uses_one_date(self) -> None:
+        fake = self.code / "fakebin"
+        fake.mkdir()
+        counter = self.code / "date-count"
+        (fake / "date").write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "$1" = "+%Y-%m-%d" ]; then\n'
+            f'  n=$(cat {counter} 2>/dev/null || echo 0); echo $((n+1)) > {counter}\n'
+            '  printf "2026-10-%02d\\n" $((14+n))\n'
+            "else exec /bin/date \"$@\"; fi\n"
+        )
+        (fake / "date").chmod(0o755)
+        env = {
+            "PATH": f"{fake}:{os.environ['PATH']}",
+            "HOME": str(self.code),
+            "MPE_ENV_FILE": "",
+            "MPE_PERSONAL_REPO": str(self.repo),
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+        }
+        proc = subprocess.run(
+            ["bash", str(self.code / "scripts/library-writeback.sh"), "--device-id", "dev1", "--no-capture"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        files = git(self.repo, "ls-files").splitlines()
+        days = {f.split("/")[3] for f in files if f.startswith("state/appliance-state/captures/")}
+        self.assertEqual(len(days), 1, days)
+        self.assertFalse(any("looper" in f for f in files))
+
     def test_second_run_with_no_change_commits_nothing(self) -> None:
         self.run_wb()
         head = git(self.repo, "rev-parse", "HEAD")

@@ -38,6 +38,29 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# Full undo to the pre-migration state: links back to the original directories
+# (one backup level per pass, so repeat until none are left) and the ORIGINAL
+# MPE_PERSONAL_REPO, which is the oldest env backup, not the newest.
+do_rollback() {
+    local i r any
+    for i in 1 2 3 4 5 6 7 8; do
+        any=0
+        while IFS= read -r r; do [ -L "$r" ] && any=1; done < <(roots)
+        [ "$any" = 1 ] || break
+        "$SCRIPT_DIR/setup-pi-symlinks.sh" --local --rollback
+    done
+    local prev old_val
+    prev="$(ls -1 "${MPE_APPLIANCE_ENV_FILE:-/etc/mpe/mpe.env}".pre-library.* 2>/dev/null | sort | head -1 || true)"
+    if [ -n "$prev" ]; then
+        old_val="$(grep '^MPE_PERSONAL_REPO=' "$prev" | tail -1 | cut -d= -f2- || true)"
+        if [ -n "$old_val" ] && [ -d "$old_val" ]; then
+            "$SCRIPT_DIR/configure-pi-paths.sh" --local --paths-only --personal-repo "$old_val"
+        else
+            echo "note: original MPE_PERSONAL_REPO ('${old_val:-unset}') is not a directory; env left as is"
+        fi
+    fi
+}
+
 lib() { python3 "$SCRIPT_DIR/mpe-library" "$@"; }
 
 roots() {
@@ -100,7 +123,12 @@ link)
     if [ "$DRY" = 1 ]; then echo "(dry run complete)"; exit 0; fi
     "$SCRIPT_DIR/configure-pi-paths.sh" --local --paths-only --personal-repo "$DIR"
     "$SCRIPT_DIR/setup-pi-symlinks.sh" --local --personal-repo "$DIR"
-    lib verify --compare "$BEFORE"
+    if ! lib verify --compare "$BEFORE"; then
+        echo "ERROR: verify failed after linking; rolling back." >&2
+        do_rollback
+        echo "Rolled back. Nothing was restarted." >&2
+        exit 1
+    fi
     echo "Linked. Nothing was restarted; restart Surge and the browser when ready."
     ;;
 verify)
@@ -108,24 +136,28 @@ verify)
     lib verify --compare "$BEFORE"
     ;;
 rollback)
-    "$SCRIPT_DIR/setup-pi-symlinks.sh" --local --rollback
-    # Put back only the MPE_PERSONAL_REPO value the oldest env backup holds; other
-    # keys changed since then stay as they are.
-    prev="$(ls -1 "${MPE_APPLIANCE_ENV_FILE:-/etc/mpe/mpe.env}".pre-library.* 2>/dev/null | sort | head -1 || true)"
-    if [ -n "$prev" ]; then
-        old_val="$(grep '^MPE_PERSONAL_REPO=' "$prev" | tail -1 | cut -d= -f2- || true)"
-        if [ -n "$old_val" ] && [ -d "$old_val" ]; then
-            "$SCRIPT_DIR/configure-pi-paths.sh" --local --paths-only --personal-repo "$old_val"
-        else
-            echo "note: original MPE_PERSONAL_REPO ('${old_val:-unset}') is not a directory; env left as is"
-        fi
-    fi
+    do_rollback
     echo "Rolled back. Restart Surge and the browser when ready."
     ;;
 cleanup)
     [ -n "$OLD" ] || { echo "ERROR: --old-copy DIR required" >&2; exit 2; }
     [ -e "$OLD/.git" ] && { echo "ERROR: $OLD is a git checkout; this is only for the old plain copy" >&2; exit 1; }
     [ "$(readlink -f "$OLD")" = "$(readlink -f "${MPE_PERSONAL_REPO:-/nonexistent}")" ] && { echo "ERROR: $OLD is the active library" >&2; exit 1; }
+    # The library repo is the archive: make sure it really holds everything first.
+    lib_repo="${MPE_PERSONAL_REPO:-}"
+    if [ -z "$lib_repo" ] || [ ! -e "$lib_repo/.git" ]; then
+        echo "ERROR: the active library is not a git checkout; nothing to rely on. Refusing." >&2; exit 1
+    fi
+    if [ -n "$(git -C "$lib_repo" status --porcelain -- assets)" ]; then
+        echo "ERROR: uncommitted changes under assets/ in $lib_repo; commit and push them first." >&2; exit 1
+    fi
+    remote_ref="$MPE_LIBRARY_ORIGIN_REMOTE/main"
+    if ! git -C "$lib_repo" rev-parse --verify --quiet "$remote_ref" >/dev/null; then
+        echo "ERROR: $remote_ref is unknown in $lib_repo; fetch/push first. Refusing." >&2; exit 1
+    fi
+    if [ -n "$(git -C "$lib_repo" log --oneline "$remote_ref..HEAD")" ]; then
+        echo "ERROR: $lib_repo has commits not on $remote_ref; push first." >&2; exit 1
+    fi
     mapfile -t victims < <({ echo "$OLD"; ls -1d "$MPE_SURGE_RESOURCES"/patches_*.backup.* "$MPE_SURGE_DOCS"/Patches.backup.* 2>/dev/null || true; })
     echo "Would delete (NOT reversible once deleted; the library repo is the archive):"
     printf '  %s\n' "${victims[@]}"

@@ -23,9 +23,9 @@ All device commands are `scripts/library-migrate-device.sh <step>`, run on the d
 | 4d | Compare against the snapshot | `verify` | read-only | |
 | 4e | Restart Surge and the browser so they read through the links | by hand, when the player is not mid-song | n/a | **device write**, interrupts sound |
 | 5 | Soak | | `rollback`, restart again | |
-| 6 | Delete the old copy and the `*.backup.<ts>` dirs | `cleanup --old-copy <old-dir>` lists; add `--yes` to delete | **not reversible** (the library repo is the archive) | **device write** |
+| 6 | Delete the old copy and the `*.backup.<ts>` dirs | `cleanup --old-copy <old-dir>` lists; add `--yes` to delete (refused unless the library checkout has nothing uncommitted under `assets/` and no commits missing from `origin/main`) | **not reversible** (the library repo is the archive) | **device write** |
 
-What `link` does, in order: runs `setup-pi-symlinks.sh --local --dry-run` (a refusal stops everything, nothing changed), rewrites only `MPE_PERSONAL_REPO` in `/etc/mpe/mpe.env` (old file kept as `mpe.env.pre-library.<ts>`), makes the three links keeping their names (`patches_factory`, `patches_3rdparty`, `Patches`; the existing directories become `*.backup.<ts>`), then runs `verify`. `rollback` removes the links, renames the newest backups back, and restores the old `MPE_PERSONAL_REPO` value from the oldest env backup. Re-running either is harmless.
+What `link` does, in order: runs `setup-pi-symlinks.sh --local --dry-run` (a refusal stops everything, nothing changed), rewrites only `MPE_PERSONAL_REPO` in `/etc/mpe/mpe.env` (old file kept as `mpe.env.pre-library.<ts>`), makes the three links keeping their names (`patches_factory`, `patches_3rdparty`, `Patches`; the existing directories become `*.backup.<ts>`), then runs `verify`; if verify fails, `link` rolls itself back and exits non-zero. `rollback` removes the links, renames the newest backups back, and repeats until every root is a real directory again, and restores the original `MPE_PERSONAL_REPO` value from the oldest env backup. Re-running either is harmless.
 
 `verify` compares, per root, the patch count, and per store (FX, hold, pressure, normalization, metadata), how many keys land on a real patch. It exits non-zero if any count went down; a renamed link shows up as zero hits.
 

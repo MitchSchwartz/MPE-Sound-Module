@@ -203,6 +203,78 @@ class RestorePatchTests(LibraryCase):
         self.assertEqual(a.tag, "pre-restore/20261015T120000Z")
 
 
+class LiveSnapshotAndUndoTests(LibraryCase):
+    def make_live_home(self, fx: dict) -> Path:
+        home = Path(self._tmp.name) / "device-home"
+        home.mkdir()
+        (home / ".patch_browser_fx.json").write_text(json.dumps(fx))
+        return home
+
+    def test_live_store_newer_than_settings_is_captured_before_the_backup(self) -> None:
+        self.seed_settings()  # settings/ holds the old copy
+        newer = {"user:Brand New": {"mask": 4, "depth": 0.9}, "factory:Keys/Piano": {"mask": 2, "depth": 0.4}}
+        home = self.make_live_home(newer)
+        self.cfg.live_home = home
+        result = lib.restore_patch(self.cfg, KEY)
+        backed_up = git(self.repo, "show", f"{result.tag}:settings/patch_browser_fx.json")
+        self.assertIn("user:Brand New", backed_up)
+        self.assertEqual(self.fx_keys(), {"user:Brand New", "factory:Keys/Piano"})
+
+    def test_cli_refuses_without_a_live_choice(self) -> None:
+        rc = lib.main(["--repo", str(self.repo), "restore-patch", KEY])
+        self.assertEqual(rc, 1)
+        rc = lib.main(["--repo", str(self.repo), "factory-reset"])
+        self.assertEqual(rc, 1)
+        self.assertEqual((self.repo / BASS).read_bytes(), b"template-bass-v1")
+        self.assertFalse(git(self.repo, "tag", "-l", "pre-restore/*"))
+
+    def test_live_home_without_stores_is_harmless(self) -> None:
+        self.cfg.live_home = Path(self._tmp.name) / "no-such-home"
+        put(self.repo, BASS, b"user-edit")
+        before = git(self.repo, "rev-parse", "HEAD")
+        lib.restore_patch(self.cfg, KEY)  # missing files are skipped, not an error
+        self.assertNotEqual(git(self.repo, "rev-parse", "HEAD"), before)
+
+    def test_undo_is_limited_to_backed_up_paths_and_keeps_other_edits(self) -> None:
+        put(self.repo, BASS, b"user-edit")
+        put(self.repo, "README.md", "device edit not in the backup\n")
+        git(self.repo, "add", "README.md")  # tracked, uncommitted, outside the backed-up paths
+        with self.assertRaises(lib.LibraryError):  # restore itself refuses a dirty index
+            lib.restore_patch(self.cfg, KEY)
+        git(self.repo, "reset", "-q")
+        git(self.repo, "checkout", "--", "README.md")
+        result = lib.restore_patch(self.cfg, KEY)
+        put(self.repo, "README.md", "later device edit\n")
+        with self.assertRaises(lib.LibraryError):
+            lib.undo_restore(self.cfg, result.tag)
+        self.assertEqual((self.repo / "README.md").read_text(), "later device edit\n")
+        git(self.repo, "checkout", "--", "README.md")
+        lib.undo_restore(self.cfg, result.tag)
+        self.assertEqual((self.repo / BASS).read_bytes(), b"user-edit")
+
+    def test_undo_force_keeps_the_other_edit_on_disk(self) -> None:
+        put(self.repo, BASS, b"user-edit")
+        result = lib.restore_patch(self.cfg, KEY)
+        put(self.repo, "README.md", "unrelated edit\n")
+        lib.undo_restore(self.cfg, result.tag, force=True)
+        self.assertEqual((self.repo / "README.md").read_text(), "unrelated edit\n")
+        self.assertEqual((self.repo / BASS).read_bytes(), b"user-edit")
+
+    def test_glob_characters_in_a_patch_name_are_literal(self) -> None:
+        rel = f"{FACTORY}/Bass/Lead [1]*.fxp"
+        put(self.tpl, rel, b"tpl")
+        put(self.tpl, f"{FACTORY}/Bass/Lead 1x.fxp", b"decoy")
+        commit_all(self.tpl, "glob names")
+        git(self.repo, "fetch", "-q", "upstream")
+        git(self.repo, "merge", "-q", "upstream/main")
+        put(self.repo, rel, b"edited")
+        put(self.repo, f"{FACTORY}/Bass/Lead 1x.fxp", b"decoy edited")
+        commit_all(self.repo, "edits")
+        lib.restore_patch(self.cfg, "factory:Bass/Lead [1]*")
+        self.assertEqual((self.repo / rel).read_bytes(), b"tpl")
+        self.assertEqual((self.repo / f"{FACTORY}/Bass/Lead 1x.fxp").read_bytes(), b"decoy edited")
+
+
 class RestoreStockTests(LibraryCase):
     def test_restores_stock_and_cc0_but_not_user_or_settings(self) -> None:
         self.seed_settings()
@@ -315,6 +387,14 @@ class UpdateTests(LibraryCase):
         lib.update_from_template(self.cfg)
         self.assertEqual((self.repo / "README.md").read_text(), "line1 mine\nline2\nline3 theirs\n")
         self.assertEqual(self.kept()["entries"], [])
+
+    def test_same_line_edited_on_both_sides_keeps_the_users_and_records_it(self) -> None:
+        self.user_commit("README.md", "line1 mine\nline2\nline3\n")
+        self.template_commit("README.md", "line1 theirs\nline2\nline3\n")
+        lib.update_from_template(self.cfg)
+        self.assertEqual((self.repo / "README.md").read_text(), "line1 mine\nline2\nline3\n")
+        self.assertEqual(self.kept()["entries"][0]["path"], "README.md")
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
 
     def test_rerun_is_a_no_op_and_does_not_duplicate_records(self) -> None:
         self.user_commit(BASS, b"user-bass")

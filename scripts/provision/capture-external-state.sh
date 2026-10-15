@@ -264,7 +264,11 @@ if [ "$LOCAL" = true ]; then
         # RAM (runtime dir, /dev/shm) and removed on exit: nothing persists.
         exec 3>&1 1>&2
         _scratch_base="${XDG_RUNTIME_DIR:-/dev/shm}"
-        [ -d "$_scratch_base" ] && [ -w "$_scratch_base" ] || _scratch_base="${TMPDIR:-/tmp}"
+        if [ ! -d "$_scratch_base" ] || [ ! -w "$_scratch_base" ]; then
+            echo "ERROR: no writable RAM-backed directory (XDG_RUNTIME_DIR or /dev/shm)." >&2
+            echo "  Refusing to stage the capture on persistent storage." >&2
+            exit 1
+        fi
         _scratch="$(mktemp -d "$_scratch_base/mpe-capture.XXXXXX")"
         trap 'rm -rf "$_scratch"' EXIT
         _capture_on_appliance "$_scratch/capture"

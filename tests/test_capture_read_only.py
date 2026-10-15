@@ -119,6 +119,23 @@ class CaptureReadOnlyTests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertTrue((self.out / "home/.patch_browser_fx.json").exists())
 
+    def test_ram_capture_dir_never_falls_back_to_persistent_storage(self) -> None:
+        stray = self.root / "tmp"
+        stray.mkdir()
+        env = {
+            "PATH": os.environ["PATH"],
+            "HOME": str(self.root),
+            "MPE_ENV_FILE": "",
+            "XDG_RUNTIME_DIR": str(self.root / "no-such-runtime-dir"),
+            "TMPDIR": str(stray),
+        }
+        proc = subprocess.run(
+            ["bash", str(SCRIPT), "--local", "--stdout"], capture_output=True, text=True, env=env
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("RAM-backed", proc.stderr)
+        self.assertEqual(list(stray.iterdir()), [])
+
     def test_script_text_has_no_device_side_git_mutation(self) -> None:
         text = SCRIPT.read_text()
         laptop_half = text[text.index("# Read-only: looks at the device's checkout"):]

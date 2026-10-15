@@ -119,6 +119,60 @@ class LinkTests(unittest.TestCase):
         again = self.run_script("--rollback")
         self.assertEqual(again.returncode, 0)
 
+    def make_second_library(self) -> Path:
+        import shutil
+
+        other = self.root / "library2"
+        shutil.copytree(self.repo, other)
+        return other
+
+    def test_link_pointing_somewhere_else_is_compared_too(self) -> None:
+        other = self.make_second_library()
+        self.put(other / "assets/user-data/Patches/OnlyInOther.fxp", b"x")
+        self.run_script()  # live dirs -> linked into self.repo
+        self.put(self.repo / "assets/user-data/Patches/OnlyInFirst.fxp", b"y")
+        proc = subprocess.run(
+            ["bash", str(SCRIPT), "--local", "--personal-repo", str(other)],
+            capture_output=True, text=True,
+            env={"PATH": os.environ["PATH"], "HOME": str(self.root), "MPE_ENV_FILE": "",
+                 "MPE_SURGE_RESOURCES": str(self.res), "MPE_SURGE_DOCS": str(self.docs)},
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("OnlyInFirst", proc.stdout)
+        self.assertEqual((self.docs / "Patches").resolve(), (self.repo / "assets/user-data/Patches").resolve())
+
+    def test_relinking_in_the_same_second_never_nests_a_backup(self) -> None:
+        other = self.make_second_library()
+        self.run_script()
+        env = {"PATH": os.environ["PATH"], "HOME": str(self.root), "MPE_ENV_FILE": "",
+               "MPE_SURGE_RESOURCES": str(self.res), "MPE_SURGE_DOCS": str(self.docs)}
+        # a fake clock: every `date +%s` answers the same second
+        fake = self.root / "fakebin"
+        fake.mkdir()
+        (fake / "date").write_text('#!/usr/bin/env bash\nif [ "$1" = "+%s" ]; then echo 1700000000; else exec /bin/date "$@"; fi\n')
+        (fake / "date").chmod(0o755)
+        env["PATH"] = f"{fake}:{env['PATH']}"
+        first = subprocess.run(["bash", str(SCRIPT), "--local"], capture_output=True, text=True, env={**env, "MPE_PERSONAL_REPO": str(self.repo)})
+        second = subprocess.run(["bash", str(SCRIPT), "--local", "--personal-repo", str(other)], capture_output=True, text=True, env=env)
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        backups = sorted(p.name for p in self.docs.glob("Patches.backup.*"))
+        self.assertEqual(len(backups), 2, backups)
+        for b in self.docs.glob("Patches.backup.*"):
+            self.assertFalse(any(c.name.startswith("Patches.backup") for c in b.iterdir()), "backup was nested")
+        self.assertEqual(first.returncode, 0)
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores directory permissions")
+    def test_a_failure_part_way_puts_the_earlier_links_back(self) -> None:
+        os.chmod(self.docs, 0o555)
+        self.addCleanup(os.chmod, self.docs, 0o755)
+        proc = self.run_script()
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("undoing", proc.stderr)
+        self.assertEqual(self.links(), {"factory": False, "third": False, "user": False})
+        self.assertEqual((self.res / "patches_factory/Bass/Sub.fxp").read_bytes(), b"sub")
+        self.assertEqual((self.res / "patches_3rdparty/Emu/Synths.fxp").read_bytes(), b"emu")
+        self.assertFalse(list(self.res.glob("*.backup.*")))
+
     def test_no_restart_unless_asked(self) -> None:
         proc = self.run_script()
         self.assertNotIn("systemctl", proc.stdout + proc.stderr)

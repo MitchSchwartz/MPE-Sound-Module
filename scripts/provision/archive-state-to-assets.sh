@@ -16,7 +16,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DATE_TAG="$(date +%Y-%m-%d)"
+DATE_TAG="${MPE_ARCHIVE_DATE_TAG:-$(date +%Y-%m-%d)}"
 
 # shellcheck source=../lib/paths.sh
 source "$SCRIPT_DIR/../lib/paths.sh"

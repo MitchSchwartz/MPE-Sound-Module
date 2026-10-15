@@ -47,21 +47,24 @@ Patch edits are not in a capture. Once the device is wired to its checkout they 
 
 `scripts/mpe-library` (needs `MPE_PERSONAL_REPO` or `--repo`, and the `upstream` remote). **Stop the patch browser first** if you will copy the result onto the device: it holds its stores in memory and would write them back.
 
+`settings/` is only as fresh as the last write-back, so `restore-patch` and `factory-reset` take the device's live stores first: pass `--live-home <device home>` and they are copied into `settings/` before the backup commit (so the backup holds what the device has now). `--no-live-snapshot` accepts a stale `settings/` explicitly; with neither flag the command refuses.
+
 | Command | Does |
 |---------|------|
 | `mpe-library restore-patch <stable_key>` | One patch back to the template's version; clears that patch's user settings (FX, hold, pressure trim, normalization trim, instrument tag). Calibrated baselines stay. |
 | `mpe-library restore-stock` | All stock patches and CC0 collections back to the template. Your patches and settings are untouched. |
 | `mpe-library factory-reset` | Stock, your patches (back to the template's starter set) and the per-patch settings (back to the template's `defaults/`, else empty). |
+| `mpe-library undo <tag>` | Puts back what a restore replaced: only the paths that backup covered. Refuses if tracked files outside those paths have uncommitted changes (`--force` to override; they are never touched either way). |
 
-Every mode does this before it changes anything, in this order:
+Every restore mode does this before it changes anything, in this order:
 
-1. a backup commit of what is about to change,
+1. a backup commit of what is about to change (its message lists the paths),
 2. a tag `pre-restore/<UTC timestamp>` on it,
 3. a push of the branch and the tag (never forced).
 
-If the push fails, nothing is restored (pass `--allow-offline` to go ahead anyway; the commit and tag stay local). **Undo:** `git checkout pre-restore/<timestamp> -- .` in the checkout; the tag also survives a lost device because it was pushed.
+If the push fails, nothing is restored (pass `--allow-offline` to go ahead anyway; the commit and tag stay local). **Undo:** `mpe-library undo pre-restore/<timestamp>`. Do not use `git checkout <tag> -- .`: it rewrites every file in the checkout, including uncommitted device edits. The tag also survives a lost device because it was pushed.
 
-Then apply the settings to the device: stop the browser, `./scripts/library-snapshot-settings.sh --in --device-id <device-id>`, start it.
+Then apply the settings to the device: stop the browser **and Surge**, `./scripts/library-snapshot-settings.sh --in --device-id <device-id>`, start them. Every live file that copy replaces is first kept under `<home>/.mpe-library-backups/<timestamp>/`. The copy refuses while either service is running.
 
 ## Pulling template updates
 
@@ -86,6 +89,8 @@ Fresh SD card or image, then, from the laptop:
 **Cannot reach the device.** `PI_HOST`, `PI_USER` and `SSH_KEY` come from `config/mpe.env` or the environment; there are no built-in defaults for the user.
 
 **Capture refuses: "cannot take a read-only capture".** The device's MPE-Module checkout predates streaming capture. Update it the usual way; the capture script will not do it for you.
+
+**`deploy-patches.sh` / `deploy-all.sh` refuse.** The patch roots are links into the library, and extracting a tarball over a link would detach it. Update patches through the library (`git pull` in the device's checkout, or `mpe-library update`).
 
 **`setup-pi-symlinks.sh` refuses.** A live directory has files the checkout lacks or different versions of them. Copy those into the checkout, commit, run again. Nothing was changed.
 

@@ -15,8 +15,11 @@
 #   device   settings/device/<device-id>/<name>   (DAC level, brightness, mpe.env)
 #   skipped  runtime state, calibration backups, logs, looper audio, everything else
 #
-# --in refuses while the patch browser is running: it holds its stores in memory
-# and would write them straight back (override: --force).
+# --in refuses while the patch browser or Surge is running: the browser holds its
+# stores in memory and would write them straight back (override: --force). Every live
+# file it replaces is first copied to <home>/.mpe-library-backups/<timestamp>/.
+# The MPE_FX_FILE / MPE_HOLD_FILE / MPE_PRESSURE_FILE / MPE_NORMALIZATION_FILE /
+# MPE_FAVORITES_INDEX_FILE overrides are honoured for the live side, as the stores do.
 #
 # Options: --from DIR (a capture root with home/, or a home dir; default $MPE_HOME or
 # $HOME), --to DIR (--in target home, default $MPE_HOME or $HOME), --dry-run,
@@ -81,10 +84,28 @@ _classify() {
     esac
 }
 
+# The store's own override for a live file, if the environment sets one.
+_live_override() {
+    local v=""
+    case "$1" in
+        .patch_browser_fx.json) v="${MPE_FX_FILE:-}" ;;
+        .patch_browser_hold.json) v="${MPE_HOLD_FILE:-}" ;;
+        .patch_browser_pressure.json) v="${MPE_PRESSURE_FILE:-}" ;;
+        .patch_browser_normalization.json) v="${MPE_NORMALIZATION_FILE:-}" ;;
+        .patch_browser_favorites.json) v="${MPE_FAVORITES_INDEX_FILE:-}" ;;
+    esac
+    [ -n "$v" ] && printf '%s' "${v/#\~/$HOME}"
+    return 0
+}
+
 # Where an entry lives in the source: a capture keeps home files under home/ and
 # /etc files under etc/; a live home dir uses the real /etc.
 _home_path() {
-    local rel="$1"
+    local rel="$1" ov
+    if [ "$SRC_IS_LIVE" = 1 ]; then
+        ov="$(_live_override "$rel")"
+        if [ -n "$ov" ]; then printf '%s' "$ov"; return; fi
+    fi
     case "$rel" in
         /etc/mpe/mpe.env)
             if [ -f "$SRC/etc/mpe/mpe.env" ]; then echo "$SRC/etc/mpe/mpe.env"; else echo "$rel"; fi ;;
@@ -108,21 +129,26 @@ _copy() { # src dest
 _entries() { grep -v '^#' "$PATHS_LIST" | grep -v '^[[:space:]]*$' || true; }
 
 if [ "$DIRECTION" = in ]; then
+    DEST_IS_LIVE=0
+    [ -z "$TO" ] && DEST_IS_LIVE=1
     if [ "$FORCE" = 0 ] && [ "$DRY" = 0 ]; then
         # shellcheck source=lib/mpe-services.sh
         source "$SCRIPT_DIR/lib/mpe-services.sh"
-        unit="$(mpe_patch_browser_unit)"
-        if systemctl is-active --quiet "$unit" 2>/dev/null; then
-            echo "ERROR: $unit is running; it would write its stores back over these files." >&2
-            echo "  Stop it first (sudo systemctl stop $unit), copy, then start it. --force to override." >&2
-            exit 1
-        fi
+        for unit in "$(mpe_patch_browser_unit)" surge-xt-cli; do
+            if systemctl is-active --quiet "$unit" 2>/dev/null; then
+                echo "ERROR: $unit is running; it would write its stores back over these files." >&2
+                echo "  Stop it first (sudo systemctl stop $unit), copy, then start it. --force to override." >&2
+                exit 1
+            fi
+        done
     fi
     DEST_HOME="${TO:-$HOME_DIR}"
+    BACKUP_DIR="$DEST_HOME/.mpe-library-backups/$(date +%Y%m%dT%H%M%S)"
     echo "settings/ -> $DEST_HOME"
 else
     SRC="${FROM:-$HOME_DIR}"
-    [ -d "$SRC/home" ] && SRC_HOME="$SRC/home" || SRC_HOME="$SRC"
+    SRC_IS_LIVE=0
+    if [ -d "$SRC/home" ]; then SRC_HOME="$SRC/home"; else SRC_HOME="$SRC"; SRC_IS_LIVE=1; fi
     echo "$SRC -> settings/"
 fi
 
@@ -148,7 +174,17 @@ while IFS= read -r entry; do
         if [ "$entry" = /etc/mpe/mpe.env ]; then
             echo "  skip: /etc/mpe/mpe.env is restored with apply-external-state.sh, not copied here"; continue
         fi
-        _copy "$src" "$DEST_HOME/$LIVE"
+        dest="$DEST_HOME/$LIVE"
+        if [ "$DEST_IS_LIVE" = 1 ]; then
+            ov="$(_live_override "$LIVE")"
+            [ -n "$ov" ] && dest="$ov"
+        fi
+        if [ "$DRY" = 0 ] && [ -f "$dest" ] && ! cmp -s -- "$src" "$dest"; then
+            mkdir -p -- "$BACKUP_DIR/$(dirname -- "$LIVE")"
+            cp -p -- "$dest" "$BACKUP_DIR/$LIVE"
+            echo "  kept old: $BACKUP_DIR/$LIVE"
+        fi
+        _copy "$src" "$dest"
     fi
     count=$((count + 1))
 done < <(_entries)

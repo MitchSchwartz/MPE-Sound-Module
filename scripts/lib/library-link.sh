@@ -32,8 +32,9 @@ library_link_check() {
         if [ -L "$link" ] && [ "$(_ll_realpath "$link")" = "$(_ll_realpath "$target")" ]; then
             echo "ok: $link already points at $target"; continue
         fi
-        if [ -d "$link" ] && [ ! -L "$link" ]; then
-            # Real directory: the target must already hold everything in it.
+        if [ -d "$link" ]; then
+            # A real directory, or a link to somewhere else: the target must already
+            # hold everything in it (diff follows the link's contents).
             diffout="$(diff -rq -- "$link" "$target" 2>&1 || true)"
             if printf '%s\n' "$diffout" | grep -qE "^Only in ${link//\//\\/}|^Files .* differ$"; then
                 echo "refuse: $link has files the library lacks or holds different versions of:"
@@ -47,28 +48,64 @@ library_link_check() {
     return $rc
 }
 
+# A backup name that does not exist yet. (mv into an existing directory would nest
+# the link inside it, so a same-second collision must never reuse a name.)
+_ll_backup_name() {
+    local base="$1.backup.$2" n=1 cand
+    cand="$base"
+    while [ -e "$cand" ] || [ -L "$cand" ]; do n=$((n + 1)); cand="$base-$n"; done
+    printf '%s' "$cand"
+}
+
+# Link one root. On any failure leaves that root as it was and returns 1.
+_ll_link_one() {
+    local link="$1" target="$2" backup="$3" new="$1.new.$$"
+    mkdir -p -- "$(dirname -- "$link")" || return 1
+    rm -f -- "$new"
+    ln -s -- "$target" "$new" || return 1
+    if [ -e "$link" ] || [ -L "$link" ]; then
+        mv -T -- "$link" "$backup" || { rm -f -- "$new"; return 1; }
+    fi
+    # Two renames, microseconds apart: the path exists at both ends.
+    if ! mv -T -- "$new" "$link"; then
+        rm -f -- "$new"
+        [ -e "$backup" ] || [ -L "$backup" ] && mv -T -- "$backup" "$link" 2>/dev/null
+        return 1
+    fi
+}
+
 # Apply (or, with DRY_RUN=1, describe). The caller ran library_link_check first.
+# All or nothing: if a root fails, the roots already linked are put back.
 library_link_apply() {
-    local rel link target ts new
+    local rel link target ts backup
+    local -a done_links=() done_backups=()
     ts="$(date +%s)"
     while IFS='|' read -r rel link; do
         target="$ASSETS/$rel"
         if [ -L "$link" ] && [ "$(_ll_realpath "$link")" = "$(_ll_realpath "$target")" ]; then
             continue
         fi
+        backup="$(_ll_backup_name "$link" "$ts")"
         if [ "${DRY_RUN:-0}" = 1 ]; then
-            if [ -e "$link" ] || [ -L "$link" ]; then echo "would move $link -> $link.backup.$ts"; fi
+            if [ -e "$link" ] || [ -L "$link" ]; then echo "would move $link -> $backup"; fi
             echo "would link $link -> $target"
             continue
         fi
-        mkdir -p -- "$(dirname -- "$link")"
-        new="$link.new.$$"
-        rm -f -- "$new"
-        ln -s -- "$target" "$new"
-        # Two renames, microseconds apart: the path exists at both ends.
-        if [ -e "$link" ] || [ -L "$link" ]; then mv -- "$link" "$link.backup.$ts"; fi
-        mv -T -- "$new" "$link"
-        echo "linked $link -> $target (previous kept as $link.backup.$ts)"
+        if ! _ll_link_one "$link" "$target" "$backup"; then
+            echo "ERROR: could not link $link; undoing the roots already linked." >&2
+            local i
+            for ((i = ${#done_links[@]} - 1; i >= 0; i--)); do
+                rm -f -- "${done_links[$i]}"
+                if [ -e "${done_backups[$i]}" ] || [ -L "${done_backups[$i]}" ]; then
+                    mv -T -- "${done_backups[$i]}" "${done_links[$i]}"
+                fi
+                echo "  restored ${done_links[$i]}" >&2
+            done
+            return 1
+        fi
+        done_links+=("$link")
+        done_backups+=("$backup")
+        echo "linked $link -> $target (previous kept as $backup)"
     done < <(library_link_plan)
 }
 

@@ -68,7 +68,7 @@ _ensure_library_upstream() {
 # Rewrite one key in /etc/mpe/mpe.env, keeping the previous file. Idempotent.
 _set_personal_repo_only() {
     # MPE_APPLIANCE_ENV_FILE: test harness only (same spirit as MPE_ENV_FILE).
-    local repo="$1" env="${MPE_APPLIANCE_ENV_FILE:-/etc/mpe/mpe.env}" new
+    local repo="$1" env="${MPE_APPLIANCE_ENV_FILE:-/etc/mpe/mpe.env}" new bk n
     if [ ! -f "$env" ]; then
         echo "ERROR: $env does not exist; run without --paths-only first." >&2
         exit 1
@@ -76,7 +76,10 @@ _set_personal_repo_only() {
     if grep -qxF "MPE_PERSONAL_REPO=$repo" "$env"; then
         echo "MPE_PERSONAL_REPO already $repo in $env; nothing to change."
     else
-        sudo cp -a "$env" "$env.pre-library.$(date +%s)"
+        # Never reuse a name: a same-second second run must not overwrite the original backup.
+        bk="$env.pre-library.$(date +%s)"; n=1
+        while [ -e "$bk" ]; do n=$((n + 1)); bk="$env.pre-library.$(date +%s)-$n"; done
+        sudo cp -a "$env" "$bk"
         new="$( { grep -v '^MPE_PERSONAL_REPO=' "$env" || true; echo "MPE_PERSONAL_REPO=$repo"; } )"
         printf '%s\n' "$new" | sudo tee "$env" >/dev/null
         echo "MPE_PERSONAL_REPO=$repo written (previous file kept as $env.pre-library.*)."

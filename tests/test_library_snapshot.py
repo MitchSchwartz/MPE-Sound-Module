@@ -96,6 +96,64 @@ class SnapshotTests(unittest.TestCase):
         self.assertFalse((dest / ".patch_browser_poly_state.json").exists())
         self.assertFalse((dest / ".patch_browser_fx.json").is_symlink())
 
+    def fake_systemctl(self, active: str) -> dict:
+        d = self.root / "fakebin"
+        d.mkdir(exist_ok=True)
+        f = d / "systemctl"
+        f.write_text(
+            '#!/usr/bin/env bash\n# systemctl is-active --quiet <unit>\n'
+            f'case " {active} " in *" ${{@: -1}} "*) exit 0 ;; esac\nexit 3\n'
+        )
+        f.chmod(0o755)
+        return {"PATH": f"{d}:{os.environ['PATH']}"}
+
+    def test_in_refuses_while_the_browser_or_surge_runs(self) -> None:
+        self.run_script("--from", str(self.capture), "--device-id", "dev1")
+        dest = self.root / "livehome"
+        for unit in ("touch-patch-browser.service", "patch-browser.service", "surge-xt-cli"):
+            proc = self.run_script("--in", "--to", str(dest), extra_env={**self.fake_systemctl(unit), "MPE_UI_MODE": "oled" if unit == "patch-browser.service" else "touch"})
+            self.assertNotEqual(proc.returncode, 0, unit)
+            self.assertIn("is running", proc.stderr)
+            self.assertFalse((dest / ".patch_browser_fx.json").exists(), unit)
+
+    def test_in_proceeds_when_nothing_runs_and_with_force(self) -> None:
+        self.run_script("--from", str(self.capture), "--device-id", "dev1")
+        dest = self.root / "livehome"
+        ok = self.run_script("--in", "--to", str(dest), extra_env=self.fake_systemctl("something-else"))
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        forced = self.run_script("--in", "--to", str(dest), "--force", extra_env=self.fake_systemctl("surge-xt-cli"))
+        self.assertEqual(forced.returncode, 0, forced.stderr)
+
+    def test_in_keeps_a_copy_of_every_live_file_it_replaces(self) -> None:
+        self.run_script("--from", str(self.capture), "--device-id", "dev1")
+        dest = self.root / "livehome"
+        dest.mkdir()
+        (dest / ".patch_browser_fx.json").write_text('{"user:Live Edit": {}}')
+        proc = self.run_script("--in", "--to", str(dest), "--force")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual((dest / ".patch_browser_fx.json").read_text(), '{"user:A": {}}')
+        kept = list((dest / ".mpe-library-backups").glob("*/.patch_browser_fx.json"))
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0].read_text(), '{"user:Live Edit": {}}')
+        # an unchanged file is not backed up
+        self.assertFalse(list((dest / ".mpe-library-backups").glob("*/.patch_browser_hold.json")))
+
+    def test_store_file_overrides_are_honoured_for_the_live_side(self) -> None:
+        home = self.root / "liveh"
+        home.mkdir()
+        elsewhere = self.root / "elsewhere" / "fx.json"
+        elsewhere.parent.mkdir()
+        elsewhere.write_text('{"user:Override": {}}')
+        proc = self.run_script("--from", str(home), extra_env={"MPE_FX_FILE": str(elsewhere)})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual((self.repo / "settings/patch_browser_fx.json").read_text(), '{"user:Override": {}}')
+        # and back in: lands on the override path, not under the home
+        elsewhere.write_text("{}")
+        proc = self.run_script("--in", "--force", extra_env={"MPE_FX_FILE": str(elsewhere), "MPE_HOME": str(home)})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(elsewhere.read_text(), '{"user:Override": {}}')
+        self.assertFalse((home / ".patch_browser_fx.json").exists())
+
     def test_credential_in_a_setting_aborts_the_snapshot(self) -> None:
         token = "ghp_" + "A" * 30
         (self.capture / "home/.patch_browser_ui.json").write_text('{"note": "%s"}' % token)

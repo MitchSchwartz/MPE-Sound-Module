@@ -124,11 +124,26 @@ class MigrateTests(unittest.TestCase):
             self.assertIn("active library", proc.stderr)
             self.assertTrue(self.old.exists())
 
-    def test_cleanup_deletes_only_with_yes(self) -> None:
-        self.run_step("snapshot")
-        self.run_step("link", "--dir", str(self.new))
-        env_text = self.env_file.read_text()
-        self.assertIn(str(self.new.resolve()), env_text)
+    def git(self, repo: Path, *args: str) -> str:
+        env = dict(os.environ, GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
+        p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=env)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return p.stdout.strip()
+
+    def make_new_library_a_pushed_checkout(self) -> Path:
+        origin = self.root / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
+        self.git(self.new, "init", "-q", "-b", "main")
+        self.git(self.new, "config", "user.name", "T")
+        self.git(self.new, "config", "user.email", "t@example.invalid")
+        self.git(self.new, "config", "commit.gpgsign", "false")
+        self.git(self.new, "add", "-A")
+        self.git(self.new, "commit", "-q", "-m", "library")
+        self.git(self.new, "remote", "add", "origin", str(origin))
+        self.git(self.new, "push", "-q", "origin", "main")
+        return origin
+
+    def run_new(self, *args: str) -> subprocess.CompletedProcess:
         env = {
             "PATH": f"{self.bin}:{os.environ['PATH']}",
             "HOME": str(self.home),
@@ -137,14 +152,71 @@ class MigrateTests(unittest.TestCase):
             "MPE_PERSONAL_REPO": str(self.new),
             "MPE_SURGE_RESOURCES": str(self.res),
             "MPE_SURGE_DOCS": str(self.docs),
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
         }
-        run = lambda *a: subprocess.run(["bash", str(SCRIPT), *a], capture_output=True, text=True, env=env)  # noqa: E731
-        self.assertEqual(run("cleanup", "--old-copy", str(self.old)).returncode, 0)
+        return subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True, env=env)
+
+    def test_cleanup_deletes_only_with_yes_and_only_when_the_library_is_pushed(self) -> None:
+        self.run_step("snapshot")
+        self.run_step("link", "--dir", str(self.new))
+        # not a git checkout: refuse
+        r = self.run_new("cleanup", "--old-copy", str(self.old), "--yes")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("not a git checkout", r.stderr)
+        self.make_new_library_a_pushed_checkout()
+        # uncommitted change under assets/: refuse
+        self.put(self.new / "assets/user-data/Patches/New.fxp", b"n")
+        r = self.run_new("cleanup", "--old-copy", str(self.old), "--yes")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("uncommitted", r.stderr)
+        # committed but not pushed: refuse
+        self.git(self.new, "add", "-A")
+        self.git(self.new, "commit", "-q", "-m", "more")
+        r = self.run_new("cleanup", "--old-copy", str(self.old), "--yes")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("not on", r.stderr)
         self.assertTrue(self.old.exists())
-        self.assertEqual(run("cleanup", "--old-copy", str(self.old), "--yes").returncode, 0)
+        # pushed: listing is harmless, --yes deletes
+        self.git(self.new, "push", "-q", "origin", "main")
+        listed = self.run_new("cleanup", "--old-copy", str(self.old))
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        self.assertTrue(self.old.exists())
+        done = self.run_new("cleanup", "--old-copy", str(self.old), "--yes")
+        self.assertEqual(done.returncode, 0, done.stderr)
         self.assertFalse(self.old.exists())
         self.assertFalse(list(self.res.glob("patches_*.backup.*")))
         self.assertTrue(self.is_linked())
+
+    def test_failed_verify_after_linking_rolls_everything_back(self) -> None:
+        self.run_step("snapshot")
+        before = self.home / ".mpe-library-migration/before.json"
+        snap = json.loads(before.read_text())
+        snap["patches_per_root"]["patches_factory"] += 5  # pretend 5 more patches existed
+        before.write_text(json.dumps(snap))
+        proc = self.run_step("link", "--dir", str(self.new))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("rolling back", proc.stderr)
+        self.assertFalse(self.is_linked())
+        self.assertEqual((self.docs / "Patches/Mine.fxp").read_bytes(), b"mine")
+        self.assertIn(f"MPE_PERSONAL_REPO={self.old}", self.env_file.read_text())
+        self.assertIn("MPE_UI_MODE=touch", self.env_file.read_text())
+
+    def test_rollback_restores_the_original_state_after_two_links(self) -> None:
+        import shutil
+
+        second = self.root / "new-library-2"
+        shutil.copytree(self.new, second)
+        self.run_step("snapshot")
+        self.assertEqual(self.run_step("link", "--dir", str(self.new)).returncode, 0)
+        self.assertEqual(self.run_step("link", "--dir", str(second)).returncode, 0)
+        self.assertEqual(len(list(self.root.glob("mpe.env.pre-library.*"))), 2)
+        back = self.run_step("rollback")
+        self.assertEqual(back.returncode, 0, back.stdout + back.stderr)
+        # links: real directories again; env: the ORIGINAL value, not the first link's
+        self.assertFalse(self.is_linked())
+        self.assertEqual((self.res / "patches_factory/Bass/Sub.fxp").read_bytes(), b"sub")
+        self.assertIn(f"MPE_PERSONAL_REPO={self.old}", self.env_file.read_text())
 
 
 if __name__ == "__main__":

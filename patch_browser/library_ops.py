@@ -86,6 +86,10 @@ class Config:
     fetch: bool = True
     push: bool = True
     allow_offline: bool = False
+    #: Home directory of the live device (where ~/.patch_browser_*.json live).
+    #: When set, restore snapshots it into settings/ before the backup commit.
+    live_home: Path | None = None
+    device_id: str | None = None
 
     @property
     def upstream_ref(self) -> str:
@@ -112,7 +116,7 @@ def _git(cfg_or_repo, *args: str, check: bool = True, input_text: str | None = N
     env = dict(os.environ)
     env["GIT_TERMINAL_PROMPT"] = "0"
     proc = subprocess.run(
-        ["git", "-C", str(repo), *args],
+        ["git", "--literal-pathspecs", "-C", str(repo), *args],
         capture_output=True,
         text=True,
         env=env,
@@ -170,9 +174,36 @@ def _require_clean_index(cfg: Config) -> None:
         raise LibraryError("the index has staged changes; commit or unstage them first")
 
 
+def snapshot_live_settings(cfg: Config, result: Result) -> None:
+    """Copy the live stores into settings/ so the backup holds what the device has now.
+
+    settings/ is only as fresh as the last write-back. Without this step a restore
+    would back up a stale copy, and applying settings/ afterwards would overwrite
+    newer live edits.
+    """
+    if cfg.live_home is None:
+        return
+    script = Path(__file__).resolve().parents[1] / "scripts" / "library-snapshot-settings.sh"
+    cmd = ["bash", str(script), "--from", str(cfg.live_home), "--repo", str(cfg.repo)]
+    if cfg.device_id:
+        cmd += ["--device-id", cfg.device_id]
+    env = dict(os.environ, MPE_ENV_FILE="")
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    if proc.returncode != 0:
+        raise LibraryError(
+            "could not snapshot the live settings before restoring; nothing was changed: "
+            + (proc.stderr or proc.stdout).strip()
+        )
+    result.say(f"live settings from {cfg.live_home} copied into settings/ first")
+
+
+PATHS_TRAILER = "Backup-Paths:"
+
+
 def backup_and_tag(cfg: Config, paths: list[str], message: str, result: Result, *, now=None) -> None:
     """Steps 1 to 3 of the safety order. Raises before anything is restored."""
     _require_clean_index(cfg)
+    message = message + "\n\n" + "\n".join(f"{PATHS_TRAILER} {p}" for p in paths)
     present = [p for p in paths if _tracked_or_present(cfg, p)]
     if present:
         _git(cfg, "add", "-A", "--", *present)
@@ -325,6 +356,7 @@ def restore_patch(cfg: Config, stable_key: str, *, now=None) -> Result:
     fetch_upstream(cfg, result)
     if not _path_in_ref(cfg, cfg.upstream_ref, rel):
         raise LibraryError(f"the template has no version of {rel}; nothing to restore")
+    snapshot_live_settings(cfg, result)
     backup_and_tag(cfg, [rel, SETTINGS_DIR], f"backup before restoring {stable_key}", result, now=now)
     _git(cfg, "checkout", cfg.upstream_ref, "--", rel)
     dropped = drop_patch_settings(cfg.repo / SETTINGS_DIR, stable_key)
@@ -356,6 +388,7 @@ def factory_reset(cfg: Config, *, now=None) -> Result:
     result = Result("factory-reset")
     fetch_upstream(cfg, result)
     dirs = stock_asset_dirs(cfg)
+    snapshot_live_settings(cfg, result)
     backup_and_tag(
         cfg,
         [*dirs, USER_PATCHES, SETTINGS_DIR],
@@ -374,6 +407,38 @@ def factory_reset(cfg: Config, *, now=None) -> Result:
     touched = reset_settings_to_defaults(cfg, cfg.repo / SETTINGS_DIR, result)
     result.say("stock patches and user patches reset to the template")
     result.say("settings reset: " + ", ".join(touched))
+    return result
+
+
+def undo_restore(cfg: Config, tag: str, *, force: bool = False) -> Result:
+    """Put back what a restore replaced: only the paths that backup covered.
+
+    Never ``checkout <tag> -- .``: that would also wipe uncommitted edits elsewhere
+    in the checkout. Refuses if tracked files outside the backed-up paths have
+    uncommitted changes (unless force).
+    """
+    result = Result("undo")
+    if not tag.startswith(TAG_PREFIX) or not _ref_exists(cfg, f"refs/tags/{tag}"):
+        raise LibraryError(f"{tag!r} is not a {TAG_PREFIX}* tag in this checkout")
+    body = _out(cfg, "log", "-1", "--format=%B", f"refs/tags/{tag}^{{commit}}")
+    paths = [ln[len(PATHS_TRAILER):].strip() for ln in body.splitlines() if ln.startswith(PATHS_TRAILER)]
+    if not paths:
+        raise LibraryError(f"{tag} records no backed-up paths; restore by hand with git checkout {tag} -- <path>")
+    dirty = [
+        p for p in _git(cfg, "diff", "--name-only", "-z", "HEAD").stdout.split("\0")
+        if p and not any(p == b or p.startswith(b.rstrip("/") + "/") for b in paths)
+    ]
+    if dirty and not force:
+        raise LibraryError(
+            "uncommitted changes outside the backed-up paths (first: " + dirty[0]
+            + "); commit or discard them, or pass --force. Nothing was changed."
+        )
+    present = [p for p in paths if _path_in_ref(cfg, f"refs/tags/{tag}", p) or _git(
+        cfg, "ls-tree", "-d", f"refs/tags/{tag}", p, check=False).stdout.strip()]
+    if present:
+        _git(cfg, "checkout", f"refs/tags/{tag}", "--", *present)
+    result.say("restored from " + tag + ": " + ", ".join(paths))
+    result.say("files added after the backup are left in place")
     return result
 
 
@@ -598,6 +663,8 @@ def _config_from_args(args: argparse.Namespace) -> Config:
         fetch=not args.no_fetch,
         push=True,
         allow_offline=args.allow_offline,
+        live_home=Path(args.live_home).expanduser() if getattr(args, "live_home", None) else None,
+        device_id=getattr(args, "device_id", None),
     )
 
 
@@ -611,11 +678,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="if the backup push fails, go ahead anyway (commit and tag stay local)",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
-    sp = sub.add_parser("restore-patch", help="restore one patch and clear its settings")
+    live = argparse.ArgumentParser(add_help=False)
+    live.add_argument("--live-home", help="the device's home dir: its live stores are copied into settings/ before the backup")
+    live.add_argument("--device-id", help="device folder under settings/device/ (with --live-home)")
+    live.add_argument("--no-live-snapshot", action="store_true", help="skip the live copy (settings/ may be stale)")
+    sp = sub.add_parser("restore-patch", parents=[live], help="restore one patch and clear its settings")
     sp.add_argument("stable_key", help="e.g. factory:Bass/Lead 1")
     sub.add_parser("restore-stock", help="restore stock patches and CC0 collections; yours untouched")
-    sub.add_parser("factory-reset", help="stock + your patches + per-patch settings back to the template")
+    sub.add_parser("factory-reset", parents=[live], help="stock + your patches + per-patch settings back to the template")
     sub.add_parser("update", help="merge the template; your edits win, template blobs recorded")
+    su = sub.add_parser("undo", help="put back the paths a restore backed up (not the whole tree)")
+    su.add_argument("tag")
+    su.add_argument("--force", action="store_true")
     sa = sub.add_parser("absorb", help="merge -s ours a one-off template commit (the strip commit)")
     sa.add_argument("commit")
     sv = sub.add_parser("verify", help="count patches and settings hits; save or compare a snapshot")
@@ -650,7 +724,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "verify":
             return _cmd_verify(args)
         cfg = _config_from_args(args)
-        if args.cmd == "restore-patch":
+        if args.cmd in ("restore-patch", "factory-reset") and cfg.live_home is None and not args.no_live_snapshot:
+            raise LibraryError(
+                "settings/ may be older than the device's live stores. Pass --live-home <device home> "
+                "to copy them in first, or --no-live-snapshot to accept a stale settings/."
+            )
+        if args.cmd == "undo":
+            result = undo_restore(cfg, args.tag, force=args.force)
+        elif args.cmd == "restore-patch":
             result = restore_patch(cfg, args.stable_key)
         elif args.cmd == "restore-stock":
             result = restore_stock(cfg)
@@ -665,11 +746,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if result.tag:
         print(f"backup: {result.backup_commit[:10]}  tag: {result.tag}  pushed: {'yes' if result.pushed else 'no'}")
-        print(f"undo:   git -C <repo> checkout {result.tag} -- .")
+        print(f"undo:   mpe-library undo {result.tag}   (only the backed-up paths)")
     for note in result.notes:
         print(note)
     if result.action in ("restore-patch", "factory-reset"):
-        print("next:   stop the patch browser, run scripts/library-snapshot-settings.sh --in, start it again")
+        print("next:   stop the patch browser, run scripts/library-snapshot-settings.sh --in "
+              "(replaced live files are kept under ~/.mpe-library-backups), start it again")
     return 0
 
 

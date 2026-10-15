@@ -24,6 +24,12 @@ fi
 echo "✓ Connected"
 echo ""
 
+# Refuse before anything is sent if the roots are wired to the library (see refuse-linked-roots.sh).
+if ! { mpe_pi_source_line; echo; /bin/cat "$SCRIPT_DIR/lib/refuse-linked-roots.sh"; } | mpe_pi_ssh bash -s; then
+    echo "❌ Deploy refused: patch roots are linked to the personal library."
+    exit 1
+fi
+
 echo "Step 1/7: git pull MPE-Module on Pi..."
 if [ -n "$PI_MPE_MODULE" ]; then
     mpe_pi_ssh "cd '$PI_MPE_MODULE' && git pull" || echo "⚠️  git pull failed — ensure repo exists on Pi"
