@@ -18,7 +18,8 @@ class LinkTests(unittest.TestCase):
         self.root = Path(self._tmp.name)
         self.repo = self.root / "library"
         self.res = self.root / "surge" / "resources" / "data"
-        self.docs = self.root / "docs"
+        # a space in the path, as on the device ("Documents/Surge XT")
+        self.docs = self.root / "Surge XT"
         for rel in (
             "assets/patches/patches_factory/Bass",
             "assets/patches/third-party/patches_3rdparty/Emu",
@@ -28,9 +29,11 @@ class LinkTests(unittest.TestCase):
         self.put(self.repo / "assets/patches/patches_factory/Bass/Sub.fxp", b"sub")
         self.put(self.repo / "assets/patches/third-party/patches_3rdparty/Emu/Synths.fxp", b"emu")
         self.put(self.repo / "assets/user-data/Patches/Mine.fxp", b"mine")
-        # the live directories, as on the device: real dirs, same content
+        # the live directories, as on the device: real dirs, same content. deploy-all
+        # renames the library's whole third-party/ dir to patches_3rdparty, so the
+        # authors sit one level down on the device.
         self.put(self.res / "patches_factory/Bass/Sub.fxp", b"sub")
-        self.put(self.res / "patches_3rdparty/Emu/Synths.fxp", b"emu")
+        self.put(self.res / "patches_3rdparty/patches_3rdparty/Emu/Synths.fxp", b"emu")
         self.put(self.docs / "Patches/Mine.fxp", b"mine")
 
     @staticmethod
@@ -87,6 +90,38 @@ class LinkTests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("differ", proc.stdout)
         self.assertEqual(self.links(), {"factory": False, "third": False, "user": False})
+
+    def test_third_party_keys_are_unchanged_through_the_link(self) -> None:
+        import sys
+
+        sys.path.insert(0, str(SCRIPT.parents[1]))
+        from patch_browser.patch_sidecar_key import clear_path_caches, stable_key_from_absolute_path
+
+        roots = [self.res / "patches_factory", self.res / "patches_3rdparty", self.docs / "Patches"]
+        live = self.res / "patches_3rdparty/patches_3rdparty/Emu/Synths.fxp"
+        before = stable_key_from_absolute_path(live, roots)
+        self.assertEqual(before, "thirdparty:patches_3rdparty/Emu/Synths")
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        clear_path_caches()
+        self.assertEqual(stable_key_from_absolute_path(live, roots), before)
+
+    def test_refuses_a_missing_file_under_a_path_with_spaces(self) -> None:
+        self.put(self.docs / "Patches/Quick Select/Only On Device.fxp", b"new")
+        proc = self.run_script("--dry-run")
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("Quick Select/Only On Device.fxp", proc.stdout)
+
+    def test_empty_live_directories_do_not_block(self) -> None:
+        (self.docs / "Patches/MIDI Programs").mkdir()
+        (self.docs / "Patches/Quick Select/Dan Maurer").mkdir(parents=True)
+        proc = self.run_script("--dry-run")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        # but a directory holding a file still does
+        self.put(self.docs / "Patches/MIDI Programs/prog.fxp", b"p")
+        proc = self.run_script("--dry-run")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("MIDI Programs/prog.fxp", proc.stdout)
 
     def test_library_may_hold_more_than_the_live_dir(self) -> None:
         self.put(self.repo / "assets/user-data/Patches/Extra.fxp", b"x")
@@ -170,7 +205,7 @@ class LinkTests(unittest.TestCase):
         self.assertIn("undoing", proc.stderr)
         self.assertEqual(self.links(), {"factory": False, "third": False, "user": False})
         self.assertEqual((self.res / "patches_factory/Bass/Sub.fxp").read_bytes(), b"sub")
-        self.assertEqual((self.res / "patches_3rdparty/Emu/Synths.fxp").read_bytes(), b"emu")
+        self.assertEqual((self.res / "patches_3rdparty/patches_3rdparty/Emu/Synths.fxp").read_bytes(), b"emu")
         self.assertFalse(list(self.res.glob("*.backup.*")))
 
     def test_no_restart_unless_asked(self) -> None:
