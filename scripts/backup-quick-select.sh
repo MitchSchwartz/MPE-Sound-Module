@@ -1,7 +1,8 @@
 #!/bin/bash
-# Pull Quick Select + favorites index from Pi into the private assets repo (git backup).
+# Pull Quick Select + favorites index from Pi into the personal library repo (git backup).
+# Read-only on the device.
 
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/paths.sh
@@ -9,12 +10,13 @@ source "$SCRIPT_DIR/lib/paths.sh"
 mpe_require_personal
 
 STAMP="$(date -u +%Y-%m-%dT%H%M%SZ)"
-DEST_ROOT="$MPE_ASSETS_DIR/user-data/quick-select"
+# Under state/, not assets/: snapshots hold .fxp copies and must never look like a patch root.
+DEST_ROOT="$MPE_PERSONAL_REPO/state/quick-select-snapshots"
 SNAP="$DEST_ROOT/snapshots/$STAMP"
 LATEST="$DEST_ROOT/latest"
 
 echo "======================================="
-echo "  Backup Quick Select → assets repo"
+echo "  Backup Quick Select → personal library repo"
 echo "======================================="
 echo ""
 echo "Pi: $PI_USER@$PI_HOST"
@@ -31,8 +33,9 @@ mkdir -p "$SNAP"
 QA_REMOTE='${MPE_SURGE_DOCS:-$HOME/Documents/Surge XT}/Patches'
 FAV_NAME="${MPE_FAVORITES_NAME#!}"
 
-echo "Archiving Quick Select on Pi..."
-mpe_pi_ssh bash -s <<EOF
+echo "Streaming Quick Select from the Pi (read-only: nothing is written on the device)..."
+# tar to stdout over ssh: no scratch file on the device, unlike tar-to-/tmp + scp + rm.
+mpe_pi_ssh bash -s <<EOF | tar xzf - -C "$SNAP"
 set -e
 $(mpe_pi_source_line)
 QA="\${MPE_SURGE_DOCS:-\$HOME/Documents/Surge XT}/Patches/$FAV_NAME"
@@ -41,26 +44,17 @@ if [ ! -d "\$QA" ]; then
   exit 1
 fi
 cd "\$(dirname "\$QA")"
-tar czf /tmp/quick-select-backup.tar.gz "$FAV_NAME"
+tar czf - "$FAV_NAME"
 EOF
 
-scp -i "$SSH_KEY" "$PI_USER@$PI_HOST:/tmp/quick-select-backup.tar.gz" "$SNAP/" 
-mpe_pi_ssh "rm -f /tmp/quick-select-backup.tar.gz"
-
-(
-  cd "$SNAP"
-  tar xzf quick-select-backup.tar.gz
-  rm quick-select-backup.tar.gz
-)
-
-scp -i "$SSH_KEY" "$PI_USER@$PI_HOST:.patch_browser_favorites.json" \
-    "$SNAP/patch_browser_favorites.json" 2>/dev/null || {
+mpe_pi_ssh 'cat "${MPE_HOME:-$HOME}/.patch_browser_favorites.json"' \
+    >"$SNAP/patch_browser_favorites.json" 2>/dev/null || {
     echo "WARN: favorites index not found on Pi — tree only"
 }
 
 cat >"$SNAP/README.txt" <<EOF
 Quick Select backup pulled from $PI_HOST at $STAMP (UTC).
-Commit this directory in MPE-Library (assets repo) after review.
+Commit this directory in the personal library repo after review.
 Restore on Pi: python3 scripts/restore-quick-select.py $SNAP
 EOF
 
@@ -73,8 +67,8 @@ COUNT="$(find "$SNAP/$FAV_NAME" -name '*.fxp' 2>/dev/null | wc -l | tr -d ' ')"
 echo ""
 echo "Backed up $COUNT .fxp + index → $SNAP"
 echo ""
-echo "Next — commit in assets repo:"
+echo "Next — commit in the personal library repo:"
 echo "  cd $MPE_PERSONAL_REPO"
-echo "  git add assets/user-data/quick-select/"
+echo "  git add state/quick-select-snapshots/"
 echo "  git commit -m \"Quick Select backup $STAMP\""
 echo "  git push"

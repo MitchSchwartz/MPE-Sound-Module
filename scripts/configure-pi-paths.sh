@@ -2,6 +2,16 @@
 # Install or refresh Pi path config and systemd units.
 # From PC:  ./scripts/configure-pi-paths.sh [--force]
 # On Pi:    ./scripts/configure-pi-paths.sh --local [--force]
+#
+# Point the device at a personal library checkout (the template is its `upstream` remote):
+#   ./scripts/configure-pi-paths.sh --local --personal-repo PATH --paths-only
+#     rewrites ONLY MPE_PERSONAL_REPO in /etc/mpe/mpe.env (old file kept as
+#     mpe.env.pre-library.<ts>; undo = copy it back). No unit install, no restart:
+#     the device keeps playing. Idempotent.
+#   ./scripts/configure-pi-paths.sh --local --personal-repo PATH --force
+#     the full regeneration, with that repo as MPE_PERSONAL_REPO.
+# Either form also makes sure the checkout has an `upstream` remote when
+# MPE_LIBRARY_UPSTREAM_URL is set in the environment (never written to a file here).
 
 set -e
 
@@ -12,18 +22,84 @@ source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/mpe-services.sh"
 
 FORCE=false
-for arg in "$@"; do
-    case "$arg" in
-        --local) ;;
-        --force) FORCE=true ;;
+LOCAL_FLAG=false
+PATHS_ONLY=false
+PERSONAL_ARG=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --local) LOCAL_FLAG=true; shift ;;
+        --force) FORCE=true; shift ;;
+        --paths-only) PATHS_ONLY=true; shift ;;
+        --personal-repo) PERSONAL_ARG="${2:?--personal-repo needs a path}"; shift 2 ;;
+        *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
 done
+if [ "$PATHS_ONLY" = true ] && [ -z "$PERSONAL_ARG" ]; then
+    echo "ERROR: --paths-only needs --personal-repo PATH" >&2
+    exit 2
+fi
 
 _is_pi() {
     [ -f /proc/device-tree/model ] && grep -qi raspberry /proc/device-tree/model 2>/dev/null
 }
 
+# Make sure the library checkout has the template as `upstream`. Only acts when
+# MPE_LIBRARY_UPSTREAM_URL is set; the URL lives in the environment, not in a file.
+_ensure_library_upstream() {
+    local repo="${MPE_PERSONAL_REPO:-}" name="${MPE_LIBRARY_UPSTREAM_REMOTE:-upstream}" url cur
+    [ -n "$repo" ] && [ -e "$repo/.git" ] || return 0
+    url="${MPE_LIBRARY_UPSTREAM_URL:-}"
+    cur="$(git -C "$repo" remote get-url "$name" 2>/dev/null || true)"
+    if [ -z "$url" ]; then
+        [ -n "$cur" ] || echo "  note: $repo has no '$name' remote; set MPE_LIBRARY_UPSTREAM_URL and re-run to add it"
+        return 0
+    fi
+    if [ -z "$cur" ]; then
+        git -C "$repo" remote add "$name" "$url"
+        echo "  added remote '$name'"
+    elif [ "$cur" != "$url" ]; then
+        git -C "$repo" remote set-url "$name" "$url"
+        echo "  updated remote '$name'"
+    else
+        echo "  remote '$name' already set"
+    fi
+}
+
+# Rewrite one key in /etc/mpe/mpe.env, keeping the previous file. Idempotent.
+_set_personal_repo_only() {
+    # MPE_APPLIANCE_ENV_FILE: test harness only (same spirit as MPE_ENV_FILE).
+    local repo="$1" env="${MPE_APPLIANCE_ENV_FILE:-/etc/mpe/mpe.env}" new bk n
+    if [ ! -f "$env" ]; then
+        echo "ERROR: $env does not exist; run without --paths-only first." >&2
+        exit 1
+    fi
+    if grep -qxF "MPE_PERSONAL_REPO=$repo" "$env"; then
+        echo "MPE_PERSONAL_REPO already $repo in $env; nothing to change."
+    else
+        # Never reuse a name: a same-second second run must not overwrite the original backup.
+        bk="$env.pre-library.$(date +%s)"; n=1
+        while [ -e "$bk" ]; do n=$((n + 1)); bk="$env.pre-library.$(date +%s)-$n"; done
+        sudo cp -a "$env" "$bk"
+        new="$( { grep -v '^MPE_PERSONAL_REPO=' "$env" || true; echo "MPE_PERSONAL_REPO=$repo"; } )"
+        printf '%s\n' "$new" | sudo tee "$env" >/dev/null
+        echo "MPE_PERSONAL_REPO=$repo written (previous file kept as $env.pre-library.*)."
+    fi
+    _ensure_library_upstream
+    echo "Services were not restarted. The browser picks the new value up on its next start."
+}
+
 _run_on_pi() {
+    if [ -n "$PERSONAL_ARG" ]; then
+        if [ ! -d "$PERSONAL_ARG" ]; then
+            echo "ERROR: --personal-repo $PERSONAL_ARG is not a directory" >&2
+            exit 1
+        fi
+        MPE_PERSONAL_REPO="$(cd "$PERSONAL_ARG" && pwd)"
+    fi
+    if [ "$PATHS_ONLY" = true ]; then
+        _set_personal_repo_only "$MPE_PERSONAL_REPO"
+        return 0
+    fi
     MPE_PI_USER="${MPE_PI_USER:-$(whoami)}"
     MPE_SCRIPTS_DIR="$MPE_MODULE_REPO/scripts"
 
@@ -42,6 +118,7 @@ _run_on_pi() {
     echo "  Audio profile:  ${MPE_AUDIO_PROFILE:-standalone}"
     echo ""
 
+    _ensure_library_upstream
     sudo mkdir -p /etc/mpe
     _preserved_audio_profile=""
     _preserved_surge_buffer=""
@@ -190,12 +267,14 @@ EOF
     echo "Done. Restart: sudo systemctl restart surge-xt-cli $(mpe_patch_browser_unit)"
 }
 
-if [ "${1:-}" = "--local" ] || _is_pi; then
+if [ "$LOCAL_FLAG" = true ] || _is_pi; then
     _run_on_pi
 else
     echo "Configuring Pi at $PI_USER@$PI_HOST via SSH..."
     _extra=""
     [ "$FORCE" = true ] && _extra=" --force"
+    [ "$PATHS_ONLY" = true ] && _extra="$_extra --paths-only"
+    [ -n "$PERSONAL_ARG" ] && _extra="$_extra --personal-repo '$PERSONAL_ARG'"
     if [ -n "$PI_MPE_MODULE" ]; then
         mpe_pi_ssh "cd '$PI_MPE_MODULE' && ./scripts/configure-pi-paths.sh --local$_extra"
     else
