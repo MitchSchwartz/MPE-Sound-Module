@@ -72,12 +72,16 @@ fi
 echo ""
 
 echo "Step 5/7: Deploying third-party patches (375MB)..."
-if [ "$PATCH_DEPLOY" = 1 ] && [ -d "$ASSETS/patches/third-party" ]; then
-    cd "$ASSETS/patches" && tar czf /tmp/patches_3rdparty.tar.gz third-party/
+# One level deep: the archive holds patches_3rdparty/<author>/..., extracted like the
+# factory one. (Unpacking the whole third-party/ dir used to nest the authors under
+# patches_3rdparty/patches_3rdparty/ and put that segment in every thirdparty key.)
+# A device still on that nested layout is left alone: flattening it orphans its
+# settings unless they are re-keyed first (docs/LIBRARY-MIGRATION.md).
+if [ "$PATCH_DEPLOY" = 1 ] && [ -d "$ASSETS/patches/third-party/patches_3rdparty" ]; then
+    cd "$ASSETS/patches/third-party" && tar czf /tmp/patches_3rdparty.tar.gz patches_3rdparty/
     scp -i "$SSH_KEY" /tmp/patches_3rdparty.tar.gz "$PI_USER@$PI_HOST:/tmp/"
-    mpe_pi_ssh "$(mpe_pi_source_line); cd \"\$MPE_SURGE_RESOURCES\" && tar xzf /tmp/patches_3rdparty.tar.gz && mv third-party patches_3rdparty && rm /tmp/patches_3rdparty.tar.gz"
+    mpe_pi_ssh "$(mpe_pi_source_line); cd \"\$MPE_SURGE_RESOURCES\" && { if [ -d patches_3rdparty/patches_3rdparty ]; then echo 'nested third-party layout on the device: step 5 skipped (see docs/LIBRARY-MIGRATION.md)'; else tar xzf /tmp/patches_3rdparty.tar.gz && echo '✓ Third-party patches deployed'; fi; rc=\$?; rm -f /tmp/patches_3rdparty.tar.gz; exit \$rc; }"
     rm /tmp/patches_3rdparty.tar.gz
-    echo "✓ Third-party patches deployed"
 else
     echo "⚠️  Third-party patches skipped or not found"
 fi

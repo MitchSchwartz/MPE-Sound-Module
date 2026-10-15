@@ -19,6 +19,7 @@ All device commands are `scripts/library-migrate-device.sh <step>`, run on the d
 | 3 | Clone beside the old copy; add `upstream` | `clone --dir <new-dir>` | delete `<new-dir>` | **device write** (disk, ~450 MB) |
 | 4a | Record patch counts and settings hits | `snapshot` | delete `~/.mpe-library-migration/before.json` | **device write** (one small file) |
 | 4b | Dry run: checks only | `link --dir <new-dir> --dry-run` | nothing to undo | read-only |
+| 4b' | Nested third-party layout only (`patches_3rdparty/patches_3rdparty/`): stop the browser and Surge, then rewrite `thirdparty:patches_3rdparty/X` keys to `thirdparty:X` in every store | `scripts/mpe-library rekey-thirdparty` (backs up each changed store as `<store>.pre-rekey.<stamp>`; refuses if a patch has both forms; a re-run does nothing) | `scripts/mpe-library rekey-thirdparty --undo <stamp>` | **device write** (the stores), browser stopped |
 | 4c | Point `MPE_PERSONAL_REPO` at the clone, then link | `link --dir <new-dir>` | `rollback` | **device write** (`/etc/mpe/mpe.env`, three links) |
 | 4d | Compare against the snapshot | `verify` | read-only | |
 | 4e | Restart Surge and the browser so they read through the links | by hand, when the player is not mid-song | n/a | **device write**, interrupts sound |
@@ -36,7 +37,7 @@ It creates `~/.ssh/mpe_library_ed25519` on the device if missing (the private ke
 
 What `link` does, in order: runs `setup-pi-symlinks.sh --local --dry-run` (a refusal stops everything, nothing changed), rewrites only `MPE_PERSONAL_REPO` in `/etc/mpe/mpe.env` (old file kept as `mpe.env.pre-library.<ts>`), makes the three links keeping their names (`patches_factory`, `patches_3rdparty`, `Patches`; the existing directories become `*.backup.<ts>`), then runs `verify`; if verify fails, `link` rolls itself back and exits non-zero. `link` records exactly what it changed (the backups it created and the env copy) in `~/.mpe-library-migration/link-manifest`. `rollback` undoes exactly those records, newest first, and restores the original `MPE_PERSONAL_REPO` value from the oldest env backup. Re-running either is harmless.
 
-`verify` compares, per root, the patch count, and per store (FX, hold, pressure, normalization, metadata), how many keys land on a real patch. It exits non-zero if any count went down; a renamed link shows up as zero hits.
+`verify` compares, per root, the patch count, and per store (FX, hold, pressure, normalization, metadata, favorites), how many keys land on a real patch. It exits non-zero if any count went down; a renamed link shows up as zero hits. Counts that went up are printed (`more hits than before`): flattening a nested third-party root makes keys that were already one level deep land again.
 
 ## Later, on the laptop
 

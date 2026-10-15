@@ -6,13 +6,14 @@
 # name of the directory Surge scans (patches_factory -> factory,
 # patches_3rdparty -> thirdparty, anything else -> user). Never rename a link.
 #
-# The key's path part is relative to the link, so each target must hold the same
-# tree the live directory holds. deploy-all.sh unpacks the library's whole
-# `third-party/` dir and renames it to patches_3rdparty, so on a device the authors
-# sit one level down (patches_3rdparty/patches_3rdparty/<author>/...) and every
-# thirdparty key carries that `patches_3rdparty/` segment. The link therefore points
-# at `third-party`, not at `third-party/patches_3rdparty`: the inner one would drop
-# the segment and orphan every third-party setting.
+# The key's path part is relative to the link. Third-party patches sit ONE level
+# deep: the link points at `third-party/patches_3rdparty`, so authors sit directly
+# under the scanned root and keys read `thirdparty:<author>/...`. Older deploys
+# unpacked the whole `third-party/` dir, leaving devices with an extra level
+# (patches_3rdparty/patches_3rdparty/<author>/...). The check accepts such a root
+# when its single child of the same name matches the target; linking flattens it,
+# so the stores' `thirdparty:patches_3rdparty/...` keys must be re-keyed first
+# (`mpe-library rekey-thirdparty`, docs/LIBRARY-MIGRATION.md).
 #
 # Needs from the caller: MPE_SURGE_RESOURCES, MPE_SURGE_DOCS, ASSETS (the
 # library's assets/ dir). Everything here is idempotent: a link already pointing
@@ -23,7 +24,7 @@
 library_link_plan() {
     printf '%s|%s\n' \
         "patches/patches_factory" "$MPE_SURGE_RESOURCES/patches_factory" \
-        "patches/third-party" "$MPE_SURGE_RESOURCES/patches_3rdparty" \
+        "patches/third-party/patches_3rdparty" "$MPE_SURGE_RESOURCES/patches_3rdparty" \
         "user-data/Patches" "$MPE_SURGE_DOCS/Patches"
 }
 
@@ -46,9 +47,25 @@ _ll_unsafe_files() {
     done < <(cd -- "$live" && find . ! -type d -print0)
 }
 
+# The tree under LIVE to compare with TARGET. Normally LIVE itself. A root holding
+# exactly one entry, a directory named like the root itself, that TARGET does not
+# also hold, is the old nested layout (patches_3rdparty/patches_3rdparty/<author>):
+# its content is that child.
+_ll_live_tree() {
+    local live="$1" target="$2" name entries
+    name="$(basename -- "$live")"
+    entries="$(cd -- "$live" && find . -mindepth 1 -maxdepth 1 -printf '%f\n' | head -2)"
+    if [ "$entries" = "$name" ] && [ -d "$live/$name" ] && [ ! -L "$live/$name" ] \
+        && [ ! -e "$target/$name" ]; then
+        printf '%s' "$live/$name"
+    else
+        printf '%s' "$live"
+    fi
+}
+
 # Print one verdict per root: "ok", "link", or "refuse: <why>". Returns 1 if any refuse.
 library_link_check() {
-    local rc=0 rel link target unsafe
+    local rc=0 rel link target unsafe tree note
     while IFS='|' read -r rel link; do
         target="$ASSETS/$rel"
         if [ ! -d "$target" ]; then
@@ -57,6 +74,7 @@ library_link_check() {
         if [ -L "$link" ] && [ "$(_ll_realpath "$link")" = "$(_ll_realpath "$target")" ]; then
             echo "ok: $link already points at $target"; continue
         fi
+        note=""
         if [ -d "$link" ]; then
             # A real directory, or a link to somewhere else: the target must already
             # hold every file in it (cd follows the link to its contents).
@@ -64,15 +82,17 @@ library_link_check() {
                 echo "refuse: $link has entries this user cannot read; cannot check it"
                 rc=1; continue
             fi
-            unsafe="$(_ll_unsafe_files "$link" "$target")"
+            tree="$(_ll_live_tree "$link" "$target")"
+            [ "$tree" != "$link" ] && note=" (nested layout: compared $tree; linking flattens it)"
+            unsafe="$(_ll_unsafe_files "$tree" "$target")"
             if [ -n "$unsafe" ]; then
-                echo "refuse: $link has $(printf '%s\n' "$unsafe" | wc -l) file(s) the library lacks or holds different versions of:"
+                echo "refuse: $tree has $(printf '%s\n' "$unsafe" | wc -l) file(s) the library lacks or holds different versions of:"
                 printf '%s\n' "$unsafe" | head -10 | sed 's/^/    /'
                 echo "    merge them into $target (and commit) first"
                 rc=1; continue
             fi
         fi
-        echo "link: $link -> $target"
+        echo "link: $link -> $target$note"
     done < <(library_link_plan)
     return $rc
 }

@@ -29,9 +29,9 @@ class LinkTests(unittest.TestCase):
         self.put(self.repo / "assets/patches/patches_factory/Bass/Sub.fxp", b"sub")
         self.put(self.repo / "assets/patches/third-party/patches_3rdparty/Emu/Synths.fxp", b"emu")
         self.put(self.repo / "assets/user-data/Patches/Mine.fxp", b"mine")
-        # the live directories, as on the device: real dirs, same content. deploy-all
-        # renames the library's whole third-party/ dir to patches_3rdparty, so the
-        # authors sit one level down on the device.
+        # the live directories, as on the device: real dirs, same content. Older deploys
+        # unpacked the library's whole third-party/ dir as patches_3rdparty, so on the
+        # device the authors sit one level too deep; linking flattens that.
         self.put(self.res / "patches_factory/Bass/Sub.fxp", b"sub")
         self.put(self.res / "patches_3rdparty/patches_3rdparty/Emu/Synths.fxp", b"emu")
         self.put(self.docs / "Patches/Mine.fxp", b"mine")
@@ -91,20 +91,57 @@ class LinkTests(unittest.TestCase):
         self.assertIn("differ", proc.stdout)
         self.assertEqual(self.links(), {"factory": False, "third": False, "user": False})
 
-    def test_third_party_keys_are_unchanged_through_the_link(self) -> None:
+    def test_nested_third_party_root_links_one_level_deep(self) -> None:
         import sys
 
         sys.path.insert(0, str(SCRIPT.parents[1]))
         from patch_browser.patch_sidecar_key import clear_path_caches, stable_key_from_absolute_path
 
-        roots = [self.res / "patches_factory", self.res / "patches_3rdparty", self.docs / "Patches"]
-        live = self.res / "patches_3rdparty/patches_3rdparty/Emu/Synths.fxp"
-        before = stable_key_from_absolute_path(live, roots)
-        self.assertEqual(before, "thirdparty:patches_3rdparty/Emu/Synths")
+        dry = self.run_script("--dry-run")
+        self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
+        self.assertIn("nested layout", dry.stdout)
         proc = self.run_script()
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        link = self.res / "patches_3rdparty"
+        self.assertEqual(link.resolve(), (self.repo / "assets/patches/third-party/patches_3rdparty").resolve())
+        # authors directly under the scanned root, no nested patches_3rdparty/
+        self.assertEqual((link / "Emu/Synths.fxp").read_bytes(), b"emu")
+        self.assertFalse((link / "patches_3rdparty").exists())
         clear_path_caches()
-        self.assertEqual(stable_key_from_absolute_path(live, roots), before)
+        roots = [self.res / "patches_factory", link, self.docs / "Patches"]
+        self.assertEqual(stable_key_from_absolute_path(link / "Emu/Synths.fxp", roots), "thirdparty:Emu/Synths")
+        # the nested tree is kept whole in the backup
+        (backup,) = self.res.glob("patches_3rdparty.backup.*")
+        self.assertEqual((backup / "patches_3rdparty/Emu/Synths.fxp").read_bytes(), b"emu")
+
+    def test_flat_third_party_root_links_too(self) -> None:
+        import shutil
+
+        shutil.rmtree(self.res / "patches_3rdparty")
+        self.put(self.res / "patches_3rdparty/Emu/Synths.fxp", b"emu")
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertNotIn("nested layout", proc.stdout)
+        self.assertEqual((self.res / "patches_3rdparty/Emu/Synths.fxp").read_bytes(), b"emu")
+
+    def test_nested_root_with_a_file_the_library_lacks_refuses(self) -> None:
+        self.put(self.res / "patches_3rdparty/patches_3rdparty/Emu/Extra.fxp", b"x")
+        proc = self.run_script("--dry-run")
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("Emu/Extra.fxp", proc.stdout)
+        self.put(self.res / "patches_3rdparty/patches_3rdparty/Emu/Synths.fxp", b"changed")
+        (self.res / "patches_3rdparty/patches_3rdparty/Emu/Extra.fxp").unlink()
+        proc = self.run_script("--dry-run")
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("differs: Emu/Synths.fxp", proc.stdout)
+
+    def test_nested_child_beside_anything_else_is_not_unwrapped(self) -> None:
+        # only a root whose ONLY entry is the same-named dir counts as the old layout
+        self.put(self.res / "patches_3rdparty/README.txt", b"r")
+        self.put(self.repo / "assets/patches/third-party/patches_3rdparty/README.txt", b"r")
+        proc = self.run_script("--dry-run")
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("patches_3rdparty/Emu/Synths.fxp", proc.stdout)
 
     def test_refuses_a_missing_file_under_a_path_with_spaces(self) -> None:
         self.put(self.docs / "Patches/Quick Select/Only On Device.fxp", b"new")
