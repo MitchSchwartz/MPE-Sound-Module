@@ -440,7 +440,10 @@ class PcWorkflow(ScannerCase):
         self._touch("Bass/Acid.fxp")
         self._touch("Acid.fxp", root=self.qa)  # the old copy
         self.scanner.scan_patches()
-        self.assertEqual([p["stable_key"] for p in self.fav_rows()], ["factory:Bass/Acid"])
+        # one favorite, shown through its copy (see LegacyIndexWindowTests); the copy is not
+        # imported as a second one and the index stays version 1 with its one entry
+        self.assertEqual([p["stable_key"] for p in self.fav_rows()], ["user:Quick Access/Acid"])
+        self.assertEqual(list(self.scanner.favorites_index.entries), ["factory:Bass/Acid"])
         self.assertEqual(json.loads(self.index_path.read_text())["version"], 1)
 
     def test_import_skips_a_folder_only_matching_by_the_bang(self) -> None:
@@ -461,6 +464,62 @@ class Persistence(ScannerCase):
         self.assertEqual(
             [p["name"] for p in other.get_patches_in_folder(favorites_display_name(), ("Gig",))], ["Solo"]
         )
+
+
+class LegacyIndexWindowTests(ScannerCase):
+    """New code on a version-1 index, before the migration has run (item 6)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._touch("Bass/Acid.fxp")
+        self._touch("Bass/Other.fxp", data=b"other")
+        self.copy = self._touch("Quick Access/Acid.fxp", root=self.patches)  # tuned copy, v1 style
+        self._touch("Quick Access/Kick.fxp", root=self.patches, data=b"kick")  # a copy no entry names
+        self.index_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "folders": [],
+                    "entries": {
+                        "factory:Bass/Acid": {
+                            "folder": "",
+                            "dest_path": f"/anywhere/Quick Access/Acid.fxp",
+                            "added_at": "t",
+                        }
+                    },
+                }
+            )
+        )
+        self.scanner.favorites_index = FavoritesIndex(self.index_path)
+        self.assertTrue(self.scanner.favorites_index.legacy)
+        self.scanner.scan_patches()
+
+    def test_the_row_plays_the_copy_so_calibration_and_the_tuned_sound_stay(self) -> None:
+        rows = self.fav_rows()
+        self.assertEqual([r["stable_key"] for r in rows], ["user:Quick Access/Acid"])
+        self.assertEqual(Path(rows[0]["path"]), self.copy)
+        self.assertFalse(rows[0]["missing"])
+
+    def test_heart_state_and_removal_resolve_through_the_alias(self) -> None:
+        row = self.fav_rows()[0]
+        self.assertTrue(self.scanner.is_patch_in_favorites(row))
+        self.assertTrue(self.scanner.is_patch_in_favorites(self.entry(self.copy)))
+        self.assertFalse(self.scanner.add_patch_to_favorites(row))  # already there
+        self.assertTrue(self.scanner.remove_patch_from_favorites(row))
+        self.assertEqual(list(self.scanner.favorites_index.entries), [])
+        self.assertEqual(self.fav_rows(), [])
+
+    def test_hearting_an_unindexed_copy_files_it_under_the_copys_key_for_the_migration(self) -> None:
+        kick = self.entry(self.patches / "Quick Access" / "Kick.fxp")
+        self.assertTrue(self.scanner.add_patch_to_favorites(kick))
+        self.assertIn("user:Quick Access/Kick", self.scanner.favorites_index.entries)
+        self.assertTrue(self.scanner.favorites_index.legacy)  # still saved as version 1
+        self.assertEqual(json.loads(self.index_path.read_text())["version"], 1)
+
+    def test_a_version_2_index_does_not_alias(self) -> None:
+        self.scanner.favorites_index.upgrade()
+        self.scanner.rescan_favorites_category()
+        self.assertEqual([r["stable_key"] for r in self.fav_rows()], ["factory:Bass/Acid"])
 
 
 if __name__ == "__main__":

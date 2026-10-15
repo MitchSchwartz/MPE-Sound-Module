@@ -533,6 +533,8 @@ class PointerFavoritesInTheBrowser(_BrowserCase):
         return next(p for p in self.library.qa_patches() if p["name"] == name)
 
     def test_the_missing_row_is_listed_and_loads_nothing(self) -> None:
+        self.browser.loader.osc_enabled = True
+        self.browser.loader.load_patch.return_value = True
         self.open_favorites()
         row = self.row("Mystery Patch")
         self.assertTrue(row["missing"])
@@ -540,6 +542,19 @@ class PointerFavoritesInTheBrowser(_BrowserCase):
         self.browser._select_patch(row)
         self.browser.loader.load_patch.assert_not_called()
         self.browser._toast.assert_called()
+        self.assertIsNone(self.browser.loaded_patch_info)
+
+    def test_tapping_the_missing_row_loads_nothing(self) -> None:
+        """The same guard reached through the touch handler, not by calling _select_patch."""
+        # OSC up and the loader willing, so only the guard stands between the tap and a load
+        self.browser.loader.osc_enabled = True
+        self.browser.loader.load_patch.return_value = True
+        self.open_favorites()
+        self.browser._toast.reset_mock()
+        self.tap((40, self.row_y(self.patch_index("Mystery Patch"))))
+        self.browser.loader.load_patch.assert_not_called()
+        self.browser._toast.assert_called_once()
+        self.assertIn("missing", self.browser._toast.call_args.args[0])
         self.assertIsNone(self.browser.loaded_patch_info)
 
     def test_a_present_row_loads_the_source_file_under_the_source_key(self) -> None:

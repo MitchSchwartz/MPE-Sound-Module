@@ -4,7 +4,12 @@
   migrate-favorites-pointers.py dry-run            print the full plan, write nothing
   migrate-favorites-pointers.py run                back up, move files in the library checkout, commit, re-key
   migrate-favorites-pointers.py verify [STAMP]     compare the run's before snapshot with the stores now
-  migrate-favorites-pointers.py undo STAMP         restore stores and index, reverse the git moves
+  migrate-favorites-pointers.py undo STAMP [--force]
+                                                   restore stores and index, reverse the git moves
+                                                   (--force: also over settings changed since the run)
+
+run and undo refuse while the touch browser is running (unit or process). A run that began and did not
+finish blocks the next run until it is undone. Migrate before the first start on the new code.
 
 Paths come from the environment (MPE_PERSONAL_REPO, MPE_HOME, MPE_SURGE_DOCS, MPE_FAVORITES_NAME,
 MPE_FAVORITES_INDEX_FILE and the per-store *_FILE variables), the same ones the browser reads.
@@ -37,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("stamp", nargs="?")
     u = sub.add_parser("undo")
     u.add_argument("stamp")
+    u.add_argument("--force", action="store_true", help="restore even over settings changed since the run")
     args = p.parse_args(argv)
     try:
         env = fm.environment(args.repo)
@@ -49,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
             tuned_names=tuple(args.tuned) if args.tuned else fm.TUNED_NAMES,
             resave_names=tuple(args.resave) if args.resave else fm.RESAVE_NAMES,
             tuned_folder=args.tuned_folder,
+            last_patch_file=env["last_patch_file"],
         )
         if args.cmd in ("dry-run", "run"):
             plan = fm.build_plan(**kw)
@@ -66,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "verify":
             stamp = args.stamp or fm.latest_run(env["index_path"])
             if not stamp:
-                print("no finished run to verify", file=sys.stderr)
+                print("no run to verify", file=sys.stderr)
                 return 1
             problems = fm.verify(index_path=env["index_path"], store_paths=env["store_paths"], roots=env["roots"], stamp=stamp)
             if problems:
@@ -74,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print(f"verify {stamp}: every favorite still has its hits and values")
             return 0
-        for line in fm.undo(repo=env["repo"], index_path=env["index_path"], stamp=args.stamp):
+        for line in fm.undo(repo=env["repo"], index_path=env["index_path"], stamp=args.stamp, force=args.force):
             print(line)
         return 0
     except LibraryError as exc:

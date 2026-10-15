@@ -178,6 +178,7 @@ class PatchScanner:
         self.folder_tree: dict[str, dict] = {}
         self.metadata_index = PatchMetadataIndex()
         self.favorites_index = FavoritesIndex()
+        self._legacy_alias: dict[str, str] = {}
         self._sidecar_loader = None
         self.scan_complete = threading.Event()
         self.scan_lock = threading.Lock()
@@ -462,9 +463,11 @@ class PatchScanner:
         if not patch:
             return None
         stable_key = patch.get("stable_key")
-        if stable_key:
-            return str(stable_key)
-        return self._stable_key_for_path(patch.get("path"))
+        if not stable_key:
+            stable_key = self._stable_key_for_path(patch.get("path"))
+        if not stable_key:
+            return None
+        return self._legacy_alias.get(str(stable_key), str(stable_key))
 
     def _favorite_view(self, key: str, entry: dict, source: dict | None) -> dict:
         segments = tuple(part for part in str(entry.get("folder") or "").split("/") if part)
@@ -489,15 +492,41 @@ class PatchScanner:
         view["favorite_view"] = True
         return view
 
+    def _legacy_copy_key(self, entry: dict) -> str | None:
+        """Version-1 entries name the copy they stand for (``dest_path``). The key of
+        that copy, as the scan files it, or None."""
+        dest = str(entry.get("dest_path") or "").replace("\\", "/")
+        folder = FAVORITES_NAME.lstrip("!")
+        marker = f"/{folder}/"
+        at = dest.rfind(marker)
+        if at < 0 or not dest.lower().endswith(".fxp"):
+            return None
+        return f"user:{folder}/{dest[at + len(marker):-4]}"
+
     def _favorite_rows(self, patches_by_key: dict[str, dict]) -> list[dict]:
-        """Views for every index entry: ordered ones first, then A-Z by name."""
+        """Views for every index entry: ordered ones first, then A-Z by name.
+
+        Until the migration runs, the index is version 1 and the copies still sit in
+        the favorites folder with their settings filed under the copy's key. A
+        version-1 entry is shown through its copy when the copy is there, so the
+        favorite keeps its calibration and its tuned sound; ``_legacy_alias`` maps the
+        copy's key back to the entry for heart, remove and move.
+        """
         rows: list[tuple[tuple, dict]] = []
+        alias: dict[str, str] = {}
         for key, entry in self.favorites_index.entries.items():
-            view = self._favorite_view(key, entry, patches_by_key.get(key))
+            source = patches_by_key.get(key)
+            if self.favorites_index.legacy:
+                copy_key = self._legacy_copy_key(entry)
+                if copy_key and copy_key in patches_by_key:
+                    source = patches_by_key[copy_key]
+                    alias[copy_key] = key
+            view = self._favorite_view(key, entry, source)
             order = entry.get("order")
             has_order = isinstance(order, int) and not isinstance(order, bool)
             rows.append(((0, order, "", key) if has_order else (1, 0, view["name"].casefold(), key), view))
         rows.sort(key=lambda item: item[0])
+        self._legacy_alias = alias
         return [view for _sort, view in rows]
 
     def _tree_with_favorite_folders(self, tree: dict[str, dict]) -> dict[str, dict]:
@@ -563,10 +592,8 @@ class PatchScanner:
         per visible row per frame."""
         if not patch:
             return False
-        key = patch.get("stable_key")
-        if not key:
-            key = self._stable_key_for_path(patch.get("path"))
-        return self.favorites_index.is_favorited(key)
+        key = self.favorite_stable_key_for_patch(patch)
+        return bool(key) and self.favorites_index.is_favorited(key)
 
     def rescan_favorites_category(self) -> list[dict]:
         """Rebuild the favorites category from the index. No disk, no library scan."""

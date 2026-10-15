@@ -20,6 +20,12 @@ def main() -> int:
     parser.add_argument("snapshot_dir", type=Path, help="Directory holding patch_browser_favorites.json")
     parser.add_argument("--index", type=Path, default=None, help="Live index path (default ~/.patch_browser_favorites.json)")
     parser.add_argument("--no-backup", action="store_true", help="Skip the pre-restore snapshot of the live index")
+    parser.add_argument(
+        "--allow-older-version",
+        action="store_true",
+        help="Restore a version-1 snapshot over a version-2 index (favorites are pointers there; "
+        "a v1 snapshot does not carry them back, and its entries mean copies)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print plan only")
     args = parser.parse_args()
 
@@ -31,6 +37,16 @@ def main() -> int:
     source = snapshot_dir / index_path.name
     if not source.is_file():
         print(f"No {index_path.name} in {snapshot_dir}", file=sys.stderr)
+        return 1
+    snapshot, live = FavoritesIndex(source), FavoritesIndex(index_path)
+    if snapshot.legacy and not live.legacy and not args.allow_older_version:
+        print(
+            f"Refusing: {source} is a version-1 index and {index_path} is version 2 (pointers). "
+            "Restoring it would bring back entries that stand for copies the migration removed. "
+            "To go back to copies, undo the migration run instead; to restore anyway, pass "
+            "--allow-older-version.",
+            file=sys.stderr,
+        )
         return 1
     print(f"Restore {source} ({len(FavoritesIndex(source).entries)} favorites) over {index_path}")
     if args.dry_run:

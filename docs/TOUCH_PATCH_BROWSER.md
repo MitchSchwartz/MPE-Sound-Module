@@ -544,6 +544,12 @@ is an ordinary category named without the `!`; the `!` label is the virtual favo
 Until the migration below has run (index version 1), the scan does not import, because the
 folder still holds the old copies.
 
+**Migrate before the first start on this code.** The new code on a version-1 index keeps working
+(each favorite is shown through its copy, so it keeps its calibration and tuned sound, and hearts
+resolve to the right entry), but that is a bridge, not a state to live in: settings made in the
+window are filed under the copy's key and a favorite hearted from a copy is filed under the copy's
+key. The migration folds both into the pointer, so nothing is orphaned, but run it first.
+
 ### Migrating an existing device from copies to pointers
 
 `scripts/migrate-favorites-pointers.py` (browser stopped; paths come from the same
@@ -556,10 +562,22 @@ python3 scripts/migrate-favorites-pointers.py verify       # before snapshot vs 
 python3 scripts/migrate-favorites-pointers.py undo STAMP   # restore stores+index, reverse the git moves
 ```
 
+`run` and `undo` refuse while the touch browser is running (the `touch-patch-browser` unit, or a
+process running `touch_patch_browser.py`; `MPE_TOUCH_UNIT` and `MPE_TOUCH_SCRIPT` rename them).
+A run that began and did not finish (a crash, a failed commit) blocks the next `run` and names
+`undo STAMP`; undo reverses the git step whether or not the commit happened. Undo refuses, before
+changing anything, when a file was saved where a removed copy used to be, when a moved file was
+edited since, or when a store or the index differs from what the run wrote; the last is overridden
+with `undo STAMP --force` (settings made since the run are then lost). `restore-quick-select.py`
+refuses a version-1 snapshot over a version-2 index unless `--allow-older-version`.
+
 It classifies each file in the favorites folder by bytes (identical to a library file: pointer;
 named as a plain re-save: pointer to the stock patch; named as tuned: moved to `Tuned Patches/`
 as a real file; anything else: stays, favorited under its own key), re-keys every store from the
-copy key to the target key (the favorite's value wins per field), backs up each store and the
+copy key to the target key (the favorite's value wins per field; the value is the first hit the
+browser read for the copy, its key or else its legacy stem, and descriptive or captured fields such
+as metadata `path` and hold `baseline` stay the target's), rewrites `last_patch` if it names a
+removed copy, backs up each store and the
 index into `.patch_browser_favorites_backups/pointers-STAMP/` first, and commits the file moves
 inside the library checkout. A second `run` finds nothing to do. Tests:
 `tests/test_favorites_migrate.py`, `tests/test_favorites_index.py`.

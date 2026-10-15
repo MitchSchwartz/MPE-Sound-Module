@@ -59,6 +59,11 @@ class MigrationCase(unittest.TestCase):
         git(self.repo, "config", "user.name", "Test")
         git(self.repo, "config", "user.email", "test@example.invalid")
         git(self.repo, "config", "commit.gpgsign", "false")
+        # No browser runs in the test tree; the tests that care say otherwise.
+        self._orig_browser_active = fm.browser_active
+        browser = mock.patch.object(fm, "browser_active", return_value=None)
+        browser.start()
+        self.addCleanup(browser.stop)
         # Same environment for the module's own git calls.
         patcher = mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"})
         patcher.start()
@@ -249,6 +254,11 @@ class DryRun(MigrationCase):
             "index: rewritten as version 2",
         ):
             self.assertIn(needle, text)
+
+    def test_a_file_outside_the_favorites_folder_is_named_by_its_path(self) -> None:
+        text = fm.format_plan(self.plan())
+        self.assertNotIn("(index) None", text)
+        self.assertIn(f"{USER}/Linn/Winds/Glassy Wind.fxp -> user:Tuned Patches/Glassy Wind", text)
 
     def test_the_plan_names_every_file_and_store_key(self) -> None:
         text = fm.format_plan(self.plan())
@@ -600,6 +610,416 @@ class OtherShapes(MigrationCase):
         self.assertTrue(self.plan(tuned_names=()).empty)
 
 
+# ----------------------------------------------------------- review follow-up (#184)
+
+
+def crash_on_store_write(nth: int):
+    """Patch for fm.atomic_write_json: the nth store/index write raises KeyboardInterrupt
+    before it lands, as a Ctrl-C between two writes would. Manifest writes pass."""
+    real = fm.atomic_write_json
+    seen = {"n": 0}
+
+    def write(path, data, **kw):
+        if Path(path).name != fm.MANIFEST:
+            seen["n"] += 1
+            if seen["n"] == nth:
+                raise KeyboardInterrupt()
+        return real(path, data, **kw)
+
+    return mock.patch.object(fm, "atomic_write_json", write)
+
+
+class InterruptedRuns(MigrationCase):
+    """1. A run that stopped half way blocks the next one (CRITICAL)."""
+
+    def crash(self, nth: int = 2) -> str:
+        with crash_on_store_write(nth):
+            with self.assertRaises(KeyboardInterrupt):
+                self.apply()
+        stamp = fm.latest_run(self.index_path)
+        assert stamp
+        return stamp
+
+    def test_latest_run_sees_a_started_run(self) -> None:
+        stamp = self.crash()
+        m = json.loads((fm.run_dir_for(self.index_path, stamp) / fm.MANIFEST).read_text())
+        self.assertEqual(m["state"], "started")
+        self.assertEqual(fm.latest_run(self.index_path), stamp)
+        self.assertEqual(fm.unfinished_runs(self.index_path), [stamp])
+
+    def test_planning_after_a_crash_refuses_and_names_undo(self) -> None:
+        stamp = self.crash()
+        with self.assertRaises(LibraryError) as ctx:
+            self.plan()
+        self.assertIn(f"undo {stamp}", str(ctx.exception))
+
+    def test_applying_a_plan_made_before_the_crash_refuses_too(self) -> None:
+        plan = self.plan()
+        with crash_on_store_write(2):
+            with self.assertRaises(KeyboardInterrupt):
+                self.apply(plan)
+        stamp = fm.latest_run(self.index_path)
+        before = self.tree()
+        with self.assertRaises(LibraryError) as ctx:
+            self.apply(self.plan_after_hack())
+        self.assertIn(f"undo {stamp}", str(ctx.exception))
+        self.assertEqual(self.tree(), before)
+
+    def plan_after_hack(self) -> fm.Plan:
+        """A plan that has changes to apply, built without the guard (a stale one)."""
+        with mock.patch.object(fm, "unfinished_runs", return_value=[]):
+            plan = self.plan()
+        plan.errors = []
+        plan.index_changed = True
+        plan.index_payload = {"version": 2, "folders": [], "entries": {}, "imported": []}
+        return plan
+
+    def test_undo_then_a_clean_run_gives_the_same_result_as_a_run_that_never_crashed(self) -> None:
+        stamp = self.crash(nth=2)
+        fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp, force=True)
+        second = self.apply()
+        self.assertEqual(
+            fm.verify(index_path=self.index_path, store_paths=self.stores, roots=self.roots, stamp=second), []
+        )
+        self.assertEqual(self.store("normalization")["factory:Bass/Acid"]["user_trim_db"], -5.6)
+        self.assertEqual(fm.unfinished_runs(self.index_path), [])
+
+    def test_staged_changes_are_refused_even_when_the_plan_moves_no_file(self) -> None:
+        git(self.repo, "rm", "-rq", f"{USER}/{QA}")
+        git(self.repo, "commit", "-q", "-m", "empty")
+        (self.repo / "notes.txt").write_text("x")
+        git(self.repo, "add", "notes.txt")
+        plan = self.plan(tuned_names=())
+        self.assertEqual(plan.file_ops, [])
+        self.assertTrue(plan.index_changed)
+        with self.assertRaises(LibraryError):
+            self.apply(plan)
+        self.assertFalse((self.home / fm.BACKUP_DIR_NAME).exists())
+
+    def test_a_finished_or_undone_run_does_not_block(self) -> None:
+        stamp = self.apply()
+        self.assertEqual(fm.unfinished_runs(self.index_path), [])
+        fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp)
+        self.assertEqual(fm.unfinished_runs(self.index_path), [])
+        self.plan()  # does not raise
+
+
+class StemKeyedSettings(MigrationCase):
+    """2. Settings filed under the legacy stem count, in the browser's lookup order."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.write_store("pressure", {
+            "factory:Leads/Duduk": {"touch_offset": 0.25},
+            "Acid": {"cal_floor": 0.118, "touch_offset": 0.05},  # stem-keyed, as 34 favorites had
+            # the target has a row of its own, which shadows the stem row in the browser
+            "factory:Bass/Acid": {"touch_offset": 0.2},
+        })
+        norm = self.store("normalization")
+        norm["Rhodes"] = {"user_trim_db": 3.0, "stem_only": True}  # shadowed by the copy's own key
+        self.write_store("normalization", norm)
+
+    def test_the_stem_hit_reaches_the_target(self) -> None:
+        stamp = self.apply()
+        pressure = self.store("pressure")
+        self.assertEqual(pressure["factory:Bass/Acid"], {"cal_floor": 0.118, "touch_offset": 0.05})
+        self.assertIn("Acid", pressure)  # the stem row is shared; it stays
+        self.assertEqual(
+            fm.verify(index_path=self.index_path, store_paths=self.stores, roots=self.roots, stamp=stamp), []
+        )
+
+    def test_only_the_first_hit_counts(self) -> None:
+        self.apply()
+        rhodes = self.store("normalization")["factory:Keys/Rhodes"]
+        self.assertEqual(rhodes["user_trim_db"], -1.0)
+        self.assertNotIn("stem_only", rhodes)
+
+    def test_verify_compares_effective_values_and_catches_a_lost_stem_value(self) -> None:
+        stamp = self.apply()
+        data = self.store("pressure")
+        del data["factory:Bass/Acid"]["cal_floor"]
+        self.write_store("pressure", data)
+        problems = fm.verify(index_path=self.index_path, store_paths=self.stores, roots=self.roots, stamp=stamp)
+        self.assertTrue(any("pressure.cal_floor" in p and "0.118" in p for p in problems), problems)
+
+    def test_verify_notices_a_stem_value_the_old_code_dropped(self) -> None:
+        """The pre-fix loop looked only at the copy's key; its result must fail verify."""
+        orig = fm.build_plan
+
+        def copy_key_only(**kw):
+            plan = orig(**kw)
+            pressure = plan.stores["pressure"]
+            pressure["new"]["factory:Bass/Acid"] = {"touch_offset": 0.2}  # the stem value lost
+            return plan
+
+        with mock.patch.object(fm, "build_plan", copy_key_only):
+            plan = fm.build_plan(**self.kw())
+        stamp = self.apply(plan)
+        problems = fm.verify(index_path=self.index_path, store_paths=self.stores, roots=self.roots, stamp=stamp)
+        self.assertTrue(any("pressure.cal_floor" in p for p in problems), problems)
+
+
+class FailedGitStep(MigrationCase):
+    """3. A commit that fails leaves the moves staged; undo must reverse them."""
+
+    def install_failing_hook(self) -> None:
+        hook = self.repo / ".git" / "hooks" / "pre-commit"
+        hook.parent.mkdir(exist_ok=True)
+        hook.write_text("#!/bin/sh\necho refused >&2\nexit 1\n")
+        hook.chmod(0o755)
+
+    def test_undo_reverses_staged_moves_when_the_commit_failed(self) -> None:
+        before = digest(self.repo)
+        before_stores = {k: p.read_bytes() for k, p in self.stores.items()}
+        self.install_failing_hook()
+        with self.assertRaises(LibraryError):
+            self.apply()
+        self.assertNotEqual(git(self.repo, "diff", "--cached", "--name-only"), "")  # staged
+        stamp = fm.latest_run(self.index_path)
+        manifest = json.loads((fm.run_dir_for(self.index_path, stamp) / fm.MANIFEST).read_text())
+        self.assertEqual(manifest["state"], "started")
+        self.assertEqual(manifest["repo_base_commit"], self.base)
+        self.assertTrue(manifest["file_ops"])
+        notes = fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp)
+        self.assertTrue(notes)
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD"), self.base)
+        self.assertEqual(digest(self.repo), before)
+        self.assertEqual({k: p.read_bytes() for k, p in self.stores.items()}, before_stores)
+
+    def test_with_the_hook_gone_the_migration_runs_again(self) -> None:
+        self.install_failing_hook()
+        with self.assertRaises(LibraryError):
+            self.apply()
+        stamp = fm.latest_run(self.index_path)
+        fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp)
+        (self.repo / ".git" / "hooks" / "pre-commit").unlink()
+        second = self.apply()
+        self.assertEqual(
+            fm.verify(index_path=self.index_path, store_paths=self.stores, roots=self.roots, stamp=second), []
+        )
+
+
+class BrowserRunning(MigrationCase):
+    """4. Neither run nor undo while the touch browser is up."""
+
+    def test_run_refuses_and_changes_nothing(self) -> None:
+        plan = self.plan()
+        before = self.tree()
+        with mock.patch.object(fm, "browser_active", return_value="touch-patch-browser.service is active"):
+            with self.assertRaises(LibraryError) as ctx:
+                self.apply(plan)
+        self.assertIn("touch browser is running", str(ctx.exception))
+        self.assertEqual(self.tree(), before)
+
+    def test_undo_refuses(self) -> None:
+        stamp = self.apply()
+        after = self.tree()
+        with mock.patch.object(fm, "browser_active", return_value="process 4242 is running touch_patch_browser.py"):
+            with self.assertRaises(LibraryError):
+                fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp)
+        self.assertEqual(self.tree(), after)
+
+    def test_the_unit_check(self) -> None:
+        done = subprocess.CompletedProcess([], 0, stdout="active\n", stderr="")
+        real = self._real_browser_active()
+        with mock.patch.object(fm.subprocess, "run", return_value=done):
+            self.assertIn("is active", real())
+        idle = subprocess.CompletedProcess([], 3, stdout="inactive\n", stderr="")
+        with mock.patch.object(fm.subprocess, "run", return_value=idle):
+            self.assertIsNone(real())
+
+    def test_the_process_check(self) -> None:
+        real = self._real_browser_active()
+        idle = subprocess.CompletedProcess([], 3, stdout="inactive\n", stderr="")
+        child = subprocess.Popen(["python3", "-c", "import time; time.sleep(60)", "touch_patch_browser.py"])
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+        with mock.patch.object(fm.subprocess, "run", return_value=idle):
+            self.assertIn(str(child.pid), real() or "")
+            child.kill()
+            child.wait()
+            self.assertIsNone(real())
+
+    def _real_browser_active(self):
+        # setUp replaced the module attribute; this is the real function
+        return self._orig_browser_active
+
+
+class UndoRefusals(MigrationCase):
+    """5. Undo says no before it clobbers anything."""
+
+    def test_a_file_saved_where_a_copy_was_is_not_overwritten(self) -> None:
+        stamp = self.apply()
+        saved = self.fav_dir / "Acid.fxp"
+        saved.write_bytes(b"saved from the computer since")
+        before = self.tree()
+        with self.assertRaises(LibraryError) as ctx:
+            fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp)
+        self.assertIn("Acid.fxp", str(ctx.exception))
+        self.assertEqual(saved.read_bytes(), b"saved from the computer since")
+        self.assertEqual(self.tree(), before)
+        with self.assertRaises(LibraryError):  # --force does not cover a file
+            fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp, force=True)
+        self.assertEqual(saved.read_bytes(), b"saved from the computer since")
+
+    def test_a_store_changed_since_the_run_needs_force(self) -> None:
+        stamp = self.apply()
+        data = self.store("hold")
+        data["thirdparty:Dan/Kick"]["hold_mult"] = 9.0
+        self.write_store("hold", data)
+        before = self.tree()
+        with self.assertRaises(LibraryError) as ctx:
+            fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp)
+        self.assertIn("--force", str(ctx.exception))
+        self.assertIn("hold", str(ctx.exception))
+        self.assertEqual(self.tree(), before)  # nothing was touched, git included
+        notes = fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp, force=True)
+        self.assertTrue(any(n.startswith("--force") for n in notes), notes)
+        self.assertEqual(self.store("hold"), {"user:Quick Access/Kick": {"hold_mult": 2.0}})
+
+    def test_an_index_changed_since_the_run_needs_force(self) -> None:
+        stamp = self.apply()
+        raw = json.loads(self.index_path.read_text())
+        raw["folders"].append("Later")
+        self.index_path.write_text(json.dumps(raw))
+        with self.assertRaises(LibraryError) as ctx:
+            fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp)
+        self.assertIn("index", str(ctx.exception))
+
+    def test_an_edited_tuned_file_that_was_committed_since_is_still_protected(self) -> None:
+        stamp = self.apply()
+        tuned = self.repo / USER / "Tuned Patches" / "Duduk.fxp"
+        tuned.write_bytes(b"edited and committed")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "edit")
+        with self.assertRaises(LibraryError):
+            fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp)
+        self.assertEqual(tuned.read_bytes(), b"edited and committed")
+
+    def test_a_clean_undo_still_works_without_force(self) -> None:
+        stamp = self.apply()
+        self.assertTrue(fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp))
+
+
+class DeployThenMigrate(MigrationCase):
+    """6. New code ran on the v1 index for a while before the migration."""
+
+    def test_an_entry_filed_under_a_copys_key_is_explained_by_the_copy(self) -> None:
+        raw = json.loads(self.index_path.read_text())
+        raw["entries"]["user:Quick Access/Kick"] = {"folder": "Gig", "added_at": "later"}
+        raw["folders"].append("Gig")
+        self.index_path.write_text(json.dumps(raw))
+        plan = self.plan()
+        kick = next(r for r in plan.rows if r.file_rel == "Kick.fxp")
+        self.assertEqual(kick.old_key, "user:Quick Access/Kick")
+        self.assertFalse(any(r.klass == fm.INDEX_ONLY and r.old_key == "user:Quick Access/Kick" for r in plan.rows))
+        stamp = self.apply(plan)
+        entries = json.loads(self.index_path.read_text())["entries"]
+        self.assertNotIn("user:Quick Access/Kick", entries)  # no orphan
+        self.assertEqual(entries["thirdparty:Dan/Kick"]["folder"], "Gig")
+        self.assertEqual(entries["thirdparty:Dan/Kick"]["added_at"], "later")
+        self.assertEqual(
+            fm.verify(index_path=self.index_path, store_paths=self.stores, roots=self.roots, stamp=stamp), []
+        )
+
+    def test_verify_checks_the_target_of_an_index_only_favorite(self) -> None:
+        stamp = self.apply()
+        (self.repo / THIRD / "Dan" / "Chime.fxp").unlink()  # Chime is index-only
+        problems = fm.verify(index_path=self.index_path, store_paths=self.stores, roots=self.roots, stamp=stamp)
+        self.assertTrue(any("Chime" in p and "not in the library" in p for p in problems), problems)
+
+
+class CapturedAndDescriptiveFields(MigrationCase):
+    """7. The favorite's value wins for choices, not for what describes or was captured from the copy."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.write_store("hold", {
+            "user:Quick Access/Kick": {"hold_mult": 2.0, "baseline": 5.0},
+            "thirdparty:Dan/Kick": {"baseline": 9.0},
+            "user:Quick Access/Duduk": {"hold_mult": 1.5, "baseline": 3.0},
+        })
+        self.write_store("metadata", {"version": 1, "patches": {
+            "user:Quick Access/Acid": {"instrument_user": "lead", "path": "/copy/Acid.fxp", "path_segments": ["Quick Access"]},
+            "factory:Bass/Acid": {"path": "/stock/Acid.fxp", "path_segments": ["Bass"]},
+            "user:Quick Access/Kick": {"path": "/copy/Kick.fxp"},
+        }})
+        self.apply()
+
+    def test_baseline_of_a_pointer_stays_the_targets(self) -> None:
+        kick = self.store("hold")["thirdparty:Dan/Kick"]
+        self.assertEqual(kick, {"baseline": 9.0, "hold_mult": 2.0})
+
+    def test_baseline_of_a_tuned_patch_is_its_own(self) -> None:
+        self.assertEqual(self.store("hold")["user:Tuned Patches/Duduk"], {"hold_mult": 1.5, "baseline": 3.0})
+
+    def test_metadata_path_describes_the_target(self) -> None:
+        meta = self.store("metadata")["patches"]
+        self.assertEqual(meta["factory:Bass/Acid"], {"instrument_user": "lead", "path": "/stock/Acid.fxp", "path_segments": ["Bass"]})
+
+    def test_a_row_that_would_hold_only_descriptive_fields_is_not_created(self) -> None:
+        self.assertNotIn("thirdparty:Dan/Kick", self.store("metadata")["patches"])
+
+    def test_verify_does_not_demand_the_excluded_fields(self) -> None:
+        stamp = fm.latest_run(self.index_path)
+        self.assertEqual(
+            fm.verify(index_path=self.index_path, store_paths=self.stores, roots=self.roots, stamp=stamp), []
+        )
+
+
+class LastPatch(MigrationCase):
+    """7. last_patch.json must not point at a copy the run removes."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.last = self.home / ".patch_browser_last_patch.json"
+
+    def remember(self, path: Path) -> None:
+        self.last.write_text(json.dumps({"category": "!Quick Access", "patch_path": str(path)}, indent=2))
+
+    def test_a_pointer_copy_becomes_its_target(self) -> None:
+        self.remember(self.fav_dir / "Acid.fxp")
+        plan = self.plan(last_patch_file=self.last)
+        self.assertIsNotNone(plan.last_patch)
+        before = self.last.read_bytes()
+        stamp = self.apply(plan)
+        state = json.loads(self.last.read_text())
+        self.assertEqual(Path(state["patch_path"]), self.repo / FACTORY / "Bass" / "Acid.fxp")
+        self.assertEqual(state["category"], "!Quick Access")
+        self.assertTrue(Path(state["patch_path"]).exists())
+        fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp)
+        self.assertEqual(self.last.read_bytes(), before)
+
+    def test_a_tuned_copy_becomes_the_moved_file(self) -> None:
+        self.remember(self.fav_dir / "Duduk.fxp")
+        self.apply(self.plan(last_patch_file=self.last))
+        path = Path(json.loads(self.last.read_text())["patch_path"])
+        self.assertTrue(path.exists())
+        self.assertEqual(path.resolve(), (self.repo / USER / "Tuned Patches" / "Duduk.fxp").resolve())
+
+    def test_a_patch_the_run_does_not_touch_is_left_alone(self) -> None:
+        self.remember(self.fav_dir / "My Own.fxp")
+        plan = self.plan(last_patch_file=self.last)
+        self.assertIsNone(plan.last_patch)
+        before = self.last.read_bytes()
+        self.apply(plan)
+        self.assertEqual(self.last.read_bytes(), before)
+
+    def test_undo_leaves_a_last_patch_chosen_since(self) -> None:
+        self.remember(self.fav_dir / "Acid.fxp")
+        stamp = self.apply(self.plan(last_patch_file=self.last))
+        self.remember(self.repo / FACTORY / "Pads" / "Cloud.fxp")
+        notes = fm.undo(repo=self.repo, index_path=self.index_path, stamp=stamp)
+        self.assertIn("Cloud", self.last.read_text())
+        self.assertTrue(any("last patch changed" in n for n in notes), notes)
+
+    def test_a_second_plan_has_nothing_left_to_rewrite(self) -> None:
+        self.remember(self.fav_dir / "Acid.fxp")
+        self.apply(self.plan(last_patch_file=self.last))
+        self.assertTrue(self.plan(last_patch_file=self.last).empty)
+
+
 class Cli(MigrationCase):
     def run_cli(self, *argv: str) -> subprocess.CompletedProcess:
         env = dict(
@@ -610,6 +1030,9 @@ class Cli(MigrationCase):
             MPE_SURGE_DOCS=str(self.link_parent),
             MPE_FAVORITES_NAME=QA,
             MPE_FAVORITES_INDEX_FILE=str(self.index_path),
+            HOME=str(self.home),
+            MPE_TOUCH_UNIT="no-such-unit-for-tests.service",
+            MPE_TOUCH_SCRIPT="no-such-script-for-tests.py",
             MPE_FX_FILE=str(self.stores["fx"]),
             MPE_HOLD_FILE=str(self.stores["hold"]),
             MPE_PRESSURE_FILE=str(self.stores["pressure"]),

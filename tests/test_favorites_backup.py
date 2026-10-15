@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -58,6 +60,47 @@ class FavoritesBackupTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             restore_index(self.index, empty)
         self.assertEqual(self.index.read_bytes(), before)
+
+
+class RestoreScriptTests(unittest.TestCase):
+    """restore-quick-select.py will not bring version-1 entries (copies) back over pointers."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.live = self.root / "patch_browser_favorites.json"
+        self.live.write_text('{"version":2,"folders":[],"entries":{"a:b":{"folder":""}},"imported":[]}', encoding="utf-8")
+        self.snap = self.root / "snap"
+        self.snap.mkdir()
+        (self.snap / self.live.name).write_text(
+            '{"version":1,"folders":[],"entries":{"a:b":{"folder":"","dest_path":"/x/Quick Access/B.fxp"}}}',
+            encoding="utf-8",
+        )
+
+    def run_script(self, *extra: str) -> subprocess.CompletedProcess:
+        script = Path(__file__).resolve().parents[1] / "scripts" / "restore-quick-select.py"
+        return subprocess.run(
+            [sys.executable, "-I", str(script), str(self.snap), "--index", str(self.live), "--no-backup", *extra],
+            capture_output=True,
+            text=True,
+        )
+
+    def test_a_v1_snapshot_over_a_v2_index_is_refused(self) -> None:
+        before = self.live.read_bytes()
+        out = self.run_script()
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+        self.assertIn("version-1", out.stderr)
+        self.assertEqual(self.live.read_bytes(), before)
+
+    def test_the_flag_allows_it(self) -> None:
+        out = self.run_script("--allow-older-version")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn('"version":1', self.live.read_text().replace(" ", ""))
+
+    def test_a_v2_snapshot_over_v2_needs_no_flag(self) -> None:
+        (self.snap / self.live.name).write_text('{"version":2,"folders":[],"entries":{},"imported":[]}', encoding="utf-8")
+        self.assertEqual(self.run_script().returncode, 0)
 
 
 if __name__ == "__main__":
