@@ -1,4 +1,4 @@
-=== D+A / B / 1024x2 2026-08-21T21:30:51-04:00 master=/home/mitch/phase-da-b-20260821-213051.log ===
+=== D+A / B / 1024x2 2026-08-21T21:30:51-04:00 master=~/phase-da-b-20260821-213051.log ===
 fill_status=/proc/asound/card2/pcm0p/sub0/status
 
 ========== 1024x2 OPEN-CHECK ==========

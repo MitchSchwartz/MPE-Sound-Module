@@ -43,7 +43,7 @@ PROBE_END
 === restore buffer 512 ===
 Applied buffer=512
 jackd period=512 ok
-done commit=fcf8507 log=/home/mitch/latency-measure.log
+done commit=fcf8507 log=~/latency-measure.log
 SENTINEL harness-end
 
 
@@ -1191,7 +1191,7 @@ PROBE_END
 === restore buffer 512 ===
 Applied buffer=512
 jackd period=512 ok
-done commit=d203089 log=/home/mitch/latency-measure.log
+done commit=d203089 log=~/latency-measure.log
 SENTINEL harness-end
 
 
@@ -1234,7 +1234,7 @@ PROBE_END
 === restore buffer 512 ===
 Applied buffer=512
 jackd period=512 ok
-done commit=e4c32fe log=/home/mitch/latency-measure.log
+done commit=e4c32fe log=~/latency-measure.log
 SENTINEL harness-end
 
 
@@ -1282,7 +1282,7 @@ PROBE_END
 === restore buffer 512 ===
 Applied buffer=512
 jackd period=512 ok
-done commit=e4c32fe log=/home/mitch/latency-measure.log
+done commit=e4c32fe log=~/latency-measure.log
 SENTINEL harness-end
 
 
@@ -1328,7 +1328,7 @@ PROBE_END
 === restore buffer 512 ===
 Applied buffer=512
 jackd period=512 ok
-done commit=e4c32fe log=/home/mitch/latency-measure.log
+done commit=e4c32fe log=~/latency-measure.log
 SENTINEL harness-end
 
 
@@ -1379,6 +1379,6 @@ PROBE_END
 === restore buffer 512 ===
 Applied buffer=512
 jackd period=512 ok
-done commit=e4c32fe log=/home/mitch/latency-measure.log
+done commit=e4c32fe log=~/latency-measure.log
 SENTINEL harness-end
 

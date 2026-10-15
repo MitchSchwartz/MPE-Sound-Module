@@ -25,7 +25,9 @@ source "$SCRIPT_DIR/lib/measurement-result.sh"
 # shellcheck source=lib/measure-run-as-user.sh
 source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 
-RUN_AS_USER="${MPE_PI_USER:-mitch}"
+# shellcheck source=lib/appliance-user.sh
+source "$SCRIPT_DIR/lib/appliance-user.sh"
+RUN_AS_USER="$(mpe_appliance_user)" || exit 1
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 MPE_RUN_AS_USER="$RUN_AS_USER"
 MPE_RUN_AS_USER_HOME="$USER_HOME"

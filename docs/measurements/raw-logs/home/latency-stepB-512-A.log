@@ -393,6 +393,6 @@ PROBE_END
 === restore buffer 512 ===
 Applied buffer=512
 jackd period=512 ok
-done commit=74faa00 log=/home/mitch/latency-stepB-512-A.log
+done commit=74faa00 log=~/latency-stepB-512-A.log
 SENTINEL harness-end
 

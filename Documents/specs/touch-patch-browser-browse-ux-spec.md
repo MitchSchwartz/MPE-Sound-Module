@@ -13,7 +13,7 @@
 **Worktree:** `../MPE-Module-wt-browse-ux`  
 **Issues:** [#10 active](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/10) · [#11 parked](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/11) · [#21 backlog](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/21)
 
-**Mockups:** [touch-patch-browser-browse-ux.canvas.tsx](/home/mitch/.cursor/projects/home-mitch-Documents-GitHub-MPE-Module/canvases/touch-patch-browser-browse-ux.canvas.tsx)
+**Mockups:** [touch-patch-browser-browse-ux.canvas.tsx](~/.cursor/projects/home-<user>-Documents-GitHub-MPE-Module/canvases/touch-patch-browser-browse-ux.canvas.tsx)
 
 ---
 

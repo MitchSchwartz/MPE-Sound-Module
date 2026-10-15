@@ -101,6 +101,6 @@ PROBE_END
 Applied buffer=1024 periods=2
 jackd period=1024 ok
 jackd periods=2 ok
-done commit=34c0251 log=/home/mitch/plan-v9c-20260822-033058/closed-hat-ceiling/confirm-v1.log
+done commit=34c0251 log=~/plan-v9c-20260822-033058/closed-hat-ceiling/confirm-v1.log
 SENTINEL harness-end
 

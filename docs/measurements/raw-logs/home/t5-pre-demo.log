@@ -14,4 +14,4 @@ PASS: no jack_lsp spawned
 jack_lsp processes before=0 after=0
 PASS: no jack_lsp spawned
 
-T5-pre demo complete → /home/mitch/t5-pre-demo.log
+T5-pre demo complete → ~/t5-pre-demo.log

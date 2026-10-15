@@ -34,7 +34,11 @@ fi
 # shellcheck source=../lib/paths.sh
 source "$SCRIPT_DIR/../lib/paths.sh"
 
-APPLIANCE_USER="${MPE_PI_USER:-$(logname 2>/dev/null || echo mitch)}"
+APPLIANCE_USER="${MPE_PI_USER:-$(logname 2>/dev/null || true)}"
+if [ -z "$APPLIANCE_USER" ]; then
+    echo "ERROR: cannot determine the appliance user. Set MPE_PI_USER." >&2
+    exit 1
+fi
 if id "$APPLIANCE_USER" &>/dev/null; then
     :
 else

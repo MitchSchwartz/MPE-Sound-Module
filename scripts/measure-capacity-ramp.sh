@@ -43,7 +43,9 @@ SKIP_SETUP=0
 PATCH_PATH=""
 RATE=48000
 VELOCITY=""
-RUN_AS_USER="${MPE_PI_USER:-mitch}"
+# shellcheck source=lib/appliance-user.sh
+source "$SCRIPT_DIR/lib/appliance-user.sh"
+RUN_AS_USER="$(mpe_appliance_user)" || exit 1
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -84,7 +86,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-MPE_RUN_AS_USER="${RUN_AS_USER:-mitch}"
+MPE_RUN_AS_USER="$RUN_AS_USER"
 MPE_RUN_AS_USER_HOME="$(getent passwd "$MPE_RUN_AS_USER" | cut -d: -f6)"
 _as_user() { mpe_as_user "$@"; }
 

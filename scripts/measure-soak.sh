@@ -28,7 +28,9 @@ BUFFER=1024
 LOOPS=15
 # shellcheck source=lib/measure-env.sh
 source "$SCRIPT_DIR/lib/measure-env.sh"
-RUN_AS_USER="${MPE_PI_USER:-mitch}"
+# shellcheck source=lib/appliance-user.sh
+source "$SCRIPT_DIR/lib/appliance-user.sh"
+RUN_AS_USER="$(mpe_appliance_user)" || exit 1
 MIDI_PID=""
 
 while [ $# -gt 0 ]; do

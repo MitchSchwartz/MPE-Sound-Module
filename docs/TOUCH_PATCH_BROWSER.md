@@ -122,7 +122,7 @@ Use the touch screen normally. **Ctrl+C** stops recording and restarts the brows
 Pull the file (quote the remote glob in zsh):
 
 ```bash
-scp 'mitch@raspberrypi.local:~/mpe-demo-*.mkv' ~/Videos/
+scp '<pi-user>@raspberrypi.local:~/mpe-demo-*.mkv' ~/Videos/
 ```
 
 Convert to mp4 if needed: `ffmpeg -i in.mkv -c copy out.mp4`

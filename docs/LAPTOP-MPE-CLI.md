@@ -34,12 +34,12 @@ Pin host keys and short names in `~/.ssh/config` (not captured by repo scripts):
 ```
 Host pi4 pi4.local raspberrypi2.local
   HostName raspberrypi2.local
-  User mitch
+  User <pi-user>
   IdentityFile ~/.ssh/id_ed25519_pi4
 
-Host pi5 pi5.local raspberrypi5.local
-  HostName raspberrypi5.local
-  User mitch
+Host pi5 pi5.local <pi5-host>.local
+  HostName <pi5-host>.local
+  User <pi-user>
   IdentityFile ~/.ssh/id_ed25519_pi5
 ```
 

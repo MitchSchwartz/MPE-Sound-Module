@@ -2,7 +2,7 @@
 # V8-b only — playable 1024×2 vs ×3 after V8-a survey.
 #
 # Usage: sudo ./scripts/measure-v8b-playable.sh --patch-name "Cloud Horn" --voices 7 \
-#            --artifact-dir /home/mitch/plan-v8-YYYYMMDD-HHMMSS
+#            --artifact-dir ~/plan-v8-YYYYMMDD-HHMMSS
 
 set -euo pipefail
 
@@ -11,7 +11,9 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && 
 source "$SCRIPT_DIR/lib/mpe-services.sh"
 # shellcheck source=lib/measure-run-as-user.sh
 source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
-RUN_AS_USER="${MPE_PI_USER:-mitch}"
+# shellcheck source=lib/appliance-user.sh
+source "$SCRIPT_DIR/lib/appliance-user.sh"
+RUN_AS_USER="$(mpe_appliance_user)" || exit 1
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
 PATCH_NAME=""

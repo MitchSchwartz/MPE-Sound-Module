@@ -192,9 +192,9 @@ class SingleUnitSourceTests(unittest.TestCase):
     """
 
     SUBSTITUTIONS = {
-        "@MPE_PI_USER@": "mitch",
-        "@MPE_MODULE_REPO@": "/home/mitch/MPE-Module",
-        "@MPE_SCRIPTS_DIR@": "/home/mitch/MPE-Module/scripts",
+        "@MPE_PI_USER@": "appuser",
+        "@MPE_MODULE_REPO@": "/home/appuser/MPE-Module",
+        "@MPE_SCRIPTS_DIR@": "/home/appuser/MPE-Module/scripts",
     }
 
     def test_there_is_no_second_unit_directory(self) -> None:

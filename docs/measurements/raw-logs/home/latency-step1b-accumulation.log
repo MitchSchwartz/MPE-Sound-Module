@@ -8,7 +8,7 @@ condition D units:
 jackd period=512 ok
 === provenance after strict restart ===
 === provenance 2026-08-20T00:12:27+01:00 ===
-925abe3 Fix xrun probe log: let mitch user create events file
+925abe3 Fix xrun probe log: let <pi-user> user create events file
 ?? native/mpe-xrun-probe/mpe-xrun-probe
 6.18.34+rpt-rpi-v8
 coherent_pool=1M 8250.nr_uarts=0 snd_bcm2835.enable_headphones=0 cgroup_disable=memory numa_policy=interleave nvme.max_host_mem_size_mb=32 snd_bcm2835.enable_headphones=1 snd_bcm2835.enable_hdmi=1 snd_bcm2835.enable_hdmi=0  numa=fake=2 system_heap.max_order=0 iommu_dma_numa_policy=interleave smsc95xx.macaddr=2C:CF:67:59:7C:41 vc_mem.mem_base=0x3ec00000 vc_mem.mem_size=0x40000000  console=ttyS0,115200 console=tty1 root=PARTUUID=ed7e095b-02 rootfstype=ext4 fsck.repair=yes rootwait cfg80211.ieee80211_regdom=CA
@@ -838,6 +838,6 @@ XRUN wall=2026-08-20T00:25:23.560 delay_usec=0
 === restore buffer 1024 ===
 Applied buffer=1024
 jackd period=1024 ok
-done commit=925abe3 log=/home/mitch/latency-step1b-accumulation.log
+done commit=925abe3 log=~/latency-step1b-accumulation.log
 SENTINEL harness-end
 

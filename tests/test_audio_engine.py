@@ -574,14 +574,14 @@ timeout() {{ shift; "$@"; }}
 export -f timeout
 sudo() {{ printf '%s\\n' "$*" >> "{log}"; :; }}
 export -f sudo
-export SUDO_USER=mitch
-export MPE_PI_USER=mitch
+export SUDO_USER=appuser
+export MPE_PI_USER=appuser
 mpe_jack_lsp >/dev/null 2>&1 || true
 cat "{log}"
 """
             result = _run_bash_script(body, env=env)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("-u mitch", result.stdout)
+            self.assertIn("-u appuser", result.stdout)
 
 
 class StartSurgeCliFailureTests(unittest.TestCase):

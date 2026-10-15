@@ -202,6 +202,6 @@ XRUN_COUNT 2
 PROBE_END
 === restore buffer 512 periods 2 ===
 skip restore (--no-restore-buffer)
-done commit=1cae0fb log=/home/mitch/plan-v11-20260822-144259/v11-256x3-Crystals-v3.log
+done commit=1cae0fb log=~/plan-v11-20260822-144259/v11-256x3-Crystals-v3.log
 SENTINEL harness-end
 

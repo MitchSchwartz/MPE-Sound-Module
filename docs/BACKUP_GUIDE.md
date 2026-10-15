@@ -210,7 +210,7 @@ Add your repo folder to Google Drive or Dropbox sync.
 
 ```bash
 # Try with IP address
-export PI_HOST=192.168.1.203
+export PI_HOST=<pi-ip>
 bash scripts/pull-all-from-device.sh
 ```
 

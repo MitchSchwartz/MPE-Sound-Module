@@ -52,7 +52,7 @@ LIVE jack.state path=/run/mpe/jack.state size=63
 LIVE surge.state path=/run/mpe/surge.state size=42
 DEAD engine-reconcile path=/run/mpe/engine-reconcile.state MISSING
 DEAD session.snapshot path=/run/mpe/session.snapshot.json MISSING
-LIVE sl_hud path=/home/mitch/.mpe_sl_hud_state.json size=393
+LIVE sl_hud path=~/.mpe_sl_hud_state.json size=393
 DEAD sooperlooper.log path=/tmp/sooperlooper.log MISSING
 MPE_PEAK_METER=1 · mpe-peak-meter.service active
 journalctl -u mpe-jackd --since 1h | grep -ci xrun → 5
