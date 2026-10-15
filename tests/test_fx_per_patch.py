@@ -835,7 +835,7 @@ class BassBypassMemoryTests(_Rig):
         fresh.refresh()
         self.assertEqual(restarted.bass, [0.0])
 
-    def test_on_the_wire_the_crossover_goes_first_and_is_deduplicated(self) -> None:
+    def test_on_the_wire_the_crossover_goes_first_and_rides_every_chain(self) -> None:
         wire: list[bytes] = []
         self.router._sender = fx_policy.FxHostSender(send=wire.append, log=None)
         self.load(self.keys)
@@ -849,8 +849,11 @@ class BassBypassMemoryTests(_Rig):
         self.assertEqual(wire[2:], [b"bass 80.000000"])  # the chain did not change: not resent
         self.policy.set_depth(0.6, final=True)
         self.settle()
-        self.assertEqual(len(wire), 4)
-        self.assertTrue(wire[3].startswith(b"chainl 1 0.600000"))  # the crossover did not change
+        # The crossover did not change, but it goes ahead of every chain sent,
+        # so a restarted fx host (which starts Off) relearns it (#185 review).
+        self.assertEqual(wire[3], b"bass 80.000000")
+        self.assertTrue(wire[4].startswith(b"chainl 1 0.600000"))
+        self.assertEqual(len(wire), 5)
 
     def test_off_writes_and_sends_nothing(self) -> None:
         policy = self._policy(enabled=False)

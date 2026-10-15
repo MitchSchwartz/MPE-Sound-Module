@@ -531,11 +531,52 @@ class FxHostSender:
     def send(self, mask: int, depth: float, levels=None, bass_hz=None) -> bool:
         """`levels`: one per effect, by id; None is every level 1.0. `bass_hz`:
         the crossover, sent first (its own datagram, `bass`), or None to send
-        none. True when anything was delivered."""
-        sent_bass = False
+        none. True when anything was delivered.
+
+        Whenever a chain datagram actually goes out, `bass` goes just before it
+        whatever its own dedup says: a restarted fx host starts Off and only
+        learns the chain again when the chain changes, so the crossover has to
+        ride along with it (review of #185). Otherwise `bass` alone is deduped.
+        """
+        bass_payload = None
         if bass_hz is not None:
-            sent_bass = self._send_bass(bass_hz)
-        return self._send_chain(mask, depth, levels) or sent_bass
+            try:
+                bass_payload = fx_host_protocol.encode_bass(bass_hz)
+            except ValueError as exc:
+                self._say(f"fx host: not sending ({exc})")
+        levels = fx_host_protocol.LEVELS_DEFAULT if levels is None else levels
+        try:
+            chain_payload = fx_host_protocol.encode_chain_levels(mask, depth, levels)
+        except ValueError as exc:
+            self._say(f"fx host: not sending ({exc})")
+            chain_payload = None
+        sent = False
+        with self._lock:
+            chain_due = False
+            if chain_payload is not None:
+                value = max(0.0, min(1.0, float(depth)))
+                levels = tuple(max(0.0, min(1.0, float(level))) for level in levels)
+                last = self._last
+                chain_due = not (
+                    last is not None
+                    and last[0] == mask
+                    and abs(last[1] - value) <= SEND_TOLERANCE
+                    and all(abs(a - b) <= SEND_TOLERANCE for a, b in zip(last[2], levels))
+                )
+            if bass_payload is not None:
+                bass_value = float(bass_payload.split()[1])
+                bass_due = chain_due or self._last_bass is None or (
+                    abs(self._last_bass - bass_value) > SEND_TOLERANCE
+                )
+                if bass_due and self._deliver(bass_payload):
+                    self._last_bass = bass_value
+                    self.delivered += 1
+                    sent = True
+            if chain_due and self._deliver(chain_payload):
+                self._last = (mask, value, levels)
+                self.delivered += 1
+                sent = True
+        return sent
 
     def _deliver(self, payload: bytes) -> bool:
         """One datagram out, under the lock. False when it could not go."""
@@ -551,46 +592,6 @@ class FxHostSender:
             self._note_refusal(exc)
             return False
         return True
-
-    def _send_bass(self, bass_hz) -> bool:
-        try:
-            payload = fx_host_protocol.encode_bass(bass_hz)
-        except ValueError as exc:
-            self._say(f"fx host: not sending ({exc})")
-            return False
-        value = float(payload.split()[1])
-        with self._lock:
-            if self._last_bass is not None and abs(self._last_bass - value) <= SEND_TOLERANCE:
-                return False
-            if not self._deliver(payload):
-                return False
-            self._last_bass = value
-            self.delivered += 1
-            return True
-
-    def _send_chain(self, mask: int, depth: float, levels) -> bool:
-        levels = fx_host_protocol.LEVELS_DEFAULT if levels is None else levels
-        try:
-            payload = fx_host_protocol.encode_chain_levels(mask, depth, levels)
-        except ValueError as exc:
-            self._say(f"fx host: not sending ({exc})")
-            return False
-        value = max(0.0, min(1.0, float(depth)))
-        levels = tuple(max(0.0, min(1.0, float(level))) for level in levels)
-        with self._lock:
-            last = self._last
-            if (
-                last is not None
-                and last[0] == mask
-                and abs(last[1] - value) <= SEND_TOLERANCE
-                and all(abs(a - b) <= SEND_TOLERANCE for a, b in zip(last[2], levels))
-            ):
-                return False
-            if not self._deliver(payload):
-                return False
-            self._last = (mask, value, levels)
-            self.delivered += 1
-            return True
 
     def _note_refusal(self, exc: OSError) -> None:
         self.refused_total += 1
