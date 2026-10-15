@@ -11,7 +11,7 @@ Use this when the SmartiPi panel stays on the **four raspberries** splash for se
 3. Power on and wait ~90s, then try SSH:
 
    ```bash
-   ssh -i ~/.ssh/surge_pi_key <user>@<lan-ip>
+   ssh -i ~/.ssh/surge_pi_key <pi-user>@<pi-ip>
    ```
 
 4. If SSH works, temporarily return to analog audio until stable:

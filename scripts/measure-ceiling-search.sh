@@ -3,7 +3,7 @@
 #
 # Usage: sudo ./scripts/measure-ceiling-search.sh \
 #            --patch-name "Closed Hat" --hi 12 --seconds 60 \
-#            --artifact-dir /home/<user>/plan-v9c-...
+#            --artifact-dir ~/plan-v9c-...
 
 set -euo pipefail
 

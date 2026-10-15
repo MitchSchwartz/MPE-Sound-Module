@@ -111,6 +111,6 @@ XRUN_COUNT 8
 PROBE_END
 === restore buffer 1024 periods 3 ===
 skip restore (--no-restore-buffer)
-done commit=e0d8574 log=/home/<user>/da-ladder.log
+done commit=e0d8574 log=~/da-ladder.log
 SENTINEL harness-end
 

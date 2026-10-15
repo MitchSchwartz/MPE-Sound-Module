@@ -1,7 +1,11 @@
 #!/bin/bash
+# shellcheck source=appliance-user.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/appliance-user.sh"
 # PatchLoader reads MPE_POLY_* from child process env (not /etc/mpe/mpe.env).
 mpe_as_user_init() {
-    MPE_RUN_AS_USER="${MPE_RUN_AS_USER:-${MPE_PI_USER:-<user>}}"
+    if [ -z "${MPE_RUN_AS_USER:-}" ]; then
+        MPE_RUN_AS_USER="$(mpe_appliance_user)" || return 1
+    fi
     if [ -z "${MPE_RUN_AS_USER_HOME:-}" ]; then
         MPE_RUN_AS_USER_HOME="$(getent passwd "$MPE_RUN_AS_USER" | cut -d: -f6)"
     fi

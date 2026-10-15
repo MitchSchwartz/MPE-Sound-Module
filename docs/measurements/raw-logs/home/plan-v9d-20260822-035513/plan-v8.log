@@ -3,9 +3,9 @@
 OSC client initialized: 127.0.0.1:53280
 Loaded patch: Duduk.fxp
 loaded Duduk.fxp
-Appended measurement to /home/<user>/plan-v9d-20260822-035513/v8b-1024x2-redo.log
+Appended measurement to ~/plan-v9d-20260822-035513/v8b-1024x2-redo.log
 SENTINEL harness-logged
-Appended measurement to /home/<user>/plan-v9d-20260822-035513/v8b-1024x3-redo.log
+Appended measurement to ~/plan-v9d-20260822-035513/v8b-1024x3-redo.log
 SENTINEL harness-logged
 SENTINEL v8b-redo-complete patch=Duduk voices=3
 
@@ -13,5 +13,5 @@ SENTINEL v8b-redo-complete patch=Duduk voices=3
 OSC client initialized: 127.0.0.1:53280
 Loaded patch: Brave New World.fxp
 loaded Brave New World.fxp
-ERROR: tag A-b1024-p2-l0-run1 already present in /home/<user>/plan-v9d-20260822-035513/v8b-1024x2-redo.log — refusing to append
+ERROR: tag A-b1024-p2-l0-run1 already present in ~/plan-v9d-20260822-035513/v8b-1024x2-redo.log — refusing to append
        a duplicate tag makes the log ambiguous; use a fresh --output

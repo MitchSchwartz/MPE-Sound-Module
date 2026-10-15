@@ -66,7 +66,7 @@ These would lower the bar for less technical builders — tracked as follow-ups,
 
    ```bash
    ./scripts/image/build-appliance.sh --platform pi4 --state state/raspberrypi2-2026-08-23
-   ./scripts/image/build-appliance.sh --platform pi5 --state state/raspberrypi5-2026-08-23
+   ./scripts/image/build-appliance.sh --platform pi5 --state state/<pi5-host>-2026-08-23
    ```
 
 4. Add your SSH key, WiFi/Tailscale if needed, reboot, smoke-test.

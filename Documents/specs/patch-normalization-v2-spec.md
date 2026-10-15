@@ -130,7 +130,7 @@ load patch → strike capture → sustain capture → compute gain_db (dual anch
 ### Migration
 
 - One-time: merge normalization JSON keys by resolved `stable_key`; keep **newest `calibrated_at`**; log conflicts for operator review.
-- Pi backup before migration: existing `patch_normalization.pi-backup-*` pattern.
+- Back up the device's runtime normalization file before migration. Device snapshots are kept outside this repo.
 
 ### DAC default
 

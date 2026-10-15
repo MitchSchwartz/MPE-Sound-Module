@@ -131,7 +131,7 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 
 **Raw `ssh` — allowlisted since 2026-08-14, and that is not the same as encouraged.**
 This line previously read "do not allowlist raw `ssh`." It was amended because
-`ssh <user>@raspberrypi2.local *` **is** now in the local Claude Code allowlist,
+`ssh <pi-user>@raspberrypi2.local *` **is** now in the local Claude Code allowlist,
 and a rule the tooling contradicts is worse than no rule — it is the next stale
 claim. Recording what is actually true instead:
 

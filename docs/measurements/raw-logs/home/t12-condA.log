@@ -1164,7 +1164,7 @@ XRUN_COUNT 44
 PROBE_END
 === restore buffer 1024 periods 3 ===
 skip restore (--no-restore-buffer)
-done commit=8285979 log=/home/<user>/t12-condA.log
+done commit=8285979 log=~/t12-condA.log
 SENTINEL harness-end
 
 === misaligned-256x3 buffer=256 periods=3 2026-08-21T13:15:35-04:00 ===
@@ -2330,7 +2330,7 @@ XRUN_COUNT 24
 PROBE_END
 === restore buffer 192 periods 3 ===
 skip restore (--no-restore-buffer)
-done commit=fcf8507 log=/home/<user>/t12-condA.log
+done commit=fcf8507 log=~/t12-condA.log
 SENTINEL harness-end
 
 === aligned-96x3 buffer=96 periods=3 2026-08-21T13:37:49-04:00 ===
@@ -3496,7 +3496,7 @@ XRUN_COUNT 925
 PROBE_END
 === restore buffer 256 periods 3 ===
 skip restore (--no-restore-buffer)
-done commit=3bdc98d log=/home/<user>/t12-condA.log
+done commit=3bdc98d log=~/t12-condA.log
 SENTINEL harness-end
 
 === misaligned-128x3 buffer=128 periods=3 2026-08-21T14:00:18-04:00 ===

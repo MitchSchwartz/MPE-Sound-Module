@@ -202,7 +202,7 @@ test, not by docstring. A rule a build cannot fail is not a rule.
 
 ## 6. What can and cannot be verified tonight
 
-The Pi (`raspberrypi5.local`) is up, on `dev`, with the APC mini mk2 connected
+The Pi (`<pi5-host>.local`) is up, on `dev`, with the APC mini mk2 connected
 and `mpe-looper-session` + `mpe-sooperlooper` running.
 
 **Verifiable overnight:** unit suite on laptop and on the Pi; that the session

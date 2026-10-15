@@ -203,6 +203,6 @@ PROBE_END
 Applied buffer=1024 periods=2
 jackd period=1024 ok
 jackd periods=2 ok
-done commit=9ea39eb log=/home/<user>/plan-v8-20260821-225953/v8b-1024x3.log
+done commit=9ea39eb log=~/plan-v8-20260821-225953/v8b-1024x3.log
 SENTINEL harness-end
 

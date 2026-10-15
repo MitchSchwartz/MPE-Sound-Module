@@ -366,10 +366,25 @@ def path_segments_for_patch(patch: dict) -> list[str]:
     return segments
 
 
+def portable_patch_path(patch: dict) -> str:
+    """Root-keyed path (``factory:Basses/X.fxp``) for the committed baseline.
+
+    The baseline ships in the repo, so it must not carry the absolute path of
+    whichever machine generated it. Nothing reads a baseline row's ``path`` at
+    runtime (lookup is by ``stable_key``); it is a human-readable pointer only.
+    """
+    root = patch.get("patch_root")
+    rel = patch.get("relative_path")
+    if root and rel:
+        return f"{root}:{rel}"
+    raw = str(patch.get("path", "") or "")
+    return Path(raw).name if Path(raw).is_absolute() else raw
+
+
 def metadata_entry_for_patch(patch: dict) -> dict[str, Any]:
     return {
         "name": patch.get("name", ""),
-        "path": patch.get("path", ""),
+        "path": portable_patch_path(patch),
         "path_segments": path_segments_for_patch(patch),
         "instruments": classify_patch_instruments(patch),
         "instrument_user": None,

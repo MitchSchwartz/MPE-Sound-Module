@@ -4220,7 +4220,7 @@ Sun  2 Aug 16:31:01 BST 2026: Surge XT CLI started with PID 5208 (Audio device: 
 16:31:01.838 - Starting OSC input on 53280
 16:31:01.838 - Running CLI with message loop
 16:31:01.838 - Daemon mode without stdin. Send SIGINT or SIGTERM to cleanly stop execution.
-OSC Error: File not found: /home/<user>/surge/resources/data/patches_factory/factory/wavetable/morph/morph.surge.fxp
+OSC Error: File not found: ~/surge/resources/data/patches_factory/factory/wavetable/morph/morph.surge.fxp
 
 16:34:41.772 - SIGINT (Ctrl-C) detected. Shutting down CLI...
 Sun  2 Aug 16:34:46 BST 2026: Starting Surge XT CLI...
@@ -12054,7 +12054,7 @@ Bus 001 Device 005: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Thu 13 Aug 19:56:09 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 19:56:21 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 19:56:21 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 19:56:21 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 19:56:21 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 19:56:21 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 19:56:21 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 19:56:21 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12073,7 +12073,7 @@ Bus 001 Device 005: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Thu 13 Aug 19:56:26 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 19:56:38 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 19:56:38 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 19:56:38 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 19:56:38 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 20:01:30 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 20:01:30 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 20:01:30 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12107,7 +12107,7 @@ Bus 001 Device 005: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Thu 13 Aug 20:02:58 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 20:03:09 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 20:03:09 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 20:03:09 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 20:03:09 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 20:03:09 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 20:03:09 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 20:03:09 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12118,7 +12118,7 @@ Bus 001 Device 005: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Thu 13 Aug 20:03:11 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 20:03:22 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 20:03:22 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 20:03:22 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 20:03:22 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 20:07:19 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 20:07:19 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 20:07:19 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12152,7 +12152,7 @@ Bus 001 Device 005: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Thu 13 Aug 20:08:21 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 20:08:33 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 20:08:33 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 20:08:33 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 20:08:33 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 20:08:33 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 20:08:33 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 20:08:33 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12163,7 +12163,7 @@ Bus 001 Device 005: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Thu 13 Aug 20:08:34 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 20:08:46 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 20:08:46 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 20:08:46 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 20:08:46 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 20:12:42 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 20:12:42 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 20:12:42 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12251,7 +12251,7 @@ Bus 001 Device 005: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Thu 13 Aug 21:06:27 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 21:06:38 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 21:06:38 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 21:06:38 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 21:06:38 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 21:06:49 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 21:06:49 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 21:06:49 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12262,7 +12262,7 @@ Bus 001 Device 005: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Thu 13 Aug 21:06:50 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 21:07:01 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 21:07:01 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 21:07:01 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 21:07:01 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 21:07:12 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 21:07:12 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 21:07:12 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12273,7 +12273,7 @@ Bus 001 Device 005: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Thu 13 Aug 21:07:13 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 21:07:25 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 21:07:25 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 21:07:25 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 21:07:25 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 21:07:35 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 21:07:35 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 21:07:35 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12357,7 +12357,7 @@ Thu 13 Aug 21:22:54 BST 2026: USB devices at startup:
 Thu 13 Aug 21:22:54 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 21:23:06 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 21:23:06 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 21:23:06 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 21:23:06 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 21:23:16 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 21:23:16 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 21:23:16 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12368,7 +12368,7 @@ Thu 13 Aug 21:23:32 BST 2026: USB devices at startup:
 Thu 13 Aug 21:23:33 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 21:23:45 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 21:23:45 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 21:23:45 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 21:23:45 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 21:24:10 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 21:24:10 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 21:24:10 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12379,7 +12379,7 @@ Thu 13 Aug 21:24:27 BST 2026: USB devices at startup:
 Thu 13 Aug 21:26:13 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 21:26:25 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 21:26:25 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 21:26:25 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 21:26:25 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 21:26:35 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 21:26:35 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 21:26:35 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12394,7 +12394,7 @@ Thu 13 Aug 21:26:57 BST 2026: USB devices at startup:
 Thu 13 Aug 21:26:58 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 21:27:09 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 21:27:09 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 21:27:09 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 21:27:09 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 21:27:20 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 21:27:20 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 21:27:20 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -12405,7 +12405,7 @@ Thu 13 Aug 21:27:36 BST 2026: USB devices at startup:
 Thu 13 Aug 21:27:36 BST 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Thu 13 Aug 21:27:48 BST 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Thu 13 Aug 21:27:48 BST 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Thu 13 Aug 21:27:48 BST 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Thu 13 Aug 21:27:48 BST 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Thu 13 Aug 21:27:58 BST 2026: Starting Surge XT CLI...
 Thu 13 Aug 21:27:58 BST 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Thu 13 Aug 21:27:58 BST 2026: Set existing user defaults to writable (644) for OSC patch loading
@@ -20973,7 +20973,7 @@ Bus 001 Device 004: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Fri 21 Aug 19:22:44 EDT 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Fri 21 Aug 19:22:55 EDT 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Fri 21 Aug 19:22:55 EDT 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Fri 21 Aug 19:22:55 EDT 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Fri 21 Aug 19:22:55 EDT 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Fri 21 Aug 19:23:06 EDT 2026: Starting Surge XT CLI...
 Fri 21 Aug 19:23:06 EDT 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Fri 21 Aug 19:23:06 EDT 2026: Surge audio route: analog
@@ -20985,7 +20985,7 @@ Bus 001 Device 004: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Fri 21 Aug 19:23:07 EDT 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Fri 21 Aug 19:23:19 EDT 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Fri 21 Aug 19:23:19 EDT 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Fri 21 Aug 19:23:19 EDT 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Fri 21 Aug 19:23:19 EDT 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Fri 21 Aug 19:23:30 EDT 2026: Starting Surge XT CLI...
 Fri 21 Aug 19:23:30 EDT 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Fri 21 Aug 19:23:30 EDT 2026: Surge audio route: analog
@@ -20997,7 +20997,7 @@ Bus 001 Device 004: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Fri 21 Aug 19:23:31 EDT 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Fri 21 Aug 19:23:43 EDT 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Fri 21 Aug 19:23:43 EDT 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Fri 21 Aug 19:23:43 EDT 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Fri 21 Aug 19:23:43 EDT 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Fri 21 Aug 19:23:54 EDT 2026: Starting Surge XT CLI...
 Fri 21 Aug 19:23:54 EDT 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Fri 21 Aug 19:23:54 EDT 2026: Surge audio route: analog
@@ -21009,7 +21009,7 @@ Bus 001 Device 004: ID 2af4:0e00 ROLI Ltd. LUMI Keys BLOCK
 Fri 21 Aug 19:23:55 EDT 2026: Surge MIDI input index 0 (Midi Through ← pressure remapper)
 Fri 21 Aug 19:24:06 EDT 2026: CRITICAL: no JACK server after 10s (reason=no-server)
 Fri 21 Aug 19:24:06 EDT 2026: CRITICAL: engine=jack state=failed reason=no-server — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers.
-Fri 21 Aug 19:24:06 EDT 2026: CRITICAL: see /home/<user>/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
+Fri 21 Aug 19:24:06 EDT 2026: CRITICAL: see ~/surge-cli.log and 'journalctl -u mpe-jackd' for the cause; check the DAC connection
 Fri 21 Aug 19:24:14 EDT 2026: Starting Surge XT CLI...
 Fri 21 Aug 19:24:14 EDT 2026: Audio engine: jack (only engine — ALSA removed 2026-08-13)
 Fri 21 Aug 19:24:14 EDT 2026: Surge audio route: analog
