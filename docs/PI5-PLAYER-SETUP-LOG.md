@@ -16,7 +16,7 @@
 
 Measurement runbook: [`PI5-BRINGUP-RUNBOOK.md`](PI5-BRINGUP-RUNBOOK.md).
 
-**Worked example:** `raspberrypi5` · user `pi` · Pi 4 remains `raspberrypi2` · user `<user>`.
+**Worked example:** `<pi5-host>` · user `pi` · Pi 4 remains `raspberrypi2` · user `<pi-user>`.
 
 Canon for generic steps: [`BUILD-FROM-ZERO.md`](BUILD-FROM-ZERO.md). Touch UI: [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md).
 
@@ -27,9 +27,9 @@ Canon for generic steps: [`BUILD-FROM-ZERO.md`](BUILD-FROM-ZERO.md). Touch UI: [
 | Step | Do | Verify |
 |------|-----|--------|
 | A1 | **Pi Imager ≥ 2.0.10** (Trixie cloud-init needs it; 1.8.x silently breaks customization) | `rpi-imager --version` |
-| A2 | Flash **Lite 64-bit Trixie**. Hostname **`raspberrypi5`** (must differ from Pi 4) | — |
+| A2 | Flash **Lite 64-bit Trixie**. Hostname **`<pi5-host>`** (must differ from Pi 4) | — |
 | A3 | Imager: enable SSH, set user (Imager may still create `pi` — note actual user) | First boot: `whoami` |
-| A4 | Imager: add laptop SSH public key | `ssh pi@raspberrypi5.local` |
+| A4 | Imager: add laptop SSH public key | `ssh pi@<pi5-host>.local` |
 | A5 | **27 W USB-C PSU** + active cooler on Pi 5 | `vcgencmd get_throttled` → `0x0` |
 | A6 | Separate Sound Blaster + separate SD from Pi 4 (do not cannibalize control board) | — |
 
@@ -38,12 +38,12 @@ Canon for generic steps: [`BUILD-FROM-ZERO.md`](BUILD-FROM-ZERO.md). Touch UI: [
 ```sshconfig
 Host pi4 surge raspberrypi2 raspberrypi2.local
     HostName raspberrypi2.local
-    User <user>
+    User <pi-user>
     IdentityFile ~/.ssh/surge_pi_key
     IdentitiesOnly yes
 
-Host pi5 raspberrypi5 raspberrypi5.local
-    HostName <lan-ip>
+Host pi5 <pi5-host> <pi5-host>.local
+    HostName <pi-ip>
     User pi
     IdentityFile ~/.ssh/surge_pi5_key
     IdentitiesOnly yes
@@ -58,8 +58,8 @@ uses `.local` via Tailscale/LAN as configured.
 
 | File | Contents |
 |------|----------|
-| `~/.config/mpe/mpe.env.pi4` | `PI_HOST=raspberrypi2.local` · `PI_USER=<user>` · `SSH_KEY=~/.ssh/surge_pi_key` |
-| `~/.config/mpe/mpe.env.pi5` | `PI_HOST=raspberrypi5.local` · `PI_USER=pi` · `SSH_KEY=~/.ssh/surge_pi5_key` |
+| `~/.config/mpe/mpe.env.pi4` | `PI_HOST=raspberrypi2.local` · `PI_USER=<pi-user>` · `SSH_KEY=~/.ssh/surge_pi_key` |
+| `~/.config/mpe/mpe.env.pi5` | `PI_HOST=<pi5-host>.local` · `PI_USER=pi` · `SSH_KEY=~/.ssh/surge_pi5_key` |
 
 ```bash
 alias mpe4='MPE_CLI_CONFIG=~/.config/mpe/mpe.env.pi4 mpe'
@@ -255,7 +255,7 @@ Steps that **`setup-touch-pi.sh` / `deploy-all.sh` do not yet cover** — add he
 
 - **`build-surge.sh --arch a76`** + **`install-surge-from-build.sh --arch a76`** — Pi 5 runtime binary must be a76-tuned at the same Surge revision as Pi 4 (`253f8d86`). Generic/stock (`c3680d6b…`) was smoke-only.
 - **IRQ census / Suite 0–3** — see [`PI5-BRINGUP-RUNBOOK.md`](PI5-BRINGUP-RUNBOOK.md).
-- **Renaming `pi` → `<user>`** — optional; paths in `/etc/mpe/mpe.env` must match actual user.
+- **Renaming `pi` → `<pi-user>`** — optional; paths in `/etc/mpe/mpe.env` must match actual user.
 - **Touch sudoers** (power menu NOPASSWD) — one-time, [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md).
 
 ---

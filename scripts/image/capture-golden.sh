@@ -71,7 +71,7 @@ case "$PLATFORM" in
             echo "WARNING: --platform pi5 but model=$model" >&2
         fi
         img_prefix="mpe-pi5-golden"
-        state_host="raspberrypi5"
+        state_host="<pi5-hostname>"
         plat_label="Pi 5"
         ;;
 esac

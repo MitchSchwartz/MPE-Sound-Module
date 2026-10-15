@@ -19,8 +19,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="$ROOT/appliance-state/calibration"
-PI="${MPE_PI_SSH:-raspberrypi2.local}"
-PI_USER="${MPE_PI_USER:-<user>}"
+# Target comes from the environment (same names as the mpe CLI config); no
+# built-in host or user, since both are per-device.
+PI="${MPE_PI_SSH:-${PI_HOST:-}}"
+PI_USER="${MPE_PI_USER:-${PI_USER:-}}"
+if [ -z "$PI" ] || [ -z "$PI_USER" ]; then
+    echo "ERROR: set the appliance host and user: MPE_PI_SSH (or PI_HOST) and" >&2
+    echo "       MPE_PI_USER (or PI_USER), e.g. source your mpe CLI config first." >&2
+    exit 1
+fi
 TARGET="${PI_USER}@${PI}"
 
 CHECK=false

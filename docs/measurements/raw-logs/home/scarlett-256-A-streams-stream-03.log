@@ -186,6 +186,6 @@ XRUN_COUNT 82
 PROBE_END
 === restore buffer 256 periods 3 ===
 skip restore (--no-restore-buffer)
-done commit=e0d8574 log=/home/<user>/scarlett-256-A-streams-stream-03.log
+done commit=e0d8574 log=~/scarlett-256-A-streams-stream-03.log
 SENTINEL harness-end
 

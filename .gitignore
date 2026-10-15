@@ -60,3 +60,6 @@ native/mpe-fx-host/fx-selftest
 # where a fresh checkout produced "Syntax error: Unterminated quoted string"
 # because the shell tried to execute a foreign-architecture ELF (2026-08-20).
 native/mpe-xrun-probe/mpe-xrun-probe
+
+# Device runtime snapshots stay off the public repo.
+config/patch_normalization.pi-backup-*.json

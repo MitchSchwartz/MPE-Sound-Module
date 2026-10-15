@@ -68,7 +68,7 @@ Player tuning defaults (when not restoring a full capture): [`player-env-parity.
   --state state/raspberrypi2-2026-08-23
 
 # Pi 5 (uses appliance-git-ref.pi5 → main):
-./scripts/image/build-appliance.sh --platform pi5 --state state/raspberrypi5-2026-08-23
+./scripts/image/build-appliance.sh --platform pi5 --state state/<pi5-host>-2026-08-23
 ```
 
 5. Add **your** SSH public key to the new Pi (`authorized_keys` — not copied from reference).
@@ -139,7 +139,7 @@ Store `*.img.xz` on an external drive or private bucket — not in this public r
 
 **Not yet:** `capture-golden.sh --platform pi5` + `dd` for a distributable image.
 
-When gates close, on **`raspberrypi5`**:
+When gates close, on **`<pi5-host>`**:
 
 ```bash
 cd ~/MPE-Module

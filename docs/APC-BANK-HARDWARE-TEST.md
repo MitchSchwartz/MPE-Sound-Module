@@ -54,7 +54,7 @@ diff /tmp/before.json /tmp/after.json
 
 ## Prerequisites — the surface and port 9953 must be free
 
-A bench started earlier from `/home/<user>/MPE-Module` will still be holding the
+A bench started earlier from `~/MPE-Module` will still be holding the
 APC and the listener port. A second bench **exits by design** on the 9953 bind
 failure, and even if it started, the LEDs you would be reading are the old
 build's output. This needs Mitch's hands: `mpe-agent` is a different user with

@@ -101,7 +101,7 @@ The 4-tier fallback system automatically selects:
 3. **Tier 3**: Any "Front output" device
 4. **Tier 4**: First available audio device
 
-Logs are written to `/home/<user>/surge-cli.log`
+Logs are written to `~/surge-cli.log`
 
 ---
 

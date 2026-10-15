@@ -5,7 +5,7 @@
 # running Surge/looper/touch services (they use explicit ExecStart paths).
 #
 # From laptop:
-#   ssh <user>@raspberrypi2.local 'sudo bash -s' < scripts/setup-pi-shell.sh
+#   ssh <pi-user>@<pi-host> 'sudo bash -s' < scripts/setup-pi-shell.sh
 # Or on Pi:
 #   sudo bash ~/MPE-Module/scripts/setup-pi-shell.sh
 set -euo pipefail
@@ -13,7 +13,12 @@ set -euo pipefail
 OMZ_DIR=/usr/local/share/oh-my-zsh
 SKEL_ZSHRC=/etc/skel/.zshrc
 GLOBAL_SNIPPET=/etc/zsh/omz-zoxide.rc
-PI_USER="${PI_USER:-<user>}"
+# Login user to switch to zsh: PI_USER, else the account that ran sudo.
+PI_USER="${PI_USER:-${SUDO_USER:-}}"
+if [ -z "$PI_USER" ]; then
+  echo "ERROR: PI_USER is not set (and not run via sudo). Set PI_USER=<login user>." >&2
+  exit 1
+fi
 
 install_custom_omz_plugin() {
   local name="$1" url="$2"

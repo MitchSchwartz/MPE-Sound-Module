@@ -1160,7 +1160,7 @@ XRUN_COUNT 837
 PROBE_END
 === restore buffer 1024 periods 3 ===
 skip restore (--no-restore-buffer)
-done commit=d496bb3 log=/home/<user>/t13-condA.log
+done commit=d496bb3 log=~/t13-condA.log
 SENTINEL harness-end
 
 
@@ -2325,7 +2325,7 @@ XRUN_COUNT 0
 PROBE_END
 === restore buffer 128 periods 6 ===
 skip restore (--no-restore-buffer)
-done commit=d496bb3 log=/home/<user>/t13-condA.log
+done commit=d496bb3 log=~/t13-condA.log
 SENTINEL harness-end
 
 
@@ -3490,6 +3490,6 @@ XRUN_COUNT 3008
 PROBE_END
 === restore buffer 256 periods 3 ===
 skip restore (--no-restore-buffer)
-done commit=d496bb3 log=/home/<user>/t13-condA.log
+done commit=d496bb3 log=~/t13-condA.log
 SENTINEL harness-end
 

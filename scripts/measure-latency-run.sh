@@ -91,7 +91,9 @@ mpe_source_appliance_env
 RESTORE_BUFFER="$(mpe_jack_period)"
 RESTORE_PERIODS="$(mpe_jack_periods)"
 
-RUN_AS_USER="${MPE_PI_USER:-<user>}"
+# shellcheck source=lib/appliance-user.sh
+source "$SCRIPT_DIR/lib/appliance-user.sh"
+RUN_AS_USER="$(mpe_appliance_user)" || exit 1
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
 MPE_RUN_AS_USER="$RUN_AS_USER"

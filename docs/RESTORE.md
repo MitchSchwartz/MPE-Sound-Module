@@ -21,7 +21,7 @@
 | **Patch library** | `MPE-Library` (private repo) | `git clone` |
 | GitHub credentials on Pi | — | **None. Deliberate.** This repo is public; anonymous HTTPS pull needs no credential |
 
-**Backed up 2026-08-23:** schema v2 captures for Pi 4 (`raspberrypi2-2026-08-23`) and Pi 5 (`raspberrypi5-2026-08-23`) in [MPE-Library `assets/appliance-state/captures/2026-08-23/`](https://github.com/MitchSchwartz/MPE-Library/tree/main/assets/appliance-state/captures/2026-08-23). Pi 4 holds `surge-cli-calibration.log` and `.patch_browser_calibration_backups/`; Pi 5 holds current labelling/normalization (authoritative for daily play).
+**Backed up 2026-08-23:** schema v2 captures for Pi 4 (`raspberrypi2-2026-08-23`) and Pi 5 (`<pi5-host>-2026-08-23`) in [MPE-Library `assets/appliance-state/captures/2026-08-23/`](https://github.com/MitchSchwartz/MPE-Library/tree/main/assets/appliance-state/captures/2026-08-23). Pi 4 holds `surge-cli-calibration.log` and `.patch_browser_calibration_backups/`; Pi 5 holds current labelling/normalization (authoritative for daily play).
 
 **Still slow without a clone image:** Surge ARM build from source ([`SURGE_ARM_BUILD.md`](SURGE_ARM_BUILD.md)) if you skip private binary deploy. Prefer [`PI4-GOLDEN-IMAGE.md`](PI4-GOLDEN-IMAGE.md) clone or build-from-assets for speed.
 
@@ -31,9 +31,9 @@
 
 ### 1. Base OS
 
-Raspberry Pi OS, **Debian trixie, arm64**. Hostname `raspberrypi2`, user `<user>`.
+Raspberry Pi OS, **Debian trixie, arm64**. Hostname `raspberrypi2`, user `<pi-user>`.
 
-The units hardcode `/home/<user>` in `ExecStart` and `WorkingDirectory` — `install-units.sh` refuses to run if that home does not exist rather than installing units that point nowhere.
+The units hardcode `~` in `ExecStart` and `WorkingDirectory` — `install-units.sh` refuses to run if that home does not exist rather than installing units that point nowhere.
 
 ### 2. Repo
 
@@ -110,9 +110,9 @@ On laptop, after clone SD or build-from-assets + first-boot:
 
 ```bash
 # Copy from MPE-Library if needed:
-# cp -a ../MPE-Library/assets/appliance-state/captures/2026-08-23/raspberrypi5-* state/
+# cp -a ../MPE-Library/assets/appliance-state/captures/2026-08-23/<pi5-host>-* state/
 
-./scripts/provision/apply-external-state.sh --state state/raspberrypi5-2026-08-23
+./scripts/provision/apply-external-state.sh --state state/<pi5-host>-2026-08-23
 # Pi 4 reference capture: state/raspberrypi2-2026-08-23
 ```
 

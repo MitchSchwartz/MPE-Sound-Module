@@ -2,7 +2,7 @@
 # Copy MPE-Module state/ captures into the private assets repo (offsite backup).
 #
 #   ./scripts/provision/archive-state-to-assets.sh
-#   ./scripts/provision/archive-state-to-assets.sh state/raspberrypi5-2026-08-23
+#   ./scripts/provision/archive-state-to-assets.sh state/<pi5-host>-2026-08-23
 #
 # Destination: ../MPE-Library/assets/appliance-state/captures/<date>/
 # Runs credential scan before copy. Does not commit — run git in MPE-Library after review.
@@ -89,8 +89,8 @@ $(for src in "${SOURCES[@]}"; do echo "| \`$(basename "$src")\` | laptop capture
 Restore on laptop:
 
 \`\`\`bash
-cp -a MPE-Library/assets/appliance-state/captures/$DATE_TAG/raspberrypi5-* MPE-Module/state/
-./scripts/provision/apply-external-state.sh --state state/raspberrypi5-YYYY-MM-DD
+cp -a MPE-Library/assets/appliance-state/captures/$DATE_TAG/<pi5-host>-* MPE-Module/state/
+./scripts/provision/apply-external-state.sh --state state/<pi5-host>-YYYY-MM-DD
 \`\`\`
 
 Credential scan passed before copy. SSH blocks hold \`IdentityFile\` paths only — no private keys.

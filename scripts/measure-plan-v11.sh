@@ -15,7 +15,9 @@ source "$SCRIPT_DIR/lib/mpe-services.sh"
 source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 # shellcheck source=lib/audio-engine.sh
 source "$SCRIPT_DIR/lib/audio-engine.sh"
-RUN_AS_USER="${MPE_PI_USER:-<user>}"
+# shellcheck source=lib/appliance-user.sh
+source "$SCRIPT_DIR/lib/appliance-user.sh"
+RUN_AS_USER="$(mpe_appliance_user)" || exit 1
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
 ARTIFACT_DIR="${USER_HOME}/plan-v11-$(date +%Y%m%d-%H%M%S)"

@@ -12,7 +12,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/.." && pwd)"
 START=$SECONDS
 MODE="${1:-all}"
-RUN_AS_USER="${MPE_PI_USER:-<user>}"
+# shellcheck source=lib/appliance-user.sh
+source "$ROOT/scripts/lib/appliance-user.sh"
+# Only needed to drop root for the unit tests; resolved lazily below.
+RUN_AS_USER=""
 
 _run_unittests() {
     local py=python3
@@ -20,6 +23,9 @@ _run_unittests() {
         py="${ROOT}/.venv/bin/python"
     fi
     # chmod-based write tests are meaningless as root (root bypasses 0555).
+    if [ "$(id -u)" -eq 0 ]; then
+        RUN_AS_USER="$(mpe_appliance_user)" || exit 1
+    fi
     if [ "$(id -u)" -eq 0 ] && id "$RUN_AS_USER" >/dev/null 2>&1; then
         sudo -u "$RUN_AS_USER" env MPE_MODULE_REPO="$ROOT" "$py" -m unittest \
             tests.test_audio_engine tests.test_periodic_loop_lint -q

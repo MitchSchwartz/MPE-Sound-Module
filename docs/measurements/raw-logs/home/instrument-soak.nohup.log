@@ -1,7 +1,7 @@
 Instrument soak: 8h @ 1024×2, patch=Cloud Horn voices=5, condition A
 Started: 2026-08-22T11:05:36-04:00
 Expected finish: 2026-08-22T19:05:36-04:00
-Log: /home/<user>/instrument-soak-1024x2.log
+Log: ~/instrument-soak-1024x2.log
 Applied buffer=1024 periods=2
 OSC client initialized: 127.0.0.1:53280
 Loaded patch: Cloud Horn.fxp

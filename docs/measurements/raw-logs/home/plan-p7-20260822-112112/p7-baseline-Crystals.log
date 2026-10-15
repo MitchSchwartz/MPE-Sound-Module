@@ -87,7 +87,7 @@ PROBE_END
 Applied buffer=1024 periods=2
 jackd period=1024 ok
 jackd periods=2 ok
-done commit=5f23472 log=/home/<user>/plan-p7-20260822-112112/p7-baseline-Crystals.log
+done commit=5f23472 log=~/plan-p7-20260822-112112/p7-baseline-Crystals.log
 SENTINEL harness-end
 
 CLOCK label=after-P7-baseline-Crystals-run1 measure_clock_arm=frequency(48)=1800457088 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=53.5'C

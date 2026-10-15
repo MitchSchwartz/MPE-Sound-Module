@@ -28,6 +28,8 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+# Sibling mpe-cli checkout (optional; scanned only when present).
+MPE_CLI_REPO = Path(os.environ.get("MPE_CLI_REPO", str(REPO_ROOT.parent / "mpe-cli")))
 AUDIO_ENGINE_SH = REPO_ROOT / "scripts" / "lib" / "audio-engine.sh"
 
 # The Pi 5 as it actually boots: idle sink up, USB DAC not yet enumerated.
@@ -301,7 +303,7 @@ class SingleSourceOfTruthTests(unittest.TestCase):
     def _sources(self):
         roots = [
             (REPO_ROOT / "scripts", REPO_ROOT),
-            (Path("/home/<user>/Documents/GitHub/mpe-cli"), Path("/home/<user>/Documents/GitHub/mpe-cli")),
+            (MPE_CLI_REPO, MPE_CLI_REPO),
         ]
         for root, base in roots:
             if not root.exists():

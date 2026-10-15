@@ -8,12 +8,188 @@ temp_start: temp=49.6'C
 temp_start: temp=49.6'C
 throttle_start: throttled=0x0
 throttle_start: throttled=0x0
-Cloning Surge source to /home/<user>/surge-src...
-Cloning Surge source to /home/<user>/surge-src...
-Cloning into '/home/<user>/surge-src'...
-Cloning into '/home/<user>/surge-src'...
-Updating files:  18% (1336/7095)Updating files:  18% (1336/7095)Updating files:  19% (1349/7095)Updating files:  19% (1349/7095)Updating files:  20% (1419/7095)Updating files:  20% (1419/7095)Updating files:  21% (1490/7095)Updating files:  21% (1490/7095)Updating files:  22% (1561/7095)Updating files:  22% (1561/7095)Updating files:  23% (1632/7095)Updating files:  23% (1632/7095)Updating files:  24% (1703/7095)Updating files:  24% (1703/7095)Updating files:  25% (1774/7095)Updating files:  25% (1774/7095)Updating files:  26% (1845/7095)Updating files:  26% (1845/7095)Updating files:  27% (1916/7095)Updating files:  27% (1916/7095)Updating files:  28% (1987/7095)Updating files:  28% (1987/7095)Updating files:  28% (2050/7095)Updating files:  28% (2050/7095)Updating files:  29% (2058/7095)Updating files:  29% (2058/7095)Updating files:  30% (2129/7095)Updating files:  30% (2129/7095)Updating files:  31% (2200/7095)Updating files:  31% (2200/7095)Updating files:  32% (2271/7095)Updating files:  32% (2271/7095)Updating files:  33% (2342/7095)Updating files:  33% (2342/7095)Updating files:  34% (2413/7095)Updating files:  34% (2413/7095)Updating files:  35% (2484/7095)Updating files:  35% (2484/7095)Updating files:  36% (2555/7095)Updating files:  36% (2555/7095)Updating files:  37% (2626/7095)Updating files:  37% (2626/7095)Updating files:  38% (2697/7095)Updating files:  38% (2697/7095)Updating files:  39% (2768/7095)Updating files:  39% (2768/7095)Updating files:  40% (2838/7095)Updating files:  40% (2838/7095)Updating files:  41% (2909/7095)Updating files:  41% (2909/7095)Updating files:  42% (2980/7095)Updating files:  42% (2980/7095)Updating files:  43% (3051/7095)Updating files:  43% (3051/7095)Updating files:  44% (3122/7095)Updating files:  44% (3122/7095)Updating files:  45% (3193/7095)Updating files:  45% (3193/7095)Updating files:  45% (3226/7095)Updating files:  45% (3226/7095)Updating files:  46% (3264/7095)Updating files:  46% (3264/7095)Updating files:  47% (3335/7095)Updating files:  47% (3335/7095)Updating files:  48% (3406/7095)Updating files:  48% (3406/7095)Updating files:  49% (3477/7095)Updating files:  49% (3477/7095)Updating files:  50% (3548/7095)Updating files:  50% (3548/7095)Updating files:  51% (3619/7095)Updating files:  51% (3619/7095)Updating files:  52% (3690/7095)Updating files:  52% (3690/7095)Updating files:  53% (3761/7095)Updating files:  53% (3761/7095)Updating files:  54% (3832/7095)Updating files:  54% (3832/7095)Updating files:  55% (3903/7095)Updating files:  55% (3903/7095)Updating files:  56% (3974/7095)Updating files:  56% (3974/7095)Updating files:  57% (4045/7095)Updating files:  57% (4045/7095)Updating files:  58% (4116/7095)Updating files:  58% (4116/7095)Updating files:  59% (4187/7095)Updating files:  59% (4187/7095)Updating files:  60% (4257/7095)Updating files:  60% (4257/7095)Updating files:  61% (4328/7095)Updating files:  61% (4328/7095)Updating files:  62% (4399/7095)Updating files:  62% (4399/7095)Updating files:  63% (4470/7095)Updating files:  63% (4470/7095)Updating files:  64% (4541/7095)Updating files:  64% (4541/7095)Updating files:  65% (4612/7095)Updating files:  65% (4612/7095)Updating files:  66% (4683/7095)Updating files:  66% (4683/7095)Updating files:  67% (4754/7095)Updating files:  67% (4754/7095)Updating files:  68% (4825/7095)Updating files:  68% (4825/7095)Updating files:  69% (4896/7095)Updating files:  69% (4896/7095)Updating files:  69% (4909/7095)Updating files:  69% (4909/7095)Updating files:  70% (4967/7095)Updating files:  70% (4967/7095)Updating files:  71% (5038/7095)Updating files:  71% (5038/7095)Updating files:  72% (5109/7095)Updating files:  72% (5109/7095)Updating files:  73% (5180/7095)Updating files:  73% (5180/7095)Updating files:  74% (5251/7095)Updating files:  74% (5251/7095)Updating files:  75% (5322/7095)Updating files:  75% (5322/7095)Updating files:  76% (5393/7095)Updating files:  76% (5393/7095)Updating files:  77% (5464/7095)Updating files:  77% (5464/7095)Updating files:  78% (5535/7095)Updating files:  78% (5535/7095)Updating files:  79% (5606/7095)Updating files:  79% (5606/7095)Updating files:  80% (5676/7095)Updating files:  80% (5676/7095)Updating files:  81% (5747/7095)Updating files:  81% (5747/7095)Updating files:  82% (5818/7095)Updating files:  82% (5818/7095)Updating files:  83% (5889/7095)Updating files:  83% (5889/7095)Updating files:  84% (5960/7095)Updating files:  84% (5960/7095)Updating files:  84% (6015/7095)Updating files:  84% (6015/7095)Updating files:  85% (6031/7095)Updating files:  85% (6031/7095)Updating files:  86% (6102/7095)Updating files:  86% (6102/7095)Updating files:  87% (6173/7095)Updating files:  87% (6173/7095)Updating files:  87% (6203/7095)Updating files:  87% (6203/7095)Updating files:  88% (6244/7095)Updating files:  88% (6244/7095)Updating files:  89% (6315/7095)Updating files:  89% (6315/7095)Updating files:  90% (6386/7095)Updating files:  90% (6386/7095)Updating files:  91% (6457/7095)Updating files:  91% (6457/7095)Updating files:  92% (6528/7095)Updating files:  92% (6528/7095)Updating files:  93% (6599/7095)Updating files:  93% (6599/7095)Updating files:  94% (6670/7095)Updating files:  94% (6670/7095)Updating files:  95% (6741/7095)Updating files:  95% (6741/7095)Updating files:  96% (6812/7095)Updating files:  96% (6812/7095)Updating files:  97% (6883/7095)Updating files:  97% (6883/7095)Updating files:  98% (6954/7095)Updating files:  98% (6954/7095)Updating files:  99% (7025/7095)Updating files:  99% (7025/7095)Updating files: 100% (7095/7095)Updating files: 100% (7095/7095), done.
-Updating files: 100% (7095/7095)Updating files: 100% (7095/7095), done.
+Cloning Surge source to ~/surge-src...
+Cloning Surge source to ~/surge-src...
+Cloning into '~/surge-src'...
+Cloning into '~/surge-src'...
+Updating files:  18% (1336/7095)
+Updating files:  18% (1336/7095)
+Updating files:  19% (1349/7095)
+Updating files:  19% (1349/7095)
+Updating files:  20% (1419/7095)
+Updating files:  20% (1419/7095)
+Updating files:  21% (1490/7095)
+Updating files:  21% (1490/7095)
+Updating files:  22% (1561/7095)
+Updating files:  22% (1561/7095)
+Updating files:  23% (1632/7095)
+Updating files:  23% (1632/7095)
+Updating files:  24% (1703/7095)
+Updating files:  24% (1703/7095)
+Updating files:  25% (1774/7095)
+Updating files:  25% (1774/7095)
+Updating files:  26% (1845/7095)
+Updating files:  26% (1845/7095)
+Updating files:  27% (1916/7095)
+Updating files:  27% (1916/7095)
+Updating files:  28% (1987/7095)
+Updating files:  28% (1987/7095)
+Updating files:  28% (2050/7095)
+Updating files:  28% (2050/7095)
+Updating files:  29% (2058/7095)
+Updating files:  29% (2058/7095)
+Updating files:  30% (2129/7095)
+Updating files:  30% (2129/7095)
+Updating files:  31% (2200/7095)
+Updating files:  31% (2200/7095)
+Updating files:  32% (2271/7095)
+Updating files:  32% (2271/7095)
+Updating files:  33% (2342/7095)
+Updating files:  33% (2342/7095)
+Updating files:  34% (2413/7095)
+Updating files:  34% (2413/7095)
+Updating files:  35% (2484/7095)
+Updating files:  35% (2484/7095)
+Updating files:  36% (2555/7095)
+Updating files:  36% (2555/7095)
+Updating files:  37% (2626/7095)
+Updating files:  37% (2626/7095)
+Updating files:  38% (2697/7095)
+Updating files:  38% (2697/7095)
+Updating files:  39% (2768/7095)
+Updating files:  39% (2768/7095)
+Updating files:  40% (2838/7095)
+Updating files:  40% (2838/7095)
+Updating files:  41% (2909/7095)
+Updating files:  41% (2909/7095)
+Updating files:  42% (2980/7095)
+Updating files:  42% (2980/7095)
+Updating files:  43% (3051/7095)
+Updating files:  43% (3051/7095)
+Updating files:  44% (3122/7095)
+Updating files:  44% (3122/7095)
+Updating files:  45% (3193/7095)
+Updating files:  45% (3193/7095)
+Updating files:  45% (3226/7095)
+Updating files:  45% (3226/7095)
+Updating files:  46% (3264/7095)
+Updating files:  46% (3264/7095)
+Updating files:  47% (3335/7095)
+Updating files:  47% (3335/7095)
+Updating files:  48% (3406/7095)
+Updating files:  48% (3406/7095)
+Updating files:  49% (3477/7095)
+Updating files:  49% (3477/7095)
+Updating files:  50% (3548/7095)
+Updating files:  50% (3548/7095)
+Updating files:  51% (3619/7095)
+Updating files:  51% (3619/7095)
+Updating files:  52% (3690/7095)
+Updating files:  52% (3690/7095)
+Updating files:  53% (3761/7095)
+Updating files:  53% (3761/7095)
+Updating files:  54% (3832/7095)
+Updating files:  54% (3832/7095)
+Updating files:  55% (3903/7095)
+Updating files:  55% (3903/7095)
+Updating files:  56% (3974/7095)
+Updating files:  56% (3974/7095)
+Updating files:  57% (4045/7095)
+Updating files:  57% (4045/7095)
+Updating files:  58% (4116/7095)
+Updating files:  58% (4116/7095)
+Updating files:  59% (4187/7095)
+Updating files:  59% (4187/7095)
+Updating files:  60% (4257/7095)
+Updating files:  60% (4257/7095)
+Updating files:  61% (4328/7095)
+Updating files:  61% (4328/7095)
+Updating files:  62% (4399/7095)
+Updating files:  62% (4399/7095)
+Updating files:  63% (4470/7095)
+Updating files:  63% (4470/7095)
+Updating files:  64% (4541/7095)
+Updating files:  64% (4541/7095)
+Updating files:  65% (4612/7095)
+Updating files:  65% (4612/7095)
+Updating files:  66% (4683/7095)
+Updating files:  66% (4683/7095)
+Updating files:  67% (4754/7095)
+Updating files:  67% (4754/7095)
+Updating files:  68% (4825/7095)
+Updating files:  68% (4825/7095)
+Updating files:  69% (4896/7095)
+Updating files:  69% (4896/7095)
+Updating files:  69% (4909/7095)
+Updating files:  69% (4909/7095)
+Updating files:  70% (4967/7095)
+Updating files:  70% (4967/7095)
+Updating files:  71% (5038/7095)
+Updating files:  71% (5038/7095)
+Updating files:  72% (5109/7095)
+Updating files:  72% (5109/7095)
+Updating files:  73% (5180/7095)
+Updating files:  73% (5180/7095)
+Updating files:  74% (5251/7095)
+Updating files:  74% (5251/7095)
+Updating files:  75% (5322/7095)
+Updating files:  75% (5322/7095)
+Updating files:  76% (5393/7095)
+Updating files:  76% (5393/7095)
+Updating files:  77% (5464/7095)
+Updating files:  77% (5464/7095)
+Updating files:  78% (5535/7095)
+Updating files:  78% (5535/7095)
+Updating files:  79% (5606/7095)
+Updating files:  79% (5606/7095)
+Updating files:  80% (5676/7095)
+Updating files:  80% (5676/7095)
+Updating files:  81% (5747/7095)
+Updating files:  81% (5747/7095)
+Updating files:  82% (5818/7095)
+Updating files:  82% (5818/7095)
+Updating files:  83% (5889/7095)
+Updating files:  83% (5889/7095)
+Updating files:  84% (5960/7095)
+Updating files:  84% (5960/7095)
+Updating files:  84% (6015/7095)
+Updating files:  84% (6015/7095)
+Updating files:  85% (6031/7095)
+Updating files:  85% (6031/7095)
+Updating files:  86% (6102/7095)
+Updating files:  86% (6102/7095)
+Updating files:  87% (6173/7095)
+Updating files:  87% (6173/7095)
+Updating files:  87% (6203/7095)
+Updating files:  87% (6203/7095)
+Updating files:  88% (6244/7095)
+Updating files:  88% (6244/7095)
+Updating files:  89% (6315/7095)
+Updating files:  89% (6315/7095)
+Updating files:  90% (6386/7095)
+Updating files:  90% (6386/7095)
+Updating files:  91% (6457/7095)
+Updating files:  91% (6457/7095)
+Updating files:  92% (6528/7095)
+Updating files:  92% (6528/7095)
+Updating files:  93% (6599/7095)
+Updating files:  93% (6599/7095)
+Updating files:  94% (6670/7095)
+Updating files:  94% (6670/7095)
+Updating files:  95% (6741/7095)
+Updating files:  95% (6741/7095)
+Updating files:  96% (6812/7095)
+Updating files:  96% (6812/7095)
+Updating files:  97% (6883/7095)
+Updating files:  97% (6883/7095)
+Updating files:  98% (6954/7095)
+Updating files:  98% (6954/7095)
+Updating files:  99% (7025/7095)
+Updating files:  99% (7025/7095)
+Updating files: 100% (7095/7095)
+Updating files: 100% (7095/7095), done.
+Updating files: 100% (7095/7095)
+Updating files: 100% (7095/7095), done.
 Note: switching to '253f8d86'.
 
 You are in 'detached HEAD' state. You can look around, make experimental
@@ -84,7 +260,7 @@ disk_before: /dev/mmcblk0p2   29G  8.0G   19G  30% /
 temp_start: temp=48.7'C
 throttle_start: throttled=0x0
 Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
-nohup: failed to run command '/home/<user>/MPE-Module/scripts/build-surge-a72.sh': Permission denied
+nohup: failed to run command '~/MPE-Module/scripts/build-surge-a72.sh': Permission denied
 === build-surge-a72 2026-08-22T13:00:00-04:00 attempt=1 ===
 PROVENANCE commit=253f8d86 flag=-mcpu=cortex-a72 jobs=4
 disk_before: /dev/mmcblk0p2   29G  8.8G   19G  33% /
@@ -137,8 +313,8 @@ Initializing submodules...
 -- Performing Test COMPILER_HAS_AVX_OR_IS_ARM
 -- Performing Test COMPILER_HAS_AVX_OR_IS_ARM - Success
 -- Performing Test COMPILER_HAS_AVX_OR_IS_ARM - Success
--- Using JUCE from /home/<user>/surge-src/src/../libs/JUCE
--- Using JUCE from /home/<user>/surge-src/src/../libs/JUCE
+-- Using JUCE from ~/surge-src/src/../libs/JUCE
+-- Using JUCE from ~/surge-src/src/../libs/JUCE
 -- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1")
 -- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1")
 -- Checking for module 'alsa'
@@ -184,11 +360,11 @@ CMake Error at libs/JUCE/extras/Build/juceaide/CMakeLists.txt:157 (message):
 
 
   In file included from
-  /home/<user>/surge-src/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.cpp:55:
+  ~/surge-src/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.cpp:55:
 
 
 
-  /home/<user>/surge-src/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.h:361:13:
+  ~/surge-src/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.h:361:13:
   fatal error: X11/extensions/Xrandr.h: No such file or directory
 
     361 |    #include <X11/extensions/Xrandr.h>
@@ -222,11 +398,11 @@ CMake Error at libs/JUCE/extras/Build/juceaide/CMakeLists.txt:157 (message):
 
 
   In file included from
-  /home/<user>/surge-src/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.cpp:55:
+  ~/surge-src/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.cpp:55:
 
 
 
-  /home/<user>/surge-src/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.h:361:13:
+  ~/surge-src/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.h:361:13:
   fatal error: X11/extensions/Xrandr.h: No such file or directory
 
     361 |    #include <X11/extensions/Xrandr.h>
@@ -301,8 +477,8 @@ Initializing submodules...
 -- Performing Test COMPILER_HAS_AVX_OR_IS_ARM
 -- Performing Test COMPILER_HAS_AVX_OR_IS_ARM - Success
 -- Performing Test COMPILER_HAS_AVX_OR_IS_ARM - Success
--- Using JUCE from /home/<user>/surge-src/src/../libs/JUCE
--- Using JUCE from /home/<user>/surge-src/src/../libs/JUCE
+-- Using JUCE from ~/surge-src/src/../libs/JUCE
+-- Using JUCE from ~/surge-src/src/../libs/JUCE
 -- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1")
 -- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1")
 -- Checking for module 'alsa'
@@ -484,19 +660,19 @@ This warning is for project developers.  Use -Wno-dev to suppress it.
 -- Found assembler: /usr/bin/cc
 -- Found assembler: /usr/bin/cc
 -- Building LuaJIT at CMake time right now; configure with -DSURGE_SKIP_LUA=TRUE to disable
--- Running ./build-linux-luajit.sh "/home/<user>/surge-src/build-a72/libs/luajitlib/LuaJIT" in /home/<user>/surge-src/libs/luajitlib
+-- Running ./build-linux-luajit.sh "~/surge-src/build-a72/libs/luajitlib/LuaJIT" in ~/surge-src/libs/luajitlib
 -- Building LuaJIT at CMake time right now; configure with -DSURGE_SKIP_LUA=TRUE to disable
--- Running ./build-linux-luajit.sh "/home/<user>/surge-src/build-a72/libs/luajitlib/LuaJIT" in /home/<user>/surge-src/libs/luajitlib
--- Successfully built LuaJIT: /home/<user>/surge-src/build-a72/libs/luajitlib/LuaJIT/bin/libluajit.a
--- Successfully built LuaJIT: /home/<user>/surge-src/build-a72/libs/luajitlib/LuaJIT/bin/libluajit.a
+-- Running ./build-linux-luajit.sh "~/surge-src/build-a72/libs/luajitlib/LuaJIT" in ~/surge-src/libs/luajitlib
+-- Successfully built LuaJIT: ~/surge-src/build-a72/libs/luajitlib/LuaJIT/bin/libluajit.a
+-- Successfully built LuaJIT: ~/surge-src/build-a72/libs/luajitlib/LuaJIT/bin/libluajit.a
 -- CMake Omitting Native Aliases
 -- CMake Omitting Native Aliases
 -- Forcing filesystem to GHC
 -- Forcing filesystem to GHC
 -- filesystem: Using ghc::filesystem from "filesystem/ghc-filesystem.h" with SST_PLUGINFRA_GHC_FS
 -- filesystem: Using ghc::filesystem from "filesystem/ghc-filesystem.h" with SST_PLUGINFRA_GHC_FS
--- Creating fs import via '/home/<user>/surge-src/build-a72/libs/sst/sst-plugininfra/libs/filesystem/include/filesystem/import.h'
--- Creating fs import via '/home/<user>/surge-src/build-a72/libs/sst/sst-plugininfra/libs/filesystem/include/filesystem/import.h'
+-- Creating fs import via '~/surge-src/build-a72/libs/sst/sst-plugininfra/libs/filesystem/include/filesystem/import.h'
+-- Creating fs import via '~/surge-src/build-a72/libs/sst/sst-plugininfra/libs/filesystem/include/filesystem/import.h'
 CMake Deprecation Warning at libs/PEGTL/CMakeLists.txt:1 (cmake_minimum_required):
   Compatibility with CMake < 3.10 will be remCMake Deprecation Warning at libs/PEGTL/CMakeLists.txt:1 (cmake_minimum_required):
   Compatibility with CMake < 3.10 will be removed from a future version of
@@ -555,8 +731,8 @@ CMake Warning:
     SURGE_BUILD_VST3
 
 
--- Build files have been written to: /home/<user>/surge-src/build-a72
--- Build files have been written to: /home/<user>/surge-src/build-a72
+-- Build files have been written to: ~/surge-src/build-a72
+-- Build files have been written to: ~/surge-src/build-a72
 [  0%] Generating LuaSources.cpp, include/lua/LuaSources.h
 [  0%] Generating LuaSources.cpp, include/lua/LuaSources.h
 [  0%] Generating juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData1.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData2.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData3.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData4.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData5.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData6.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData7.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData8.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData9.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData10.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData11.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData12.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData13.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData14.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData15.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData16.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData17.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData18.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData19.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData20.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData21.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData22.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData23.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData24.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData25.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData26.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData27.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData28.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData29.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData30.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData31.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData32.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData33.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData34.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData35.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData36.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData37.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData38.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData39.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData40.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData41.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData42.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData43.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData44.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData45.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData46.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData47.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData48.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData49.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData50.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData51.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData52.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData53.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData54.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData55.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData56.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData57.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData58.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData59.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData60.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData61.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData62.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData63.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData64.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData65.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData66.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData67.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData68.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData69.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData70.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData71.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData72.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData73.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData74.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData75.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData76.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData77.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData78.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData79.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData80.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData81.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData82.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData83.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData84.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData85.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData86.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData87.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData88.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData89.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData90.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData91.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData92.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData93.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData94.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData95.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData96.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData97.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData98.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData99.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData100.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData101.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData102.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData103.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData104.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData105.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData106.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData107.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData108.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData109.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData110.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData111.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData112.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData113.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData114.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData115.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData116.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData117.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData118.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData119.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData120.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData121.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData122.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData123.cpp, juce_binarydata_surge-xt-binary/JuceLibra[  0%] Generating juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData1.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData2.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData3.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData4.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData5.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData6.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData7.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData8.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData9.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData10.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData11.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData12.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData13.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData14.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData15.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData16.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData17.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData18.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData19.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData20.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData21.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData22.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData23.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData24.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData25.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData26.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData27.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData28.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData29.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData30.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData31.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData32.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData33.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData34.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData35.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData36.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData37.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData38.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData39.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData40.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData41.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData42.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData43.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData44.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData45.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData46.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData47.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData48.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData49.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData50.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData51.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData52.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData53.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData54.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData55.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData56.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData57.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData58.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData59.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData60.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData61.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData62.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData63.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData64.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData65.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData66.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData67.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData68.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData69.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData70.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData71.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData72.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData73.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData74.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData75.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData76.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData77.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData78.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData79.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData80.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData81.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData82.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData83.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData84.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData85.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData86.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData87.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData88.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData89.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData90.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData91.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData92.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData93.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData94.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData95.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData96.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData97.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData98.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData99.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData100.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData101.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData102.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData103.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData104.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData105.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData106.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData107.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData108.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData109.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData110.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData111.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData112.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData113.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData114.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData115.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData116.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData117.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData118.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData119.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData120.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData121.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData122.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData123.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData124.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData125.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData126.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData127.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData128.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData129.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData130.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData131.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData132.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData133.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData134.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData135.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData136.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData137.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData138.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData139.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData140.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData141.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData142.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData143.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData144.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData145.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData146.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData147.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData148.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData149.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData150.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData151.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData152.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/SurgeXTBinary.h
@@ -575,14 +751,14 @@ ryCode/BinaryData124.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/Binary
 --   buildarch is aarch64
 -- Developer Local Build
 -- Using SURGE_VERSION=1.4.HEAD.253f8d86
--- Configuring /home/<user>/surge-src/build-a72/geninclude/version.cpp
+-- Configuring ~/surge-src/build-a72/geninclude/version.cpp
 -- Setting up surge version
 --   git hash is 253f8d86 and branch is HEAD
 --   buildhost is raspberrypi2
 --   buildarch is aarch64
 -- Developer Local Build
 -- Using SURGE_VERSION=1.4.HEAD.253f8d86
--- Configuring /home/<user>/surge-src/build-a72/geninclude/version.cpp
+-- Configuring ~/surge-src/build-a72/geninclude/version.cpp
 [  0%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData2.cpp.o
 [  0%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData2.cpp.o
 [  0%] Built target version-info
@@ -1785,22 +1961,22 @@ ryCode/BinaryData124.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/Binary
 [100%] Linking CXX executable ../surge-xt_artefacts/Release/CLI/surge-xt-cli
 lto-wrapper: warning: Extra option to ‘-Xassembler’: --noexecstack, dropping all ‘-Xassembler’ and ‘-Wa’ options.
 lto-wrapper: warning: Extra option to ‘-Xassembler’: --noexecstack, dropping all ‘-Xassembler’ and ‘-Wa’ options.
-/home/<user>/surge-src/libs/sqlite-3.23.3/sqlite3.c: In function ‘sqlite3SelectNew’:
-/home/<user>/surge-src/libs/sqlite-3.23.3/sqlite3.c: In function ‘sqlite3SelectNew’:
-/home/<user>/surge-src/libs/sqlite-3.23.3/sqlite3.c:129137: warning: function may return address of local variable [-Wreturn-local-addr]
+~/surge-src/libs/sqlite-3.23.3/sqlite3.c: In function ‘sqlite3SelectNew’:
+~/surge-src/libs/sqlite-3.23.3/sqlite3.c: In function ‘sqlite3SelectNew’:
+~/surge-src/libs/sqlite-3.23.3/sqlite3.c:129137: warning: function may return address of local variable [-Wreturn-local-addr]
 129137 |   return pNew;
-/home/<user>/surge-src/libs/sqlite-3.23.3/sqlite3.c:129137: warning: function may return address of local variable [-Wreturn-local-addr]
+~/surge-src/libs/sqlite-3.23.3/sqlite3.c:129137: warning: function may return address of local variable [-Wreturn-local-addr]
 129137 |   return pNew;
-/home/<user>/surge-src/libs/sqlite-3.23.3/sqlite3.c:129097: note: declared here
+~/surge-src/libs/sqlite-3.23.3/sqlite3.c:129097: note: declared here
 129097 |   Select standin;
-/home/<user>/surge-src/libs/sqlite-3.23.3/sqlite3.c:129097: note: declared here
+~/surge-src/libs/sqlite-3.23.3/sqlite3.c:129097: note: declared here
 129097 |   Select standin;
 [100%] Built target surge-xt-cli
 [100%] Built target surge-xt-cli
-ERROR: missing artifact /home/<user>/surge-src/build-a72/surge_xt_products/surge-xt-cli
-ERROR: missing artifact /home/<user>/surge-src/build-a72/surge_xt_products/surge-xt-cli
+ERROR: missing artifact ~/surge-src/build-a72/surge_xt_products/surge-xt-cli
+ERROR: missing artifact ~/surge-src/build-a72/surge_xt_products/surge-xt-cli
 === build complete 2026-08-22T14:40:42-04:00 (manual handback — path fix) ===
-artifact=/home/<user>/surge-src/build-a72/src/surge-xt/surge-xt_artefacts/Release/CLI/surge-xt-cli
+artifact=~/surge-src/build-a72/src/surge-xt/surge-xt_artefacts/Release/CLI/surge-xt-cli
 version=1.4.HEAD.253f8d86
 sha256=556cc6f00a2dd85385e2cf0fe041906f7057dbbcd4e948fbc51780c10355df74
 disk_after: /dev/mmcblk0p2   29G  9.3G   18G  35% /

@@ -2,7 +2,7 @@
 # and apply-external-state.sh. One path per line; # comments and blank lines ignored.
 # Paths are relative to the Pi user's home unless absolute.
 #
-# Pi 5 audit: run capture --check on raspberrypi5 and diff against actual home
+# Pi 5 audit: run capture --check on the Pi 5 and diff against actual home
 # (includes .patch_browser_poly_state.json — ceiling_poly / effective_poly).
 #
 # NEVER captured (hard-coded in capture script):

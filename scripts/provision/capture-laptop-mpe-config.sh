@@ -46,7 +46,7 @@ _extract_ssh_host_blocks() {
         /^Host / {
             if (keep) print block
             block=$0
-            keep=($0 ~ /(pi4|pi5|raspberrypi2|raspberrypi5|surge)/)
+            keep=($0 ~ /(pi4|pi5|raspberrypi2|surge)/)
             next
         }
         {
