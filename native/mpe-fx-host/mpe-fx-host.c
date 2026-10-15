@@ -14,7 +14,8 @@
  * self-test can run anywhere.
  *
  * Which effects and how much is not decided here. This process holds no
- * policy: it is told an enable mask, one depth and a level per effect over UDP and applies them. The Python
+ * policy: it is told an enable mask, one depth, a level per effect and the
+ * bass bypass's crossover over UDP and applies them. The Python
  * policy module is the only thing that decides; the datagram format has one
  * definition on that side, `patch_browser/fx_host_protocol.py`.
  *
@@ -154,6 +155,10 @@ static _Atomic float g_target_depth = 0.0f;
  * has; set to 1.0 in main before the client is activated. Each is stored on
  * its own: a period that reads a half-updated set ramps to it all the same. */
 static _Atomic float g_target_level[FX_MAX_EFFECTS];
+/* The bass bypass's crossover, Hz (fx_dsp.h, "Bass bypass"). Off until a
+ * `bass` datagram says otherwise: a sender that predates it gets the chain
+ * as it always was. */
+static _Atomic float g_target_bass = 0.0f;
 static _Atomic float g_rate = 0.0f;
 
 static int g_control_port = CONTROL_PORT_DEFAULT;
@@ -193,6 +198,7 @@ static int process(jack_nframes_t nframes, void *arg)
      * engine — never an unwritten buffer left at whatever the last period had. */
     const float *const cin[FX_CHANNELS] = { in[0], in[1] };
     float *const cout[FX_CHANNELS] = { out[0], out[1] };
+    fx_engine_set_bass(&g_engine, atomic_load_explicit(&g_target_bass, memory_order_relaxed));
     fx_engine_process_levels(&g_engine, cin, cout, nframes, mask, depth, levels);
     return 0;
 }
@@ -541,6 +547,12 @@ static void *control_thread(void *arg)
         uint32_t mask = 0;
         float depth = 0.0f;
         float levels[FX_MAX_EFFECTS];
+        float bass = 0.0f;
+        if (fx_parse_bass(buf, &bass)) {
+            /* Range is the engine's (fx_engine_set_bass clamps; 0 is Off). */
+            atomic_store_explicit(&g_target_bass, bass, memory_order_relaxed);
+            continue;
+        }
         if (!fx_parse_control(buf, &mask, &depth, levels) || (mask >> FX_EFFECT_COUNT) != 0u) {
             continue;   /* malformed, or naming an effect not shipped: changes nothing */
         }
@@ -597,7 +609,7 @@ int main(int argc, char **argv)
     (void)argv;
 
     if (!atomic_is_lock_free(&g_target_depth) || !atomic_is_lock_free(&g_target_mask) ||
-        !atomic_is_lock_free(&g_target_level[0])) {
+        !atomic_is_lock_free(&g_target_level[0]) || !atomic_is_lock_free(&g_target_bass)) {
         fprintf(stderr, "mpe-fx-host: atomics are not lock-free on this platform — refusing to start\n");
         return 1;
     }

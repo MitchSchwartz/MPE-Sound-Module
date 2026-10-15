@@ -25,17 +25,22 @@
  *   fx-selftest --unity-raw K DEPTH   effect K alone at DEPTH, no level
  *                               curve, no makeup: the raw loss on each level
  *                               signal, what the level fits are fitted to
- *   fx-selftest --unity MASK DEPTH    the chain MASK at DEPTH as shipped: each
+ *   fx-selftest --unity MASK DEPTH [BASS_HZ]   the chain MASK at DEPTH as
+ *                               shipped (the bass bypass at BASS_HZ, Off if
+ *                               not given): each
  *                               signal in dB re the input x makeup, the worst
  *                               peak over the input, and the keys at -9 dBFS
  *                               (device mode): peak dBFS and clamped samples
+ *   fx-selftest --fit-bass K    effect K's bass-bypass level correction,
+ *                               fitted on the keys (fx_dsp.h, "Bass bypass")
  *   fx-selftest --tremolo-shape one cycle of the tremolo's gain, before (the
  *                               rounded triangle) and after (the sine with a
  *                               floor), and their worst per-sample slopes
  *   fx-selftest --bench         ns per stereo frame for each effect, and for
  *                               the engine with each alone and all seven on,
  *                               and all seven at mixed levels, settled and
- *                               moving every period
+ *                               moving every period, and the bass bypass's
+ *                               cost (Off, 120 Hz, the crossover gliding)
  *
  * The discontinuity checks each carry a control: the same run with the
  * protection switched off (no depth smoothing, an instant swap) must FAIL the
@@ -137,7 +142,7 @@ static fx_effect_desc g_two[2];
 static void build_two(void)
 {
     g_two[0] = FX_EFFECTS[0];
-    g_two[1] = (fx_effect_desc){ "flip", 0.5f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, flip_init, flip_process, NULL };
+    g_two[1] = (fx_effect_desc){ "flip", 0.5f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, flip_init, flip_process, NULL, NULL };
 }
 
 #define BIT(k) (1u << (k))
@@ -167,12 +172,17 @@ static float makeup_gain(float m)
     return (float)pow(10.0, FX_MAKEUP_DB * (double)m / 20.0);
 }
 
+/* The bass bypass's crossover every run_period plays at: 0 (Off) unless a
+ * bass check sets it, so every other check runs the chain as it was. */
+static float g_bass_hz;
+
 /* One period with the effects in `mask` enabled (BIT(k) for effect k alone). */
 static void run_period(fx_engine *e, float *l, float *r, float *ol, float *or_,
                        uint32_t n, uint32_t mask, float depth)
 {
     const float *const in[FX_CHANNELS] = { l, r };
     float *const out[FX_CHANNELS] = { ol, or_ };
+    fx_engine_set_bass(e, g_bass_hz);
     if (g_levels == NULL) {
         fx_engine_process(e, in, out, n, mask, depth);
     } else {
@@ -570,7 +580,7 @@ static void leaky_feed(void *s, const float *const in[FX_CHANNELS], uint32_t n)
     leaky_run(s, in, NULL, n);
 }
 static const fx_effect_desc LEAKY = { "leaky", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, sizeof(leaky_state),
-                                      leaky_init, leaky_process, leaky_feed };
+                                      leaky_init, leaky_process, leaky_feed, NULL };
 
 /* The chorus long run's control (test_long_run_stays_clean): the leaky effect
  * in the chorus's slot must show the subnormals and the residue. Added when
@@ -1846,6 +1856,48 @@ static void bench(void)
                moving ? "moving" : "settled", ns);
         fx_engine_free(&e);
     }
+    /* The bass bypass: each case with the split Off and at 120 Hz, and with
+     * the crossover moving every period (the glide recomputes coefficients
+     * every chunk: the worst case). Same input, same masks. */
+    static const struct {
+        const char *name;
+        uint32_t mask;
+        float depth;
+    } bass_cases[4] = {
+        { "bypass, chorus ticked at 0", 1u << 0, 0.0f },
+        { "chorus", 1u << 0, 0.7f },
+        { "rotary", 1u << 5, 0.7f },
+        { "all seven", (1u << 7) - 1u, 0.7f },
+    };
+    for (int c = 0; c < 4; c++) {
+        double ns_mode[3];
+        for (int mode = 0; mode < 3; mode++) {
+            fx_engine e;
+            fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, 40.0, 30.0);
+            float bl[256], br[256], ol[256], or_[256];
+            const int periods = 50000;
+            struct timespec t0, t1;
+            g_rng = RNG_SEED;
+            clock_gettime(CLOCK_MONOTONIC, &t0);
+            for (int p = 0; p < periods; p++) {
+                for (uint32_t i = 0; i < 256; i++) {
+                    bl[i] = 0.3f * noise();
+                    br[i] = 0.3f * noise();
+                }
+                fx_engine_set_bass(&e, mode == 0 ? 0.0f : mode == 1 ? 120.0f : ((p / 4) & 1 ? 80.0f : 300.0f));
+                const float *const in2[FX_CHANNELS] = { bl, br };
+                float *const out2[FX_CHANNELS] = { ol, or_ };
+                fx_engine_process(&e, in2, out2, 256, bass_cases[c].mask, bass_cases[c].depth);
+            }
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            ns_mode[mode] = ((double)(t1.tv_sec - t0.tv_sec) * 1e9 +
+                             (double)(t1.tv_nsec - t0.tv_nsec)) / ((double)periods * 256);
+            fx_engine_free(&e);
+        }
+        printf("engine, bass, %-27s Off %6.1f, 120 Hz %6.1f (%+5.1f), gliding %6.1f (%+5.1f) "
+               "ns/stereo frame\n", bass_cases[c].name, ns_mode[0], ns_mode[1],
+               ns_mode[1] - ns_mode[0], ns_mode[2], ns_mode[2] - ns_mode[0]);
+    }
 }
 
 /* --- measurement report (--measure) --------------------------------------- */
@@ -2715,13 +2767,13 @@ OP(op_sub, x - 0.02f)
 static float chain_order_output(void)
 {
     const fx_effect_desc ops[N_FX] = {
-        { "add", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_add, NULL },
-        { "clip", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_clip, NULL },
-        { "scale", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_scale, NULL },
-        { "neg", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_neg, NULL },
-        { "affine", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_affine, NULL },
-        { "square", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_square, NULL },
-        { "sub", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_sub, NULL },
+        { "add", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_add, NULL, NULL },
+        { "clip", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_clip, NULL, NULL },
+        { "scale", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_scale, NULL, NULL },
+        { "neg", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_neg, NULL, NULL },
+        { "affine", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_affine, NULL, NULL },
+        { "square", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_square, NULL, NULL },
+        { "sub", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_sub, NULL, NULL },
     };
     fx_engine e;
     CHECK(fx_engine_init(&e, ops, N_FX, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
@@ -3548,13 +3600,631 @@ static void test_makeup_moves_smoothly(void)
     }
 }
 
+/* ========================================================================= */
+/* The bass bypass (#173)                                                    */
+/* ========================================================================= */
+
+/* A test-only effect whose wet signal is its input: the chain live and
+ * transparent, so what the split does is all there is to see. */
+static int thru_init(void *s, float r) { (void)s; (void)r; return 0; }
+static void thru_process(void *s, const float *const in[FX_CHANNELS],
+                         float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    (void)s;
+    (void)amount;
+    for (uint32_t i = 0; i < n; i++) {
+        float l = in[0][i];
+        float r = in[1][i];
+        wet[0][i] = l;
+        wet[1][i] = r;
+    }
+}
+static const fx_effect_desc THRU = { "thru", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1,
+                                     thru_init, thru_process, NULL, NULL };
+
+#define BASS_FLAT_TOL_DB 0.01
+#define BASS_N_FREQS 31   /* third octaves, 20 Hz .. 20 kHz */
+static const float BASS_XOVERS[3] = { 80.0f, 120.0f, 300.0f };
+
+/* Split and recombined with the chain bypassed: depth 0 with the split forced
+ * on (fx_test_bass_split_at_depth0), a mono sine at `hz`. Returns out/in RMS
+ * in dB over a whole number of cycles after 0.3 s; `diff` is RMS(out - in) /
+ * RMS(in), how far the waveform moved (the allpass's phase). */
+static double bass_flat_db(float xover, float hz, double *diff)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, &THRU, 1, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    const uint32_t settle = (uint32_t)(0.3f * RATE);
+    const uint32_t cycles = (uint32_t)ceil(0.5 * hz) < 4u ? 4u : (uint32_t)ceil(0.5 * hz);
+    const uint32_t measure = (uint32_t)lround((double)cycles * RATE / hz);
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    double si = 0.0, so = 0.0, sd = 0.0;
+    uint32_t t = 0;
+    g_bass_hz = xover;
+    fx_test_bass_split_at_depth0 = 1;
+    while (t < settle + measure) {
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            l[i] = r[i] = 0.5f * (float)sin(2.0 * M_PI * hz * (double)(t + i) / RATE);
+        }
+        run_period(&e, l, r, ol, or_, PERIOD, BIT(0), 0.0f);
+        for (uint32_t i = 0; i < PERIOD && t + i < settle + measure; i++) {
+            if (t + i >= settle) {
+                si += (double)l[i] * l[i];
+                so += (double)ol[i] * ol[i];
+                sd += (double)(ol[i] - l[i]) * (ol[i] - l[i]);
+            }
+        }
+        t += PERIOD;
+    }
+    fx_test_bass_split_at_depth0 = 0;
+    g_bass_hz = 0.0f;
+    fx_engine_free(&e);
+    *diff = sqrt(sd / si);
+    return 10.0 * log10(so / si);
+}
+
+/* The worst |out/in| in dB over 20 Hz .. 20 kHz and the crossover itself,
+ * and the waveform change at the crossover. */
+static double bass_flat_worst(float xover, double *diff_at_xover)
+{
+    double worst = 0.0, diff = 0.0;
+    for (int j = 0; j <= BASS_N_FREQS; j++) {
+        const float hz = j == BASS_N_FREQS ? xover : 20.0f * powf(1000.0f, (float)j / (BASS_N_FREQS - 1));
+        const double d = bass_flat_db(xover, hz, &diff);
+        worst = fmax(worst, fabs(d));
+    }
+    *diff_at_xover = diff;
+    return worst;
+}
+
+/* LR4's bands sum flat: dry against split-and-recombined with the chain
+ * bypassed, within 0.01 dB from 20 Hz to 20 kHz at 80, 120 and 300 Hz. And the
+ * split really ran: at the crossover the sum is the input turned 180 degrees
+ * (RMS(out - in) ~ 2 x the input's). Control: an LR2-style split (one
+ * Butterworth section per band), whose sum has a notch at the corner. */
+static void test_bass_flat_sum(void)
+{
+    for (int x = 0; x < 3; x++) {
+        double diff = 0.0;
+        const double worst = bass_flat_worst(BASS_XOVERS[x], &diff);
+        fx_test_bass_lr2 = 1;
+        double cdiff = 0.0;
+        const double ctl = bass_flat_worst(BASS_XOVERS[x], &cdiff);
+        fx_test_bass_lr2 = 0;
+        if (g_verbose) {
+            printf("  bass %3.0f Hz  flat sum: worst %.5f dB over 20 Hz-20 kHz; waveform moved "
+                   "%.3f x at the crossover; control (LR2) worst %.2f dB\n",
+                   (double)BASS_XOVERS[x], worst, diff, ctl);
+        }
+        CHECK(worst <= BASS_FLAT_TOL_DB, "bass %.0f Hz: split and recombined is %.5f dB off "
+              "dry, wanted <= %.2f", (double)BASS_XOVERS[x], worst, BASS_FLAT_TOL_DB);
+        CHECK(diff > 1.5, "bass %.0f Hz: the waveform moved only %.3f x at the crossover: the "
+              "split did not run", (double)BASS_XOVERS[x], diff);
+        CHECK(ctl > 1.0, "bass %.0f Hz: control (LR2) passed too: %.3f dB",
+              (double)BASS_XOVERS[x], ctl);
+    }
+}
+
+/* Depth 0 skips the split: with a crossover set, depth 0 (an effect ticked)
+ * and no effect ticked (any depth) are the input bit for bit, separate
+ * buffers and in place, from the start and after a ramp down. And Off is the
+ * chain bit for bit: an engine that had a crossover while bypassed, then Off,
+ * plays the chain exactly as one that never had one. Control: the split run
+ * at depth 0. */
+static size_t bass_identity_mismatches(void)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD], keep_l[PERIOD], keep_r[PERIOD];
+    size_t bad = 0;
+    g_bass_hz = 120.0f;
+    for (int p = 0; p < 900; p++) {
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            l[i] = 0.5f * noise();
+            r[i] = 0.5f * noise();
+        }
+        /* 0-299: depth 0, chorus ticked. 300-499: no effect, depth 0.7.
+         * 500-599: chorus at 1 (live, not checked). 600-899: depth 0 again,
+         * checked from 800 (the depth's ramp and the split's fade land). */
+        const uint32_t mask = (p >= 300 && p < 500) ? 0u : BIT(0);
+        const float depth = (p >= 300 && p < 500) ? 0.7f : (p >= 500 && p < 600) ? 1.0f : 0.0f;
+        /* The swap at 300 (chorus fading out while the depth rises to 0.7)
+         * is live for a few periods, with or without the split: skipped. */
+        const int checked = p < 300 || (p >= 330 && p < 500) || p >= 800;
+        memcpy(keep_l, l, sizeof(l));
+        memcpy(keep_r, r, sizeof(r));
+        if (p % 2 == 0) {
+            run_period(&e, l, r, ol, or_, PERIOD, mask, depth);
+            bad += checked && (memcmp(l, ol, sizeof(l)) != 0 || memcmp(r, or_, sizeof(r)) != 0);
+        } else {
+            run_period(&e, l, r, l, r, PERIOD, mask, depth);
+            bad += checked && (memcmp(keep_l, l, sizeof(l)) != 0 || memcmp(keep_r, r, sizeof(r)) != 0);
+        }
+    }
+    g_bass_hz = 0.0f;
+    fx_engine_free(&e);
+    return bad;
+}
+
+static size_t bass_off_mismatches(void)
+{
+    fx_engine a, b;
+    CHECK(fx_engine_init(&a, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    CHECK(fx_engine_init(&b, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    float l[PERIOD], r[PERIOD], al[PERIOD], ar[PERIOD], bl[PERIOD], br[PERIOD];
+    size_t bad = 0;
+    const uint32_t mask = BIT(0) | BIT(2) | BIT(1);
+    for (int p = 0; p < 400; p++) {
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            l[i] = 0.4f * noise();
+            r[i] = 0.4f * noise();
+        }
+        /* a: a crossover while bypassed (its filters warm), then Off, then
+         * live. b: never a crossover. */
+        g_bass_hz = p < 100 ? 120.0f : 0.0f;
+        run_period(&a, l, r, al, ar, PERIOD, mask, p < 150 ? 0.0f : 0.8f);
+        g_bass_hz = 0.0f;
+        run_period(&b, l, r, bl, br, PERIOD, mask, p < 150 ? 0.0f : 0.8f);
+        bad += memcmp(al, bl, sizeof(al)) != 0 || memcmp(ar, br, sizeof(ar)) != 0;
+    }
+    fx_engine_free(&a);
+    fx_engine_free(&b);
+    return bad;
+}
+
+static void test_bass_bit_identity(void)
+{
+    const size_t bad = bass_identity_mismatches();
+    const size_t off = bass_off_mismatches();
+    fx_test_bass_split_at_depth0 = 1;
+    const size_t ctl = bass_identity_mismatches();
+    fx_test_bass_split_at_depth0 = 0;
+    if (g_verbose) {
+        printf("  bass bypass identity: %zu of 670 periods differ (depth 0 / no effect, 120 Hz "
+               "set); Off vs never set: %zu of 400; control (split at depth 0): %zu\n",
+               bad, off, ctl);
+    }
+    CHECK(bad == 0, "bass 120 Hz: %zu bypass periods differ from their input", bad);
+    CHECK(off == 0, "bass Off: %zu periods differ from an engine that never had a crossover",
+          off);
+    CHECK(ctl > 0, "bass: control (split at depth 0) was bit-identical too: the check cannot "
+                   "see the split");
+}
+
+/* No click when the crossover moves, comes in or goes out, or when the chain
+ * leaves or re-enters bypass under it. The chain is live and transparent (the
+ * thru effect), the signal 70 Hz + 190 Hz either side of the crossovers. The
+ * generic criterion: the largest sample step anywhere against the settled
+ * signal's. Control: the fade and the glide instant. */
+#define BASS_SEGS 11
+static steps bass_steps(void)
+{
+    static const float hz[BASS_SEGS] = { 0, 120, 80, 300, 0, 300, 120, 120, 120, 200, 0 };
+    static const float depth[BASS_SEGS] = { 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1 };
+    fx_engine e;
+    CHECK(fx_engine_init(&e, &THRU, 1, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    double t = 0.0;
+    float prev = 0.0f;
+    int have_prev = 0;
+    steps st = { 0.0f, 0.0f };
+    for (int seg = 0; seg < BASS_SEGS; seg++) {
+        g_bass_hz = hz[seg];
+        for (int p = 0; p < 190; p++) {
+            for (uint32_t i = 0; i < PERIOD; i++) {
+                const double ts = (t + i) / RATE;
+                l[i] = r[i] = (float)(0.35 * sin(2.0 * M_PI * 70.0 * ts) +
+                                      0.35 * sin(2.0 * M_PI * 190.0 * ts + 0.3));
+            }
+            t += PERIOD;
+            run_period(&e, l, r, ol, or_, PERIOD, BIT(0), depth[seg]);
+            for (uint32_t i = 0; i < PERIOD; i++) {
+                if (have_prev) {
+                    const float step = fabsf(ol[i] - prev);
+                    st.worst = fmaxf(st.worst, step);
+                    if (p >= 60) {
+                        st.settled = fmaxf(st.settled, step);
+                    }
+                }
+                prev = ol[i];
+                have_prev = 1;
+            }
+        }
+    }
+    g_bass_hz = 0.0f;
+    fx_engine_free(&e);
+    return st;
+}
+
+static void test_bass_no_click(void)
+{
+    const steps s = bass_steps();
+    fx_test_bass_unsmoothed = 1;
+    const steps c = bass_steps();
+    fx_test_bass_unsmoothed = 0;
+    if (g_verbose) {
+        printf("  bass moves: worst step %.5f vs settled %.5f; control (instant) %.5f vs %.5f\n",
+               (double)s.worst, (double)s.settled, (double)c.worst, (double)c.settled);
+    }
+    CHECK(click_free(s), "bass moves: worst %.5f vs settled %.5f", (double)s.worst,
+          (double)s.settled);
+    CHECK(!click_free(c), "bass moves: control (instant) passed too: worst %.5f vs settled %.5f",
+          (double)c.worst, (double)c.settled);
+}
+
+/* Below the split the lows stay dry and mono through the modulation effects.
+ * A 50 Hz tone through chorus + phaser + flanger at full, crossover 120 Hz:
+ *   mono: L and R a quarter-cycle apart; the output's side (L - R) against
+ *         the input's. The split folds it to mono: at most -24 dB. Controls:
+ *         Off (the chorus keeps it stereo) and the lows left per channel.
+ *   dry:  L = R; the level over 0.1 s windows across 10 s (two flanger
+ *         sweeps) moves at most 1 dB (0.50 measured: the high band's -30 dB
+ *         leak of 50 Hz, through the sweeps). Control: Off, where the sweeps
+ *         move it 15 dB. */
+#define BASS_SIDE_MAX_DB (-24.0)
+#define BASS_WANDER_MAX_DB 1.0
+static void bass_lows(float xover, double *side_db, double *wander_db)
+{
+    const uint32_t mask = BIT(0) | BIT(2) | BIT(FX_I_FLANGER);
+    for (int pass = 0; pass < 2; pass++) {
+        fx_engine e;
+        CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0,
+              "init");
+        float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+        const int settle = (int)(0.5f * RATE / PERIOD);
+        const int measure = (int)((pass == 0 ? 2.0f : 10.0f) * RATE / PERIOD);
+        const int win = (int)(0.1f * RATE / PERIOD);
+        double si = 0.0, so = 0.0, w = 0.0, wmin = 1e30, wmax = 0.0;
+        g_bass_hz = xover;
+        for (int p = 0; p < settle + measure; p++) {
+            for (uint32_t i = 0; i < PERIOD; i++) {
+                const double ph = 2.0 * M_PI * 50.0 * (double)(p * PERIOD + i) / RATE;
+                l[i] = 0.4f * (float)sin(ph);
+                r[i] = 0.4f * (float)sin(pass == 0 ? ph + 0.5 * M_PI : ph);
+            }
+            run_period(&e, l, r, ol, or_, PERIOD, mask, 1.0f);
+            if (p < settle) {
+                continue;
+            }
+            for (uint32_t i = 0; i < PERIOD; i++) {
+                const double sd_in = 0.5 * (l[i] - r[i]), sd_out = 0.5 * (ol[i] - or_[i]);
+                si += sd_in * sd_in;
+                so += sd_out * sd_out;
+                w += (double)ol[i] * ol[i] + (double)or_[i] * or_[i];
+            }
+            if ((p - settle + 1) % win == 0) {
+                wmin = fmin(wmin, w);
+                wmax = fmax(wmax, w);
+                w = 0.0;
+            }
+        }
+        g_bass_hz = 0.0f;
+        fx_engine_free(&e);
+        if (pass == 0) {
+            *side_db = 10.0 * log10(so / si);
+        } else {
+            *wander_db = 10.0 * log10(wmax / wmin);
+        }
+    }
+}
+
+static void test_bass_lows_dry_and_mono(void)
+{
+    double side, wander, c_side, c_wander, m_side, m_wander;
+    bass_lows(120.0f, &side, &wander);
+    bass_lows(0.0f, &c_side, &c_wander);
+    fx_test_bass_stereo = 1;
+    bass_lows(120.0f, &m_side, &m_wander);
+    fx_test_bass_stereo = 0;
+    if (g_verbose) {
+        printf("  bass 120 Hz, 50 Hz through chorus+phaser+flanger: side %+.1f dB re the "
+               "input's, level wander %.2f dB; Off: side %+.1f dB, wander %.2f dB; lows "
+               "per channel: side %+.1f dB\n", side, wander, c_side, c_wander, m_side);
+    }
+    CHECK(side <= BASS_SIDE_MAX_DB, "bass: the lows are not mono: side %+.1f dB, wanted <= "
+          "%+.0f", side, BASS_SIDE_MAX_DB);
+    CHECK(wander <= BASS_WANDER_MAX_DB, "bass: the lows wander %.2f dB, wanted <= %.1f",
+          wander, BASS_WANDER_MAX_DB);
+    CHECK(c_side > BASS_SIDE_MAX_DB && c_wander > BASS_WANDER_MAX_DB, "bass: control (Off) "
+          "passed too: side %+.1f dB, wander %.2f dB", c_side, c_wander);
+    CHECK(m_side > BASS_SIDE_MAX_DB, "bass: control (lows per channel) passed the mono check: "
+          "%+.1f dB", m_side);
+}
+
+/* The drive is inside the bypass (FX_BASS_DRIVE_INSIDE): a 60 Hz tone at
+ * full drive, crossover 120 Hz, comes out clean. Distortion = what is left
+ * after the 60 Hz component (a DFT over whole cycles), against the output:
+ * inside, under -20 dB; with the drive moved outside the split, the same
+ * reading over -20 dB (the check sees where the drive is). */
+#define BASS_DRIVE_THD_DB (-20.0)
+static double bass_drive_thd_db(void)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    const int settle = 100, measure = 375;   /* 2 s: 120 cycles exactly */
+    double re = 0.0, im = 0.0, tot = 0.0;
+    g_bass_hz = 120.0f;
+    for (int p = 0; p < settle + measure; p++) {
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            l[i] = r[i] = 0.5f * (float)sin(2.0 * M_PI * 60.0 * (double)(p * PERIOD + i) / RATE);
+        }
+        run_period(&e, l, r, ol, or_, PERIOD, BIT(1), 1.0f);
+        if (p < settle) {
+            continue;
+        }
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            const double ph = 2.0 * M_PI * 60.0 * (double)((p - settle) * PERIOD + i) / RATE;
+            re += ol[i] * cos(ph);
+            im += ol[i] * sin(ph);
+            tot += (double)ol[i] * ol[i];
+        }
+    }
+    g_bass_hz = 0.0f;
+    fx_engine_free(&e);
+    const double n = (double)measure * PERIOD;
+    const double fund = 2.0 * (re * re + im * im) / n;   /* sum of squares of the 60 Hz part */
+    return 10.0 * log10(fmax(tot - fund, 1e-30) / tot);
+}
+
+static void test_bass_drive_inside(void)
+{
+    const double inside = bass_drive_thd_db();
+    fx_test_bass_drive_outside = 1;
+    const double outside = bass_drive_thd_db();
+    fx_test_bass_drive_outside = 0;
+    if (g_verbose) {
+        printf("  bass 120 Hz, 60 Hz at full drive: distortion %+.1f dB (drive inside, "
+               "FX_BASS_DRIVE_INSIDE=%d); drive outside %+.1f dB\n", inside,
+               FX_BASS_DRIVE_INSIDE, outside);
+    }
+    if (FX_BASS_DRIVE_INSIDE) {
+        CHECK(inside <= BASS_DRIVE_THD_DB, "bass: the drive reaches the lows: %+.1f dB", inside);
+    }
+    CHECK(outside > BASS_DRIVE_THD_DB, "bass: control (drive outside) came out clean too: "
+          "%+.1f dB", outside);
+}
+
+/* The level still holds with the split. Each effect alone on the keys, at
+ * four knob positions and crossovers 120, 175 (between grid points) and
+ * 300 Hz: within UNITY_TOL_DB of G(m) x the input, the bound it has without
+ * the split. And no signal past CEIL_DB at full depth. Controls: the makeup
+ * off (chorus at full: -1 dB is past the lower bound) and, at 300 Hz, the
+ * split's level correction off (the rotary at full: -1.9 dB). */
+static const float BASS_LEVEL_XOVERS[3] = { 120.0f, 175.0f, 300.0f };
+static void test_bass_level(int xi)
+{
+    const float xover = BASS_LEVEL_XOVERS[xi];
+    double lo = 1e9, hi = -1e9, ceil_db = -1e9;
+    g_bass_hz = xover;
+    for (int k = 0; k < N_FX; k++) {
+        for (int j = 1; j <= 4; j++) {
+            const float depth = 0.25f * (float)j;
+            float rr, pr;
+            level_at(FX_EFFECTS, BIT(k), SIG_I_KEYS, depth, &rr, &pr);
+            const double d = db(rr / makeup_gain(makeup_m(BIT(k), depth)));
+            lo = fmin(lo, d);
+            hi = fmax(hi, d);
+        }
+        for (int sgi = 0; sgi < N_LEVEL_SIGNALS; sgi++) {
+            float rr, pr;
+            level_at(FX_EFFECTS, BIT(k), sgi, 1.0f, &rr, &pr);
+            ceil_db = fmax(ceil_db, db(rr / makeup_gain(makeup_m(BIT(k), 1.0f))));
+        }
+    }
+    float rr, pr;
+    fx_test_no_makeup = 1;
+    level_at(FX_EFFECTS, BIT(0), SIG_I_KEYS, 1.0f, &rr, &pr);
+    fx_test_no_makeup = 0;
+    const double ctl = db(rr / makeup_gain(1.0f));
+    double ctl_corr = 0.0;
+    if (xi == 2) {
+        fx_test_bass_no_corr = 1;
+        level_at(FX_EFFECTS, BIT(FX_I_ROTARY), SIG_I_KEYS, 1.0f, &rr, &pr);
+        fx_test_bass_no_corr = 0;
+        ctl_corr = db(rr / makeup_gain(1.0f));
+    }
+    g_bass_hz = 0.0f;
+    if (g_verbose) {
+        printf("  bass %3.0f Hz keys: each effect alone %+.3f..%+.3f dB re input x makeup, any "
+               "signal at most %+.2f; controls: no makeup %+.3f", (double)xover, lo, hi,
+               ceil_db, ctl);
+        if (xi == 2) {
+            printf(", no correction (rotary) %+.3f", ctl_corr);
+        }
+        printf("\n");
+    }
+    CHECK(lo >= -UNITY_TOL_DB && hi <= UNITY_TOL_DB, "bass %.0f Hz: an effect alone reads "
+          "%+.3f..%+.3f dB on keys, wanted within %.1f", (double)xover, lo, hi, UNITY_TOL_DB);
+    CHECK(ceil_db <= CEIL_DB, "bass %.0f Hz: a signal reads %+.2f dB, ceiling %+.1f",
+          (double)xover, ceil_db, CEIL_DB);
+    CHECK(ctl < -UNITY_TOL_DB, "bass %.0f Hz: control (no makeup) met the bound: %+.3f dB",
+          (double)xover, ctl);
+    CHECK(xi != 2 || ctl_corr < -UNITY_TOL_DB, "bass 300 Hz: control (no correction) met the "
+          "bound: %+.3f dB", ctl_corr);
+}
+
+/* Every chain with the split, on the keys at half and full depth: at 120 and
+ * 200 Hz within the chain bounds it has without the split (CHAIN_LO_DB ..
+ * CHAIN_HI_DB). At 300 Hz the correction cannot hold every chain there (it is
+ * one static gain for what is a decorrelation): measured -1.01..+1.96 dB, so
+ * the bounds there are BASS_300_LO_DB..BASS_300_HI_DB. All seven, every
+ * signal, at most BASS_300_CEIL_DB at 300 Hz (+3.8 measured: the 3 kHz tone)
+ * and CEIL_DB below. */
+#define BASS_300_LO_DB (-1.2)
+#define BASS_300_HI_DB 2.15
+#define BASS_300_CEIL_DB 4.0
+#define BASS_CHAIN_XOVERS 3
+static const float BASS_CHAIN_XOVER[BASS_CHAIN_XOVERS] = { 120.0f, 200.0f, 300.0f };
+typedef struct {
+    float lo[BASS_CHAIN_XOVERS], hi[BASS_CHAIN_XOVERS];
+} bass_chain_result;
+static int g_bass_chain_case[(int)FX_ALL + 1];
+
+static void bass_chain_part(int m, void *slot)
+{
+    bass_chain_result *res = (bass_chain_result *)slot;
+    /* One keys loop, as the chain sweep's newer masks: the masks are swept
+     * for the split's correction meeting a chain, not for a slow sweep's
+     * worst phase (chain_level_part has that). */
+    g_short_windows = 1;
+    for (int x = 0; x < BASS_CHAIN_XOVERS; x++) {
+        res->lo[x] = 1e9f;
+        res->hi[x] = -1e9f;
+        g_bass_hz = BASS_CHAIN_XOVER[x];
+        for (int j = 1; j <= 2; j++) {
+            const float depth = 0.5f * (float)j;
+            float rr, pr;
+            level_at(FX_EFFECTS, (uint32_t)m, SIG_I_KEYS, depth, &rr, &pr);
+            const float d = (float)db(rr / makeup_gain(makeup_m((uint32_t)m, depth)));
+            res->lo[x] = fminf(res->lo[x], d);
+            res->hi[x] = fmaxf(res->hi[x], d);
+        }
+        g_bass_hz = 0.0f;
+    }
+    if (m == (int)FX_ALL) {
+        /* The ceiling, all seven at full, every signal. */
+        float worst[BASS_CHAIN_XOVERS];
+        for (int x = 0; x < BASS_CHAIN_XOVERS; x++) {
+            worst[x] = -1e9f;
+            g_bass_hz = BASS_CHAIN_XOVER[x];
+            for (int sgi = 0; sgi < N_LEVEL_SIGNALS; sgi++) {
+                float rr, pr;
+                level_at(FX_EFFECTS, FX_ALL, sgi, 1.0f, &rr, &pr);
+                worst[x] = fmaxf(worst[x], (float)db(rr / makeup_gain(1.0f)));
+            }
+            g_bass_hz = 0.0f;
+            const double ceil = x == 2 ? BASS_300_CEIL_DB : CEIL_DB;
+            if (g_verbose) {
+                printf("  bass %3.0f Hz all seven, any signal at full: %+.2f dB (ceiling %+.1f)\n",
+                       (double)BASS_CHAIN_XOVER[x], (double)worst[x], ceil);
+            }
+            CHECK(worst[x] <= ceil, "bass %.0f Hz: all seven read %+.2f dB on a signal, "
+                  "ceiling %+.1f", (double)BASS_CHAIN_XOVER[x], (double)worst[x], ceil);
+        }
+    }
+}
+
+static void test_bass_chain_level(int unused)
+{
+    (void)unused;
+    float lo[BASS_CHAIN_XOVERS], hi[BASS_CHAIN_XOVERS];
+    int lo_m[BASS_CHAIN_XOVERS] = { 0 }, hi_m[BASS_CHAIN_XOVERS] = { 0 };
+    for (int x = 0; x < BASS_CHAIN_XOVERS; x++) {
+        lo[x] = 1e9f;
+        hi[x] = -1e9f;
+    }
+    for (int m = 1; m <= (int)FX_ALL; m++) {
+        if (popcount((uint32_t)m) < 2) {
+            continue;
+        }
+        const bass_chain_result *r = (const bass_chain_result *)slot_of(g_bass_chain_case[m]);
+        for (int x = 0; x < BASS_CHAIN_XOVERS; x++) {
+            if (r->lo[x] < lo[x]) {
+                lo[x] = r->lo[x];
+                lo_m[x] = m;
+            }
+            if (r->hi[x] > hi[x]) {
+                hi[x] = r->hi[x];
+                hi_m[x] = m;
+            }
+        }
+    }
+    for (int x = 0; x < BASS_CHAIN_XOVERS; x++) {
+        const double blo = x == 2 ? BASS_300_LO_DB : CHAIN_LO_DB;
+        const double bhi = x == 2 ? BASS_300_HI_DB : CHAIN_HI_DB;
+        if (g_verbose) {
+            printf("  bass %3.0f Hz chains of 2+ on keys: %+.3f (mask %d) .. %+.3f (mask %d) dB, "
+                   "bounds %+.2f..%+.2f\n", (double)BASS_CHAIN_XOVER[x], (double)lo[x], lo_m[x],
+                   (double)hi[x], hi_m[x], blo, bhi);
+        }
+        CHECK(lo[x] >= blo && hi[x] <= bhi, "bass %.0f Hz: a chain reads %+.3f (mask %d) .. "
+              "%+.3f (mask %d) dB, wanted %+.2f..%+.2f", (double)BASS_CHAIN_XOVER[x],
+              (double)lo[x], lo_m[x], (double)hi[x], hi_m[x], blo, bhi);
+    }
+}
+
+/* Silence after audio is exact silence with the split running, and nothing
+ * goes non-finite or subnormal on the way. */
+static void test_bass_clean(void)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    size_t bad = 0, residue = 0;
+    g_bass_hz = 80.0f;
+    for (int p = 0; p < 900; p++) {
+        const int quiet = p >= 400;
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            l[i] = quiet ? 0.0f : 0.3f * noise();
+            r[i] = quiet ? 0.0f : 0.3f * noise();
+        }
+        g_bass_hz = (p / 50) % 2 ? 80.0f : 250.0f;
+        run_period(&e, l, r, ol, or_, PERIOD, BIT(0) | BIT(3), 0.7f);
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            bad += !isfinite(ol[i]) || !isfinite(or_[i]);
+            if (!quiet) {
+                bad += fpclassify(ol[i]) == FP_SUBNORMAL || fpclassify(or_[i]) == FP_SUBNORMAL;
+            } else if (p >= 600) {
+                residue += (ol[i] != 0.0f) + (or_[i] != 0.0f);
+            }
+        }
+    }
+    g_bass_hz = 0.0f;
+    fx_engine_free(&e);
+    CHECK(bad == 0, "bass: %zu non-finite or subnormal samples", bad);
+    CHECK(residue == 0, "bass: %zu non-zero samples 1 s after silence", residue);
+}
+
+/* fx-selftest --fit-bass K: effect K's bass_loss table, fitted. At each
+ * crossover on the grid, the loss (dB) that brings the keys at full depth
+ * with the split back to their level without it, by bisection; printed as
+ * the C initializer fx_dsp.c carries. */
+static void fit_bass(int k)
+{
+    static float tab[FX_BASS_GRID];
+    float rr, pr;
+    level_at(FX_EFFECTS, BIT(k), SIG_I_KEYS, 1.0f, &rr, &pr);
+    const double off = db(rr);
+    fx_test_bass_fit[k] = tab;
+    for (int j = 1; j < FX_BASS_GRID; j++) {
+        /* The table holds the level change the split makes (negative: a
+         * loss); the gain given back is its negative. More negative, louder. */
+        double lo = -8.0, hi = 4.0;
+        for (int it = 0; it < 14; it++) {
+            const double mid = 0.5 * (lo + hi);
+            tab[j] = (float)mid;
+            g_bass_hz = FX_BASS_GRID_HZ[j];
+            level_at(FX_EFFECTS, BIT(k), SIG_I_KEYS, 1.0f, &rr, &pr);
+            g_bass_hz = 0.0f;
+            if (db(rr) < off) {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        tab[j] = (float)(0.5 * (lo + hi));
+    }
+    fx_test_bass_fit[k] = NULL;
+    printf("%s:", FX_LABEL[k]);
+    for (int j = 0; j < FX_BASS_GRID; j++) {
+        printf(" %.3ff,", (double)tab[j]);
+    }
+    printf("   (keys off %+.3f dB)\n", off);
+}
+
 static void print_parse(const char *text)
 {
     uint32_t mask = 0;
     float depth = 0.0f;
     float levels[FX_MAX_EFFECTS];
+    float hz = 0.0f;
     if (!fx_parse_control(text, &mask, &depth, levels)) {
-        printf("reject\n");
+        if (fx_parse_bass(text, &hz)) {
+            printf("bass %.6f\n", (double)hz);
+        } else {
+            printf("reject\n");
+        }
         return;
     }
     printf("ok %u %.6f", (unsigned)mask, (double)depth);
@@ -3673,6 +4343,13 @@ CASE0(test_levels_zero_is_bypass)
 CASE0(test_level_steps_have_no_click)
 CASE0(test_makeup_is_applied)
 CASE0(test_makeup_moves_smoothly)
+CASE0(test_bass_flat_sum)
+CASE0(test_bass_bit_identity)
+CASE0(test_bass_no_click)
+CASE0(test_bass_lows_dry_and_mono)
+CASE0(test_bass_drive_inside)
+CASEK(test_bass_level)
+CASE0(test_bass_clean)
 
 /* The pack's level bound: part arg = (k * LB_N + v) * N_LEVEL_SIGNALS + sgi. */
 static int g_lb_case[N_FX][LB_N][N_LEVEL_SIGNALS];
@@ -3799,6 +4476,27 @@ static void build_cases(void)
         g_lv_case[arg] = add_case(name, arg, levels_unity_part, NULL, 4);
     }
     add_case("levels unity", 0, NULL, test_levels_unity, 0);
+
+    /* The bass bypass. */
+    add_case("bass flat sum", 0, case_test_bass_flat_sum, NULL, 2);
+    add_case("bass bit identity", 0, case_test_bass_bit_identity, NULL, 1);
+    add_case("bass no click", 0, case_test_bass_no_click, NULL, 1);
+    add_case("bass lows dry and mono", 0, case_test_bass_lows_dry_and_mono, NULL, 3);
+    add_case("bass drive inside", 0, case_test_bass_drive_inside, NULL, 1);
+    for (int x = 0; x < 3; x++) {
+        snprintf(name, sizeof(name), "bass level %.0f", (double)BASS_LEVEL_XOVERS[x]);
+        add_case(name, x, case_test_bass_level, NULL, 8);
+    }
+    for (int m = 1; m <= (int)FX_ALL; m++) {
+        if (popcount((uint32_t)m) < 2) {
+            continue;
+        }
+        snprintf(name, sizeof(name), "bass chain level mask %d", m);
+        g_bass_chain_case[m] = add_case(name, m, bass_chain_part, NULL,
+                                        m == (int)FX_ALL ? 12 : 3 + popcount((uint32_t)m) / 2);
+    }
+    add_case("bass chain level", 0, NULL, test_bass_chain_level, 0);
+    add_case("bass clean", 0, case_test_bass_clean, NULL, 1);
 }
 
 static int selftest_jobs(void)
@@ -4075,9 +4773,19 @@ int main(int argc, char **argv)
         unity_raw_line(k, (float)atof(argv[3]));
         return 0;
     }
-    if (argc == 4 && strcmp(argv[1], "--unity") == 0) {
+    if ((argc == 4 || argc == 5) && strcmp(argv[1], "--unity") == 0) {
         keys_build();
+        g_bass_hz = argc == 5 ? (float)atof(argv[4]) : 0.0f;
         unity_line((uint32_t)atoi(argv[2]), (float)atof(argv[3]));
+        return 0;
+    }
+    if (argc == 3 && strcmp(argv[1], "--fit-bass") == 0) {
+        const int k = atoi(argv[2]);
+        if (k < 0 || k >= N_FX) {
+            return 2;
+        }
+        keys_build();
+        fit_bass(k);
         return 0;
     }
     if (argc == 2 && strcmp(argv[1], "--tremolo-shape") == 0) {
@@ -4092,7 +4800,7 @@ int main(int argc, char **argv)
     if (!runner_check && (argc > 2 || (argc == 2 && strcmp(argv[1], "-v") != 0))) {
         fprintf(stderr, "usage: fx-selftest [-v | --parse TEXT | --parse-lines | --measure | "
                         "--measure-unlevelled | --measure-no-makeup | --tremolo-shape | --bench | "
-                        "--unity-raw K DEPTH | --unity MASK DEPTH | "
+                        "--unity-raw K DEPTH | --unity MASK DEPTH [BASS_HZ] | --fit-bass K | "
                         "--runner-check order|fail|crash]\n");
         return 2;
     }

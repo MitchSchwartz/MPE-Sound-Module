@@ -156,15 +156,18 @@ class ResolveConfigTests(unittest.TestCase):
 
 
 class _RecordingSender:
-    """(mask, depth) per send in `sent`; the levels sent with each, in `levels`."""
+    """(mask, depth) per send in `sent`; the levels sent with each, in
+    `levels`; the bass crossover sent with each, in `bass`."""
 
     def __init__(self) -> None:
         self.sent: list[tuple[int, float]] = []
         self.levels: list[tuple[float, ...] | None] = []
+        self.bass: list[float | None] = []
 
-    def send(self, mask: int, depth: float, levels=None) -> bool:
+    def send(self, mask: int, depth: float, levels=None, bass_hz=None) -> bool:
         self.sent.append((mask, depth))
         self.levels.append(None if levels is None else tuple(levels))
+        self.bass.append(bass_hz)
         return True
 
 
@@ -613,6 +616,7 @@ class ChainSelectionTests(unittest.TestCase):
                 "cc1",
                 "mask",
                 "levels",
+                "bass_hz",
                 "target",
                 "uses_mod_wheel",
                 "route_stamp",
@@ -1154,9 +1158,14 @@ class RemapDaemonCc1Tests(unittest.TestCase):
             daemon._handle_incoming(None, [0xB0, 1, 127], 0.0)
         self.assertEqual(emitted, [])
         # A five-entry levels list (written before the rotary and the
-        # auto-wah) reads them as 1.0.
+        # auto-wah) reads them as 1.0; a route with no bass_hz (written
+        # before the bass bypass) plays at the default crossover, sent first.
         self.assertEqual(
-            wire, [b"chainl 10 1.000000 1.000000 0.250000 1.000000 0.500000 1.000000 1.000000 1.000000"]
+            wire,
+            [
+                b"bass 120.000000",
+                b"chainl 10 1.000000 1.000000 0.250000 1.000000 0.500000 1.000000 1.000000 1.000000",
+            ],
         )
 
     def test_on_but_routed_to_surge_forwards(self) -> None:

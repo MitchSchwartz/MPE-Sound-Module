@@ -1382,24 +1382,41 @@ static void wah_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n
 #define ROTARY_LEVEL { 0.8985f, 0.0007f, 0.0830f, 0.2065f }
 #define WAH_LEVEL { -0.0346f, 0.1771f, 0.3864f, -0.4606f }
 
+/* The bass bypass's level correction (fx_dsp.h, "Bass bypass"): at each
+ * grid crossover, the level change (dB, negative a loss) whose negative,
+ * applied to the high band at the effect's full mix, puts the keys at full
+ * depth back at their level with the split off. Fitted by fx-selftest
+ * --fit-bass K (2026-10-15); 20 Hz is no overlap with the keys, 0. Above 300 Hz
+ * (the UI's top) the last value holds. */
+const float FX_BASS_GRID_HZ[FX_BASS_GRID] = { 20.0f, 80.0f, 100.0f, 120.0f, 150.0f, 200.0f,
+                                              250.0f, 300.0f };
+static const float CHORUS_BASS[FX_BASS_GRID] = { 0, -0.048f, -0.056f, -0.062f, -0.104f, -0.281f, -0.524f, -0.769f };
+static const float DRIVE_BASS[FX_BASS_GRID] = { 0, -0.096f, -0.144f, -0.174f, -0.220f, -0.424f, -0.835f, -1.386f };
+static const float PHASER_BASS[FX_BASS_GRID] = { 0, -0.118f, -0.186f, -0.256f, -0.402f, -0.838f, -1.480f, -2.208f };
+static const float TREMOLO_BASS[FX_BASS_GRID] = { 0, -0.027f, -0.040f, -0.052f, -0.076f, -0.146f, -0.244f, -0.354f };
+static const float FLANGER_BASS[FX_BASS_GRID] = { 0, -0.148f, -0.222f, -0.294f, -0.440f, -0.860f, -1.417f, -1.956f };
+static const float ROTARY_BASS[FX_BASS_GRID] = { 0, -0.111f, -0.205f, -0.330f, -0.607f, -1.362f, -2.411f, -3.593f };
+static const float WAH_BASS[FX_BASS_GRID] = { 0, 0.056f, 0.097f, 0.142f, 0.217f, 0.373f, 0.616f, 0.964f };
+
 /* The wire's effect ids. Append only: an id is a number the policy module
  * sends, and renumbering would silently change what an old sender selects.
  * patch_browser/fx_host_protocol.py names the same ids in the same order;
  * tests/test_fx_host.py reads this table and fails if they drift. */
 const fx_effect_desc FX_EFFECTS[] = {
     { "chorus", 0.5f, 1.0f, CHORUS_LEVEL, sizeof(chorus_state),
-      chorus_init, chorus_process, chorus_feed },
+      chorus_init, chorus_process, chorus_feed, CHORUS_BASS },
     { "drive", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state), drive_init, drive_process,
-      drive_feed },
+      drive_feed, DRIVE_BASS },
     { "phaser", PHASER_WET, 1.0f, PHASER_LEVEL, sizeof(phaser_state),
-      phaser_init, phaser_process, phaser_feed },
+      phaser_init, phaser_process, phaser_feed, PHASER_BASS },
     { "tremolo", 1.0f, 1.0f, TREMOLO_LEVEL, sizeof(tremolo_state), tremolo_init, tremolo_process,
-      tremolo_feed },
+      tremolo_feed, TREMOLO_BASS },
     { "flanger", FLANGER_WET, 1.0f, FLANGER_LEVEL,
-      sizeof(flanger_state), flanger_init, flanger_process, flanger_feed },
+      sizeof(flanger_state), flanger_init, flanger_process, flanger_feed, FLANGER_BASS },
     { "rotary", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
-      sizeof(rotary_state), rotary_init, rotary_process, rotary_feed },
-    { "auto-wah", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state), wah_init, wah_process, wah_feed },
+      sizeof(rotary_state), rotary_init, rotary_process, rotary_feed, ROTARY_BASS },
+    { "auto-wah", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state), wah_init, wah_process, wah_feed,
+      WAH_BASS },
 };
 const int FX_EFFECT_COUNT = (int)(sizeof(FX_EFFECTS) / sizeof(FX_EFFECTS[0]));
 
@@ -1614,66 +1631,66 @@ float fx_test_lfo_rounded(float phase)
 
 const fx_effect_desc FX_TEST_MUTANTS[FX_MUT_COUNT] = {
     [FX_MUT_DRIVE_NO_OVERSAMPLING] = { "drive-no-os", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
-                                       drive_init, drive_no_os, drive_feed },
+                                       drive_init, drive_no_os, drive_feed, NULL },
     [FX_MUT_DRIVE_NO_CEILING] = { "drive-no-ceiling", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
-                                  drive_init, drive_no_ceiling, drive_feed },
+                                  drive_init, drive_no_ceiling, drive_feed, NULL },
     [FX_MUT_DRIVE_NO_MAKEUP] = { "drive-no-makeup", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
-                                 drive_init, drive_no_makeup, drive_feed },
+                                 drive_init, drive_no_makeup, drive_feed, NULL },
     [FX_MUT_DRIVE_OLD_SHAPER] = { "drive-old-shaper", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
-                                  drive_init, drive_old_shaper, drive_feed },
+                                  drive_init, drive_old_shaper, drive_feed, NULL },
     [FX_MUT_DRIVE_ROUND3_BIAS] = { "drive-round3-bias", 1.0f, 0.05f, DRIVE_LEVEL,
                                    sizeof(drive_state), drive_init, drive_round3_bias,
-                                   drive_feed },
+                                   drive_feed, NULL },
     [FX_MUT_DRIVE_NO_FLUSH] = { "drive-no-flush", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
-                                drive_init, drive_no_flush, drive_no_flush_feed },
+                                drive_init, drive_no_flush, drive_no_flush_feed, NULL },
     [FX_MUT_PHASER_NO_FLUSH] = { "phaser-no-flush", PHASER_WET, 1.0f, PHASER_LEVEL, sizeof(phaser_state),
-                                 phaser_init, phaser_no_flush, phaser_no_flush_feed },
+                                 phaser_init, phaser_no_flush, phaser_no_flush_feed, NULL },
     [FX_MUT_PHASER_HOT_FEEDBACK] = { "phaser-hot", PHASER_WET, 1.0f, PHASER_LEVEL, sizeof(phaser_state),
-                                     phaser_init, phaser_hot, phaser_feed },
+                                     phaser_init, phaser_hot, phaser_feed, NULL },
     [FX_MUT_PHASER_RUNAWAY] = { "phaser-runaway", PHASER_WET, 1.0f, PHASER_LEVEL, sizeof(phaser_state),
-                                phaser_init, phaser_runaway, phaser_runaway_feed },
+                                phaser_init, phaser_runaway, phaser_runaway_feed, NULL },
     [FX_MUT_FLANGER_NO_FLUSH] = { "flanger-no-flush", FLANGER_WET, 1.0f, FLANGER_LEVEL, sizeof(flanger_state),
-                                  flanger_init, flanger_no_flush, flanger_no_flush_feed },
+                                  flanger_init, flanger_no_flush, flanger_no_flush_feed, NULL },
     [FX_MUT_FLANGER_HOT_FEEDBACK] = { "flanger-hot", FLANGER_WET, 1.0f, FLANGER_LEVEL, sizeof(flanger_state),
-                                      flanger_init, flanger_hot, flanger_feed },
+                                      flanger_init, flanger_hot, flanger_feed, NULL },
     [FX_MUT_FLANGER_RUNAWAY] = { "flanger-runaway", FLANGER_WET, 1.0f, FLANGER_LEVEL, sizeof(flanger_state),
-                                 flanger_init, flanger_runaway, flanger_runaway_feed },
+                                 flanger_init, flanger_runaway, flanger_runaway_feed, NULL },
     [FX_MUT_TREMOLO_OVERSHOOT] = { "tremolo-overshoot", 1.0f, 1.0f, TREMOLO_LEVEL, sizeof(tremolo_state),
-                                   tremolo_init, tremolo_overshoot, tremolo_feed },
+                                   tremolo_init, tremolo_overshoot, tremolo_feed, NULL },
     [FX_MUT_TREMOLO_SHALLOW_TOP] = { "tremolo-shallow-top", 1.0f, 1.0f, TREMOLO_LEVEL,
                                      sizeof(tremolo_state), tremolo_init, tremolo_shallow_top,
-                                     tremolo_feed },
+                                     tremolo_feed, NULL },
     [FX_MUT_TREMOLO_ROUNDED_TRI] = { "tremolo-rounded-triangle", 1.0f, 1.0f, TREMOLO_LEVEL,
                                      sizeof(tremolo_state), tremolo_init, tremolo_rounded,
-                                     tremolo_feed },
+                                     tremolo_feed, NULL },
     [FX_MUT_TREMOLO_NO_FLOOR] = { "tremolo-no-floor", 1.0f, 1.0f, TREMOLO_LEVEL,
                                   sizeof(tremolo_state), tremolo_init, tremolo_no_floor,
-                                  tremolo_feed },
+                                  tremolo_feed, NULL },
     [FX_MUT_ROTARY_NO_FLUSH] = { "rotary-no-flush", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
                                  sizeof(rotary_state), rotary_init,
-                                 rotary_no_flush, rotary_no_flush_feed },
+                                 rotary_no_flush, rotary_no_flush_feed, NULL },
     [FX_MUT_ROTARY_NO_DOPPLER] = { "rotary-no-doppler", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
                                    sizeof(rotary_state), rotary_init,
-                                   rotary_no_doppler, rotary_feed },
+                                   rotary_no_doppler, rotary_feed, NULL },
     [FX_MUT_ROTARY_NO_INERTIA] = { "rotary-no-inertia", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
                                    sizeof(rotary_state), rotary_init,
-                                   rotary_no_inertia, rotary_feed },
+                                   rotary_no_inertia, rotary_feed, NULL },
     [FX_MUT_ROTARY_LINEAR_AM] = { "rotary-linear-am", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
                                   sizeof(rotary_state), rotary_init, rotary_linear_am,
-                                  rotary_feed },
+                                  rotary_feed, NULL },
     [FX_MUT_ROTARY_WIDE_CENTER] = { "rotary-1ms-centre", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
                                     sizeof(rotary_state), rotary_init, rotary_wide_center,
-                                    rotary_wide_center_feed },
+                                    rotary_wide_center_feed, NULL },
     [FX_MUT_WAH_NO_FLUSH] = { "auto-wah-no-flush", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
-                              wah_init, wah_no_flush, wah_no_flush_feed },
+                              wah_init, wah_no_flush, wah_no_flush_feed, NULL },
     [FX_MUT_WAH_NO_SWEEP] = { "auto-wah-no-sweep", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
-                              wah_init, wah_no_sweep, wah_feed },
+                              wah_init, wah_no_sweep, wah_feed, NULL },
     [FX_MUT_WAH_RUNAWAY] = { "auto-wah-runaway", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
-                             wah_init, wah_runaway, wah_runaway_feed },
+                             wah_init, wah_runaway, wah_runaway_feed, NULL },
     [FX_MUT_WAH_WHISTLE] = { "auto-wah-whistle", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
-                             wah_init, wah_whistle, wah_feed },
+                             wah_init, wah_whistle, wah_feed, NULL },
     [FX_MUT_WAH_SLOW_ATTACK] = { "auto-wah-slow-attack", WAH_WET, 1.0f, WAH_LEVEL,
-                                 sizeof(wah_state), wah_init, wah_slow_attack, wah_feed },
+                                 sizeof(wah_state), wah_init, wah_slow_attack, wah_feed, NULL },
 };
 
 int fx_test_no_clamp;
@@ -1726,6 +1743,153 @@ static inline float makeup_at(const fx_engine *e, float m)
     }
     float frac = pos - (float)j;
     return e->makeup[j] + frac * (e->makeup[j + 1] - e->makeup[j]);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Bass bypass (fx_dsp.h, "Bass bypass")                                      */
+/* ------------------------------------------------------------------------- */
+
+#ifdef FX_SELFTEST
+int fx_test_bass_split_at_depth0;
+int fx_test_bass_lr2;
+int fx_test_bass_unsmoothed;
+int fx_test_bass_stereo;
+int fx_test_bass_drive_outside;
+int fx_test_bass_no_corr;
+const float *fx_test_bass_fit[FX_MAX_EFFECTS];
+#endif
+
+#ifndef FX_BASS_CHAIN_SHARE
+#define FX_BASS_CHAIN_SHARE 0.85f
+#endif
+#define BASS_K 1.41421356f   /* 1/Q, Butterworth: two of them in series are LR4 */
+
+/* The TPT SVF's coefficients for the crossover in force. Once per chunk while
+ * it glides (tanf), never per sample. */
+static void bass_coefs(fx_engine *e)
+{
+    float hz = e->bass_hz;
+    if (hz > 0.45f * e->rate) {
+        hz = 0.45f * e->rate;
+    }
+    const float g = tanf((float)M_PI * hz / e->rate);
+    e->bass_a1 = 1.0f / (1.0f + g * (g + BASS_K));
+    e->bass_a2 = g * e->bass_a1;
+    e->bass_a3 = g * e->bass_a2;
+    /* The level correction at this crossover: linear in log frequency
+     * between grid points. */
+    int j = 0;
+    while (j < FX_BASS_GRID - 2 && e->bass_hz > FX_BASS_GRID_HZ[j + 1]) {
+        j++;
+    }
+    float t = logf(e->bass_hz / FX_BASS_GRID_HZ[j]) / logf(FX_BASS_GRID_HZ[j + 1] / FX_BASS_GRID_HZ[j]);
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    for (int k = 0; k < e->count; k++) {
+        const float *loss = e->table[k].bass_loss;
+#ifdef FX_SELFTEST
+        if (fx_test_bass_fit[k] != NULL) {
+            loss = fx_test_bass_fit[k];
+        }
+#endif
+        float db = 0.0f;
+        if (loss != NULL) {
+            db = loss[j] + t * (loss[j + 1] - loss[j]);
+        }
+#ifdef FX_SELFTEST
+        if (fx_test_bass_no_corr) {
+            db = 0.0f;
+        }
+#endif
+        e->bass_corr[k] = powf(10.0f, -db / 20.0f);
+    }
+}
+
+/* One sample through one section: its low- and high-pass outputs. */
+static inline void svf_tick(fx_svf *f, const fx_engine *e, float v0, float *lp, float *hp)
+{
+    const float v3 = v0 - f->ic2;
+    const float v1 = e->bass_a1 * f->ic1 + e->bass_a2 * v3;
+    const float v2 = f->ic2 + e->bass_a2 * f->ic1 + e->bass_a3 * v3;
+    f->ic1 = flush(2.0f * v1 - f->ic1);
+    f->ic2 = flush(2.0f * v2 - f->ic2);
+    *lp = v2;
+    *hp = v0 - BASS_K * v1 - v2;
+}
+
+static void bass_reset(fx_engine *e)
+{
+    memset(e->bass_first, 0, sizeof(e->bass_first));
+    memset(&e->bass_lo, 0, sizeof(e->bass_lo));
+    memset(&e->bass_lo_r, 0, sizeof(e->bass_lo_r));
+    memset(e->bass_hi, 0, sizeof(e->bass_hi));
+}
+
+/* The crossover's glide toward the target, one step per chunk. Off holds the
+ * crossover where it is: the fade-out plays at the split it had. */
+static void bass_glide(fx_engine *e, float target)
+{
+    if (!(target > 0.0f) || e->bass_hz == target) {
+        return;
+    }
+    float hz = e->bass_hz + e->bass_glide * (target - e->bass_hz);
+#ifdef FX_SELFTEST
+    if (fx_test_bass_unsmoothed) {
+        hz = target;
+    }
+#endif
+    if (fabsf(target - hz) <= 0.01f || hz == e->bass_hz) {
+        hz = target;
+    }
+    e->bass_hz = hz;
+    bass_coefs(e);
+}
+
+/* One frame of the split: x (the two channels, in place) becomes the chain's
+ * input x + b (hi - x), and lo[ch] the low band times b to add back after the
+ * chain: the same mono low band on both channels. */
+static inline void bass_frame(fx_engine *e, float *l, float *r, float b, float lo[FX_CHANNELS])
+{
+    float lp_l, hp_l, lp_r, hp_r, low, hi_l, hi_r, unused;
+    svf_tick(&e->bass_first[0], e, finite_or_zero(*l), &lp_l, &hp_l);
+    svf_tick(&e->bass_first[1], e, finite_or_zero(*r), &lp_r, &hp_r);
+#ifdef FX_SELFTEST
+    if (fx_test_bass_lr2) {
+        /* One Butterworth section per band: LP + HP sum with a notch at the
+         * corner. */
+        lo[0] = lo[1] = b * 0.5f * (lp_l + lp_r);
+        *l += b * (hp_l - *l);
+        *r += b * (hp_r - *r);
+        return;
+    }
+    if (fx_test_bass_stereo) {
+        /* Each channel keeps its own low band. */
+        float low_r;
+        svf_tick(&e->bass_lo, e, lp_l, &low, &unused);
+        svf_tick(&e->bass_lo_r, e, lp_r, &low_r, &unused);
+        svf_tick(&e->bass_hi[0], e, hp_l, &unused, &hi_l);
+        svf_tick(&e->bass_hi[1], e, hp_r, &unused, &hi_r);
+        lo[0] = b * low;
+        lo[1] = b * low_r;
+        *l += b * (hi_l - *l);
+        *r += b * (hi_r - *r);
+        return;
+    }
+#endif
+    svf_tick(&e->bass_lo, e, 0.5f * (lp_l + lp_r), &low, &unused);
+    svf_tick(&e->bass_hi[0], e, hp_l, &unused, &hi_l);
+    svf_tick(&e->bass_hi[1], e, hp_r, &unused, &hi_r);
+    lo[0] = lo[1] = b * low;
+    *l += b * (hi_l - *l);
+    *r += b * (hi_r - *r);
+}
+
+void fx_engine_set_bass(fx_engine *e, float hz)
+{
+    if (!(hz > 0.0f)) {        /* also NaN */
+        e->bass_target = 0.0f;
+        return;
+    }
+    e->bass_target = hz < FX_BASS_MIN_HZ ? FX_BASS_MIN_HZ : (hz > FX_BASS_MAX_HZ ? FX_BASS_MAX_HZ : hz);
 }
 
 /* The static level curve (fx_dsp.h, "Level curve"), tabulated over depth.
@@ -1794,6 +1958,14 @@ int fx_engine_set_rate(fx_engine *e, float rate)
     e->rate = rate;
     e->depth_alpha = one_pole_alpha(e->depth_ms, rate);
     e->xfade_step = xfade_step_for(e->xfade_ms, rate);
+    e->bass_glide = (float)(1.0 - exp(-(double)FX_CHUNK / ((FX_BASS_GLIDE_MS / 1000.0) * (double)rate)));
+    bass_reset(e);
+    e->bass_warm = 0;
+    e->bass_mix = 0.0f;
+    if (!(e->bass_hz > 0.0f)) {
+        e->bass_hz = 120.0f;   /* any valid corner: replaced before it is heard */
+    }
+    bass_coefs(e);
     return 0;
 }
 
@@ -1823,6 +1995,18 @@ int fx_engine_init(fx_engine *e, const fx_effect_desc *table, int count, float r
         if (!placed[k]) {
             e->order[n++] = k;
         }
+    }
+    /* The bass split comes before the first stage inside it: the drive, if
+     * it runs first and is outside (FX_BASS_DRIVE_INSIDE 0), runs before it. */
+    int drive_inside = FX_BASS_DRIVE_INSIDE;
+#ifdef FX_SELFTEST
+    if (fx_test_bass_drive_outside) {
+        drive_inside = 0;
+    }
+#endif
+    e->bass_split_at = 0;
+    if (!drive_inside && n > 0 && strcmp(table[e->order[0]].name, "drive") == 0) {
+        e->bass_split_at = 1;
     }
     makeup_table(e);
     for (int k = 0; k < count; k++) {
@@ -1927,6 +2111,10 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
     float depth_ramp[FX_CHUNK];
     float on_ramp[FX_CHUNK];
     float makeup_m[FX_CHUNK];   /* the chain's makeup driver m, per frame */
+    float bass_lo[FX_CHANNELS][FX_CHUNK];   /* the low band times b, added back */
+    float bass_h[FX_CHUNK];   /* the split's level correction - 1, per frame */
+    float bass_lo_b[FX_CHUNK];   /* b, per frame */
+    float bass_hp_max[FX_CHUNK], bass_hp_sum[FX_CHUNK];   /* the boosts: largest, total */
     const float *const x_in[FX_CHANNELS] = { x_buf[0], x_buf[1] };
     float *const wet[FX_CHANNELS] = { wet_buf[0], wet_buf[1] };
 
@@ -1957,7 +2145,36 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
             live |= audible && !(e->depth[k] == 0.0f && target[k] == 0.0f);
         }
 
-        if (!live) {
+        /* The bass split: wanted while the chain is live with a crossover
+         * set; running while wanted or still fading out. */
+        const float bass_t = e->bass_target;
+        int bass_live = live;
+#ifdef FX_SELFTEST
+        if (fx_test_bass_split_at_depth0) {
+            bass_live = 1;
+        }
+#endif
+        const float bass_want = (bass_t > 0.0f && bass_live) ? 1.0f : 0.0f;
+        const int bass_run = e->bass_mix > 0.0f || bass_want > 0.0f;
+
+        if (!live && !bass_run) {
+            /* The filters stay warm while an effect is ticked, so the knob
+             * coming up from 0 finds them current; otherwise nothing runs. */
+            if (bass_t > 0.0f && (mask & ((1u << e->count) - 1u)) != 0u) {
+                if (!e->bass_warm) {
+                    bass_reset(e);
+                    e->bass_hz = bass_t;
+                    bass_coefs(e);
+                }
+                bass_glide(e, bass_t);
+                for (uint32_t i = 0; i < n; i++) {
+                    float l = x_buf[0][i], r = x_buf[1][i], lo[FX_CHANNELS];
+                    bass_frame(e, &l, &r, 1.0f, lo);
+                }
+                e->bass_warm = 1;
+            } else {
+                e->bass_warm = 0;
+            }
             /* Bypass. Output is the input, bit for bit (within the clamp);
              * every effect keeps its history so re-entry is click-free. The
              * enable ramps land on their targets: nothing is audible to fade.
@@ -1985,8 +2202,45 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
 
         for (uint32_t i = 0; i < n; i++) {
             makeup_m[i] = 0.0f;
+            bass_h[i] = 0.0f;   /* the largest cut */
+            bass_hp_max[i] = 0.0f;
+            bass_hp_sum[i] = 0.0f;
         }
-        for (int s = 0; s < e->count; s++) {
+        if (bass_run && !e->bass_warm) {
+            /* Coming in cold: from rest, at the target, under the fade. */
+            bass_reset(e);
+            if (bass_t > 0.0f) {
+                e->bass_hz = bass_t;
+            }
+            bass_coefs(e);
+        }
+        e->bass_warm = bass_run;
+        for (int s = 0; s <= e->count; s++) {
+            if (bass_run && s == e->bass_split_at) {
+                bass_glide(e, bass_t);
+                float b = e->bass_mix;
+                for (uint32_t i = 0; i < n; i++) {
+                    if (b < bass_want) {
+                        b = fminf(bass_want, b + e->xfade_step);
+                    } else if (b > bass_want) {
+                        b = fmaxf(bass_want, b - e->xfade_step);
+                    }
+#ifdef FX_SELFTEST
+                    if (fx_test_bass_unsmoothed) {
+                        b = bass_want;
+                    }
+#endif
+                    float lo[FX_CHANNELS];
+                    bass_frame(e, &x_buf[0][i], &x_buf[1][i], b, lo);
+                    bass_lo[0][i] = lo[0];
+                    bass_lo[1][i] = lo[1];
+                    bass_lo_b[i] = b;
+                }
+                e->bass_mix = b;
+            }
+            if (s == e->count) {
+                break;
+            }
 #ifdef FX_SELFTEST
             const int k = e->order[fx_test_reverse_order ? e->count - 1 - s : s];
 #else
@@ -2025,11 +2279,24 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
             desc->process(e->state[k], x_in, wet, depth_ramp, n);
             const float wmax = desc->wet_max;
             const float full = 1.0f / desc->mix_full_at;
+            /* The bass split's level correction (fx_dsp.h, "Bass bypass"):
+             * this stage's share, per unit of its mix, the enable ramp and
+             * the split's fade; the chain applies the largest. */
+            const float corr = bass_run ? (e->bass_corr[k] - 1.0f) / wmax : 0.0f;
             for (uint32_t i = 0; i < n; i++) {
                 /* full = 1 (the knob is the mix) leaves d unchanged, bit for bit. */
                 const float dk = depth_ramp[i];
                 const float w = fminf(1.0f, dk * full) * wmax;
                 const float g = level_at(e, k, dk);
+                if (corr != 0.0f) {
+                    const float h = corr * w * on_ramp[i];
+                    if (h > 0.0f) {
+                        bass_hp_max[i] = fmaxf(bass_hp_max[i], h);
+                        bass_hp_sum[i] += h;
+                    } else {
+                        bass_h[i] = fminf(bass_h[i], h);
+                    }
+                }
                 const float ck = on_ramp[i];
                 for (int ch = 0; ch < FX_CHANNELS; ch++) {
                     const float xs = x_buf[ch][i];
@@ -2055,6 +2322,21 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
             }
         }
 #endif
+        /* The low band back, under the makeup: the level on keys stays
+         * G(m) x the input whatever the split. */
+        if (bass_run) {
+            for (int ch = 0; ch < FX_CHANNELS; ch++) {
+                for (uint32_t i = 0; i < n; i++) {
+                    /* The high band's correction, faded with the split: the
+                     * largest boost, a share of the others, the largest cut. */
+                    const float b = bass_lo_b[i];
+                    const float up = bass_hp_max[i] +
+                                     FX_BASS_CHAIN_SHARE * (bass_hp_sum[i] - bass_hp_max[i]);
+                    const float h = (1.0f + b * up) * (1.0f + b * bass_h[i]);
+                    x_buf[ch][i] = x_buf[ch][i] * h + bass_lo[ch][i];
+                }
+            }
+        }
         /* The chain's makeup, once, after the last stage. G(0) is exactly 1. */
         for (uint32_t i = 0; i < n; i++) {
             const float gm = makeup_at(e, makeup_m[i]);
@@ -2135,6 +2417,36 @@ static int only_blanks(const char *rest)
         rest++;
     }
     return *rest == '\0';
+}
+
+int fx_parse_bass(const char *text, float *hz)
+{
+    while (*text == ' ' || *text == '\t') {
+        text++;
+    }
+    if (strncmp(text, "bass", 4) != 0) {
+        return 0;
+    }
+    const char *rest = text + 4;
+    if (*rest != ' ' && *rest != '\t') {
+        return 0;
+    }
+    /* A plain decimal: digits and a point, no sign, exponent or hex. */
+    const char *tok = rest;
+    while (*tok == ' ' || *tok == '\t') {
+        tok++;
+    }
+    for (const char *c = tok; *c != '\0' && *c != ' ' && *c != '\t' && *c != '\n' && *c != '\r'; c++) {
+        if ((*c < '0' || *c > '9') && *c != '.') {
+            return 0;
+        }
+    }
+    float value = 0.0f;
+    if (!parse_float(&rest, &value) || !only_blanks(rest) || value < 0.0f) {
+        return 0;
+    }
+    *hz = value;
+    return 1;
 }
 
 int fx_parse_control(const char *text, uint32_t *mask, float *depth,

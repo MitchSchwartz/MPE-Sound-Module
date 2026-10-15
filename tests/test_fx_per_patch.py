@@ -266,7 +266,7 @@ class StoreTests(_Rig):
 
     def test_no_per_effect_depth_is_left(self) -> None:
         """One depth: the #150 fields are gone from the type and the policy."""
-        self.assertEqual({f.name for f in fields(PatchFx)}, {"mask", "depth", "target", "levels"})
+        self.assertEqual({f.name for f in fields(PatchFx)}, {"mask", "depth", "target", "levels", "bass_hz"})
         for name in ("depth_for", "depths", "effect"):
             self.assertFalse(hasattr(PatchFx(), name), name)
         for name in ("select_effect", "set_global_effect", "effect_id", "effect_name"):
@@ -686,6 +686,179 @@ class LevelMemoryTests(_Rig):
         self.assertEqual(policy.levels, ONES_T)
 
 
+class BassBypassMemoryTests(_Rig):
+    """The bass bypass's crossover (#173): stored per patch next to the mask,
+    depth and levels; unset (every entry written before it) is the 120 Hz
+    default; the remapper sends it."""
+
+    DEFAULT = fx_host_protocol.BASS_DEFAULT_HZ
+
+    def test_an_entry_from_before_reads_unset_and_plays_the_default(self) -> None:
+        old = {"factory:Test/Keys": {"mask": C | D, "depth": 0.4, "levels": [1.0, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0],
+                                     "target": "effect"}}
+        self.store_path.write_text(json.dumps(old))
+        store = PatchFxStore(self.store_path)
+        fx = store.get("Keys", stable_key="factory:Test/Keys")
+        self.assertIsNone(fx.bass_hz)
+        self.assertEqual((fx.mask, fx.depth, fx.target), (C | D, 0.4, "effect"))
+        policy = self._policy(store=store)
+        self.load(self.keys, policy)
+        self.assertEqual(policy.bass_hz, self.DEFAULT)
+        self.assertEqual(self.route_file()["bass_hz"], self.DEFAULT)
+        # Saved again, the entry is what it was: every value kept, no bass_hz
+        # written, so it keeps following the default.
+        store.save()
+        self.assertEqual(self.saved(), old)
+
+    def test_round_trip_and_off(self) -> None:
+        for hz in (fx_host_protocol.BASS_OFF, 80.0, 175.0, 300.0):
+            with self.subTest(hz=hz):
+                self.store.set("Keys", PatchFx(mask=C, bass_hz=hz), stable_key="k")
+                self.assertEqual(self.saved()["k"]["bass_hz"], hz)
+                self.assertEqual(PatchFxStore(self.store_path).get("Keys", stable_key="k").bass_hz, hz)
+
+    def test_nothing_read_from_the_file_is_trusted(self) -> None:
+        for bad in (79.9, 300.1, -1, float("inf"), "120", True, None, [120]):
+            with self.subTest(bad=bad):
+                raw = json.dumps({"k": {"mask": C, "depth": 0.5, "bass_hz": bad}}) if bad != float("inf") else \
+                    '{"k": {"mask": 1, "depth": 0.5, "bass_hz": Infinity}}'
+                self.store_path.write_text(raw)
+                fx = PatchFxStore(self.store_path).get("Keys", stable_key="k")
+                self.assertIsNone(fx.bass_hz)
+                self.assertEqual(fx_policy.resolve_config(global_target=MOD_WHEEL_PATCH_FIRST, patch_config=fx).bass_hz,
+                                 self.DEFAULT)
+
+    def test_an_entry_with_only_a_crossover_is_kept_and_completed(self) -> None:
+        self.store_path.write_text(json.dumps({"k": {"bass_hz": 150.0}}))
+        fx = PatchFxStore(self.store_path).get("Keys", stable_key="k")
+        self.assertEqual((fx.mask, fx.depth, fx.levels, fx.bass_hz), (0, 0.0, ONES_T, 150.0))
+
+    def test_each_patch_recalls_its_crossover_and_a_new_one_gets_the_default(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(C)
+        self.policy.set_depth(0.6, final=True)
+        self.policy.set_bass(200.0, final=True)
+        self.load(self.pad)
+        self.assertEqual(self.policy.bass_hz, self.DEFAULT)
+        self.policy.set_mask(P)
+        self.policy.set_bass(fx_host_protocol.BASS_OFF, final=True)
+        self.load(self.keys)
+        self.settle()
+        self.assertEqual(self.policy.bass_hz, 200.0)
+        self.assertEqual(self.sender.bass[-1], 200.0)
+        self.policy.flush_store()
+        self.assertEqual(self.saved()["factory:Test/Keys"]["bass_hz"], 200.0)
+        self.assertEqual(self.saved()["factory:Test/Pad"]["bass_hz"], 0.0)
+        fresh = self._policy(store=PatchFxStore(self.store_path))
+        self.load(self.pad, fresh)
+        self.assertEqual(fresh.bass_hz, fx_host_protocol.BASS_OFF)
+
+    def test_other_changes_leave_an_unset_crossover_unset(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(C | D)
+        self.policy.set_depth(0.3, final=True)
+        self.policy.set_level(DRIVE, 0.5, final=True)
+        self.policy.flush_store()
+        self.assertNotIn("bass_hz", self.saved()["factory:Test/Keys"])
+
+    def test_the_crossover_moves_nothing_else(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(C | D)
+        self.policy.set_depth(0.4, final=True)
+        self.policy.set_level(DRIVE, 0.3, final=True)
+        self.settle()
+        before = self.route_file()
+        self.policy.set_bass(90.0, final=True)
+        after = self.route_file()
+        self.assertEqual(after["bass_hz"], 90.0)
+        for key in ("cc1", "mask", "levels", "target", "route_stamp", "depth_request", "depth_stamp"):
+            self.assertEqual(after[key], before[key], key)
+        self.settle()
+        self.assertEqual((self.sender.sent[-1], self.sender.bass[-1]), ((C | D, 0.4), 90.0))
+
+    def test_with_no_effect_ticked_it_is_locked_and_moves_nothing(self) -> None:
+        self.load(self.keys)
+        self.assertTrue(self.policy.bass_locked)
+        self.policy.set_bass(250.0, final=True)
+        self.assertEqual(self.policy.bass_hz, self.DEFAULT)
+        self.policy.set_mask(T)
+        self.assertFalse(self.policy.bass_locked)
+        self.policy.set_bass(250.0, final=True)
+        self.assertEqual(self.policy.bass_hz, 250.0)
+
+    def test_bad_values_change_nothing(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(C)
+        for bad in (float("nan"), 50.0, 400.0, -1.0, True, "120"):
+            with self.subTest(bad=bad):
+                self.policy.set_bass(bad, final=True)
+                self.assertEqual(self.policy.bass_hz, self.DEFAULT)
+
+    def test_a_drag_is_throttled_and_the_release_lands(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(C)
+        writes = []
+        real = fx_policy.atomic_write_json
+
+        def spy(path, data):
+            if Path(path) == self.route:
+                writes.append(data["bass_hz"])
+            return real(path, data)
+
+        with mock.patch.object(fx_policy, "atomic_write_json", side_effect=spy):
+            for hz in (130.0, 140.0, 150.0):
+                self.now += 0.01
+                self.policy.set_bass(hz)
+            self.assertEqual(writes, [130.0])
+            self.assertTrue(self.policy.dragging_bass)
+            self.policy.finish_bass()
+            self.assertEqual(writes, [130.0, 150.0])
+            self.policy.finish_bass()
+            self.assertEqual(writes, [130.0, 150.0])
+        self.assertFalse(self.policy.dragging_bass)
+
+    def test_the_remapper_sends_it_live_and_a_restart_reasserts_it(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(P)
+        self.policy.set_depth(0.8, final=True)
+        self.settle()
+        for hz in (100.0, 175.0, 0.0):
+            self.now += fx_policy.DEPTH_PUBLISH_S
+            self.policy.set_bass(hz)
+            self.now += fx_policy.ROUTE_REFRESH_S
+            self.router.refresh()
+            self.assertEqual((self.sender.sent[-1], self.sender.bass[-1]), ((P, 0.8), hz))
+        restarted = _RecordingSender()
+        fresh = Cc1Router(sender=restarted, route_path=self.route, levels_path=self.root / "other-levels.json",
+                          clock=lambda: self.now)
+        self.now += fx_policy.ROUTE_REFRESH_S
+        fresh.refresh()
+        self.assertEqual(restarted.bass, [0.0])
+
+    def test_on_the_wire_the_crossover_goes_first_and_is_deduplicated(self) -> None:
+        wire: list[bytes] = []
+        self.router._sender = fx_policy.FxHostSender(send=wire.append, log=None)
+        self.load(self.keys)
+        self.policy.set_mask(C)
+        self.policy.set_depth(0.5, final=True)
+        self.settle()
+        self.assertEqual(wire[0], b"bass 120.000000")
+        self.assertTrue(wire[1].startswith(b"chainl 1 0.500000"))
+        self.policy.set_bass(80.0, final=True)
+        self.settle()
+        self.assertEqual(wire[2:], [b"bass 80.000000"])  # the chain did not change: not resent
+        self.policy.set_depth(0.6, final=True)
+        self.settle()
+        self.assertEqual(len(wire), 4)
+        self.assertTrue(wire[3].startswith(b"chainl 1 0.600000"))  # the crossover did not change
+
+    def test_off_writes_and_sends_nothing(self) -> None:
+        policy = self._policy(enabled=False)
+        self.load(self.keys, policy)
+        policy.set_bass(200.0, final=True)
+        self.assertFalse(self.route.exists())
+
+
 class KeyStabilityTests(_Rig):
     """The existing sidecar key logic, unchanged: stable key, stem fallback, migration."""
 
@@ -1093,7 +1266,7 @@ class TargetSwitchTests(_Rig):
         self.assertAlmostEqual(self.policy.depth, depth)
         self.assertAlmostEqual(self.route_file()["depth_request"], depth)
         restarted = []
-        fresh = Cc1Router(sender=mock.Mock(send=lambda m, d, _levels=None: restarted.append((m, d))), route_path=self.route,
+        fresh = Cc1Router(sender=mock.Mock(send=lambda m, d, _levels=None, _bass=None: restarted.append((m, d))), route_path=self.route,
                           levels_path=self.root / "other-levels.json", clock=lambda: self.now)
         fresh.refresh(self.now)
         self.assertEqual(len(restarted), 1)

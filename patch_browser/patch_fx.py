@@ -17,7 +17,8 @@ missing; it then follows the global Settings default, on purpose.
 
 Entry shape (one per patch):
 
-    {"mask": 5, "depth": 0.4, "levels": [1.0, 1.0, 0.4, 1.0, 1.0], "target": "effect"}
+    {"mask": 5, "depth": 0.4, "levels": [1.0, 1.0, 0.4, 1.0, 1.0], "target": "effect",
+     "bass_hz": 150.0}
 
 `mask` is the chain's enable mask (`fx_host_protocol`: bit `1 << effect_id`
 per enabled effect), `depth` the shared depth (the knob), and `levels` one
@@ -26,6 +27,14 @@ An unticked effect keeps its level. Nothing read from the file is trusted: a
 mask naming an effect this build does not ship, a non-finite or out-of-range
 depth and an unknown target are dropped on read, and levels are read by
 `fx_host_protocol.levels_from` (append-only; a bad entry is 1.0).
+
+**Bass bypass** (`bass_hz`, #173): the crossover below which the lows skip
+the effects, 0 for Off. Like `target`, it may be missing, and missing is not
+completed on load: an entry without it (every entry written before it) is
+*unset*, which plays at `fx_host_protocol.BASS_DEFAULT_HZ` (120 Hz). So the
+patches already set up keep every value they had and pick up the default, and
+a patch keeps a crossover only once the slider sets one. A value out of range
+or not a number reads as unset.
 
 **Migration to per-effect levels.** An entry with no `levels` (every entry
 written before them) is read with every level 1.0, so the patch sounds as it
@@ -120,10 +129,19 @@ class PatchFx:
     target: str | None = None
     #: One level per shipped effect, by effect id.
     levels: tuple[float, ...] | None = None
+    #: The bass bypass's crossover, Hz, or BASS_OFF. None: unset, which plays
+    #: at the default (`fx_host_protocol.BASS_DEFAULT_HZ`).
+    bass_hz: float | None = None
 
     @property
     def is_empty(self) -> bool:
-        return self.mask is None and self.depth is None and self.target is None and self.levels is None
+        return (
+            self.mask is None
+            and self.depth is None
+            and self.target is None
+            and self.levels is None
+            and self.bass_hz is None
+        )
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -135,6 +153,8 @@ class PatchFx:
             out["levels"] = list(self.levels)
         if self.target is not None:
             out["target"] = self.target
+        if self.bass_hz is not None:
+            out["bass_hz"] = self.bass_hz
         return out
 
     @classmethod
@@ -151,16 +171,19 @@ class PatchFx:
             depth=depth,
             target=target if target in STORED_TARGETS else None,
             levels=fx_host_protocol.levels_from(raw.get("levels")),
+            bass_hz=fx_host_protocol.bass_value(raw.get("bass_hz")),
         )
 
     def completed(self) -> "PatchFx":
         """The same entry with a missing mask, depth or levels set to the
-        factory default (never a global one). The target stays optional."""
+        factory default (never a global one). The target and the bass
+        crossover stay optional: unset is a value of its own."""
         return PatchFx(
             mask=FACTORY_MASK if self.mask is None else self.mask,
             depth=FACTORY_DEPTH if self.depth is None else self.depth,
             target=self.target,
             levels=FACTORY_LEVELS if self.levels is None else self.levels,
+            bass_hz=self.bass_hz,
         )
 
 
