@@ -20,7 +20,8 @@ class MigrateTests(unittest.TestCase):
         self.root = Path(self._tmp.name)
         self.home = self.root / "home"
         self.res = self.home / "surge/resources/data"
-        self.docs = self.home / "docs"
+        # a space in the path, as on the device ("Documents/Surge XT")
+        self.docs = self.home / "Surge XT"
         self.new = self.root / "new-library"
         self.old = self.home / "old-library"
         bindir = self.root / "bin"
@@ -123,6 +124,16 @@ class MigrateTests(unittest.TestCase):
         self.assertIn(f"MPE_PERSONAL_REPO={self.old}", self.env_file.read_text())
         self.assertIn("MPE_UI_MODE=touch", self.env_file.read_text())
         self.assertEqual(self.run_step("rollback").returncode, 0)
+
+    def test_manifest_records_backup_paths_with_spaces_whole(self) -> None:
+        self.run_step("snapshot")
+        self.rekey()
+        self.assertEqual(self.run_step("link", "--dir", str(self.new)).returncode, 0)
+        lines = (self.home / ".mpe-library-migration/link-manifest").read_text().splitlines()
+        (user,) = [ln for ln in lines if ln.startswith(f"L|{self.docs / 'Patches'}|")]
+        backup = user.split("|")[3]
+        self.assertTrue(Path(backup).is_dir(), user)
+        self.assertEqual(Path(backup).parent, self.docs)
 
     def test_link_without_the_rekey_fails_verify_and_rolls_back(self) -> None:
         self.run_step("snapshot")
