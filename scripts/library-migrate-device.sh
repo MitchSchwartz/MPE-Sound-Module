@@ -38,27 +38,70 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Full undo to the pre-migration state: links back to the original directories
-# (one backup level per pass, so repeat until none are left) and the ORIGINAL
-# MPE_PERSONAL_REPO, which is the oldest env backup, not the newest.
+# `link` records exactly what it changed in a manifest; `rollback` undoes exactly that,
+# newest first. It never goes looking for *.backup.* directories on its own: a root that
+# started as a link, or a stale backup from an earlier life, must not be mistaken for ours.
+#   L|<link>|<previous>|<backup>   <link> pointed at <previous> ("-" = absent) before; the
+#                                  old thing now lives at <backup> ("-" = nothing moved)
+#   E|<env backup>                 an env file copy made before MPE_PERSONAL_REPO changed
+MANIFEST="$STATE_DIR/link-manifest"
+ENV_FILE_PATH="${MPE_APPLIANCE_ENV_FILE:-/etc/mpe/mpe.env}"
+
+_state_of() { # path -> "link:<target>" | "dir" | "-"
+    if [ -L "$1" ]; then echo "link:$(readlink "$1")"; elif [ -e "$1" ]; then echo dir; else echo -; fi
+}
+_all_backups() {
+    local r
+    while IFS= read -r r; do ls -1d -- "$r".backup.* 2>/dev/null || true; done < <(roots)
+    ls -1d -- "$ENV_FILE_PATH".pre-library.* 2>/dev/null || true
+}
+
+# do_rollback [KEEP]: undo every record after the first KEEP lines (default 0 = all).
 do_rollback() {
-    local i r any
-    for i in 1 2 3 4 5 6 7 8; do
-        any=0
-        while IFS= read -r r; do [ -L "$r" ] && any=1; done < <(roots)
-        [ "$any" = 1 ] || break
-        "$SCRIPT_DIR/setup-pi-symlinks.sh" --local --rollback
-    done
-    local prev old_val
-    prev="$(ls -1 "${MPE_APPLIANCE_ENV_FILE:-/etc/mpe/mpe.env}".pre-library.* 2>/dev/null | sort | head -1 || true)"
-    if [ -n "$prev" ]; then
-        old_val="$(grep '^MPE_PERSONAL_REPO=' "$prev" | tail -1 | cut -d= -f2- || true)"
+    local keep="${1:-0}" kind a b c first_env=""
+    if [ ! -s "$MANIFEST" ]; then
+        echo "Nothing recorded to roll back (no link manifest)."
+        return 0
+    fi
+    while IFS='|' read -r kind a b c; do
+        [ "$kind" = E ] && { first_env="$a"; break; }
+    done < <(tail -n +$((keep + 1)) "$MANIFEST")
+    # Links, newest record first.
+    while IFS='|' read -r kind a b c; do
+        [ "$kind" = L ] || continue
+        if [ -L "$a" ]; then rm -- "$a"; fi
+        if [ "$c" != "-" ] && { [ -e "$c" ] || [ -L "$c" ]; }; then
+            mv -T -- "$c" "$a"
+            echo "restored $a from $c"
+        fi
+    done < <(tail -n +$((keep + 1)) "$MANIFEST" | tac)
+    if [ -n "$first_env" ] && [ -f "$first_env" ]; then
+        local old_val
+        old_val="$(grep '^MPE_PERSONAL_REPO=' "$first_env" | tail -1 | cut -d= -f2- || true)"
         if [ -n "$old_val" ] && [ -d "$old_val" ]; then
             "$SCRIPT_DIR/configure-pi-paths.sh" --local --paths-only --personal-repo "$old_val"
         else
             echo "note: original MPE_PERSONAL_REPO ('${old_val:-unset}') is not a directory; env left as is"
         fi
     fi
+    if [ "$keep" -gt 0 ]; then
+        head -n "$keep" "$MANIFEST" > "$MANIFEST.tmp" && mv -f -- "$MANIFEST.tmp" "$MANIFEST"
+    else
+        mv -f -- "$MANIFEST" "$MANIFEST.rolledback.$(date +%s)"
+    fi
+}
+
+# Run one link step and record what it changed. $1 = state snapshot file of the roots before.
+_record_links() {
+    local before_states="$1" before_backups="$2" r prev now bk
+    while IFS= read -r r; do
+        prev="$(grep -F -- "$r|" "$before_states" | head -1 | cut -d'|' -f2-)"
+        now="$(_state_of "$r")"
+        [ "$prev" = "$now" ] && continue
+        bk="-"
+        for cand in $(comm -13 "$before_backups" <(_all_backups | sort) | grep -F -- "$r.backup." || true); do bk="$cand"; done
+        printf 'L|%s|%s|%s\n' "$r" "$prev" "$bk" >> "$MANIFEST"
+    done < <(roots)
 }
 
 lib() { python3 "$SCRIPT_DIR/mpe-library" "$@"; }
@@ -121,15 +164,32 @@ link)
     # Checks first, inside setup-pi-symlinks: a refusal changes nothing.
     "$SCRIPT_DIR/setup-pi-symlinks.sh" --local --dry-run --personal-repo "$DIR"
     if [ "$DRY" = 1 ]; then echo "(dry run complete)"; exit 0; fi
-    "$SCRIPT_DIR/configure-pi-paths.sh" --local --paths-only --personal-repo "$DIR"
-    "$SCRIPT_DIR/setup-pi-symlinks.sh" --local --personal-repo "$DIR"
-    if ! lib verify --compare "$BEFORE"; then
-        echo "ERROR: verify failed after linking; rolling back." >&2
-        do_rollback
-        echo "Rolled back. Nothing was restarted." >&2
-        exit 1
+    mkdir -p "$STATE_DIR"
+    keep_lines=0
+    [ -f "$MANIFEST" ] && keep_lines="$(wc -l < "$MANIFEST")"
+    states="$(mktemp)"; backups_before="$(mktemp)"
+    trap 'rm -f "$states" "$backups_before"' EXIT
+    while IFS= read -r r; do echo "$r|$(_state_of "$r")"; done < <(roots) > "$states"
+    _all_backups | sort > "$backups_before"
+
+    env_ok=1
+    "$SCRIPT_DIR/configure-pi-paths.sh" --local --paths-only --personal-repo "$DIR" || env_ok=0
+    for b in $(comm -13 "$backups_before" <(_all_backups | sort) | grep -F -- "$ENV_FILE_PATH.pre-library." || true); do
+        echo "E|$b" >> "$MANIFEST"
+    done
+    link_ok=0
+    if [ "$env_ok" = 1 ]; then
+        "$SCRIPT_DIR/setup-pi-symlinks.sh" --local --personal-repo "$DIR" && link_ok=1
+        _record_links "$states" "$backups_before"
     fi
-    echo "Linked. Nothing was restarted; restart Surge and the browser when ready."
+    if [ "$link_ok" = 1 ] && lib verify --compare "$BEFORE"; then
+        echo "Linked. Nothing was restarted; restart Surge and the browser when ready."
+        exit 0
+    fi
+    echo "ERROR: linking or verify failed; rolling back what this run changed." >&2
+    do_rollback "$keep_lines"
+    echo "Rolled back. Nothing was restarted." >&2
+    exit 1
     ;;
 verify)
     [ -f "$BEFORE" ] || { echo "ERROR: no snapshot" >&2; exit 1; }

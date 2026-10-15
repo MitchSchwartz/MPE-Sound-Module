@@ -23,7 +23,8 @@ class DeployGuardTests(unittest.TestCase):
         (bindir / "ssh").write_text(
             '#!/usr/bin/env bash\n'
             'case "$*" in\n'
-            f'  *"bash -s"*) echo "ssh bash-s" >> {self.log}; exec bash -s ;;\n'
+            f'  *"bash -s"*) echo "ssh bash-s" >> {self.log}; payload="$(cat)"\n'
+            '     case "$payload" in *"Refuse a tarball patch deploy"*) printf "%s\\n" "$payload" | bash -s; exit $? ;; esac ;;\n'
             f'  *) echo "ssh $*" >> {self.log} ;;\n'
             'esac\n'
         )
@@ -59,22 +60,69 @@ class DeployGuardTests(unittest.TestCase):
     def calls(self) -> str:
         return self.log.read_text() if self.log.exists() else ""
 
-    def test_both_deploy_scripts_refuse_when_a_root_is_linked(self) -> None:
-        (self.docs / "Patches").symlink_to(self.lib / "assets/user-data/Patches")
-        (self.res / "patches_factory").mkdir()
-        for script in ("deploy-patches.sh", "deploy-all.sh"):
-            self.log.write_text("")
-            proc = self.run_deploy(script)
-            self.assertNotEqual(proc.returncode, 0, script)
-            self.assertIn("link into the personal library", proc.stderr + proc.stdout, script)
-            self.assertNotIn("scp ", self.calls(), script)
-            self.assertTrue((self.docs / "Patches").is_symlink(), script)
+    def patch_scps(self) -> list[str]:
+        return [c for c in self.calls().splitlines() if c.startswith("scp ") and "patches" in c or "user-patches" in c]
 
-    def test_a_linked_third_party_root_blocks_deploy_all(self) -> None:
+    def test_deploy_patches_refuses_when_a_root_is_linked(self) -> None:
+        (self.docs / "Patches").symlink_to(self.lib / "assets/user-data/Patches")
+        proc = self.run_deploy("deploy-patches.sh")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("link into the personal library", proc.stderr + proc.stdout)
+        self.assertNotIn("scp ", self.calls())
+        self.assertTrue((self.docs / "Patches").is_symlink())
+
+    def test_deploy_all_on_a_linked_device_skips_patches_but_deploys_code(self) -> None:
+        (self.docs / "Patches").symlink_to(self.lib / "assets/user-data/Patches")
         (self.res / "patches_3rdparty").symlink_to(self.lib / "assets/patches/third-party")
         proc = self.run_deploy("deploy-all.sh")
-        self.assertNotEqual(proc.returncode, 0)
-        self.assertNotIn("scp ", self.calls())
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        calls = self.calls()
+        self.assertIn("Skipping the patch steps", proc.stdout)
+        self.assertEqual(self.patch_scps(), [])
+        self.assertNotIn("tar xzf", calls)
+        # code and unit deploy still ran
+        self.assertIn("git pull", calls)
+        self.assertIn("configure-pi-paths.sh --local --force", calls)
+        self.assertTrue((self.docs / "Patches").is_symlink())
+        self.assertTrue((self.res / "patches_3rdparty").is_symlink())
+
+    def test_deploy_all_on_an_unlinked_device_still_sends_patches(self) -> None:
+        (self.docs / "Patches").mkdir()
+        proc = self.run_deploy("deploy-all.sh")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        calls = self.calls()
+        self.assertNotIn("Skipping the patch steps", proc.stdout)
+        self.assertIn("patches_factory.tar.gz", calls)
+        self.assertIn("patches_3rdparty.tar.gz", calls)
+        self.assertIn("user-patches.tar.gz", calls)
+        self.assertIn("configure-pi-paths.sh --local --force", calls)
+        # extraction goes through the configured resources variable, not a hardcoded path
+        self.assertIn("MPE_SURGE_RESOURCES", calls)
+        self.assertNotIn("cd ~/surge/resources/data && tar", calls)
+
+    def test_guard_fails_closed_when_the_roots_are_unknown(self) -> None:
+        guard = REPO / "scripts/lib/refuse-linked-roots.sh"
+        for env in ({}, {"MPE_SURGE_RESOURCES": "/x"}, {"MPE_SURGE_DOCS": "/x"}, {"MPE_SURGE_RESOURCES": "", "MPE_SURGE_DOCS": "/x"}):
+            proc = subprocess.run(["bash", str(guard)], capture_output=True, text=True, env={"PATH": os.environ["PATH"], **env})
+            self.assertEqual(proc.returncode, 2, env)
+
+    def test_an_unloadable_paths_file_on_the_device_blocks_patch_deploys(self) -> None:
+        (self.docs / "Patches").mkdir()
+        for script, expect_rc_zero in (("deploy-patches.sh", False), ("deploy-all.sh", True)):
+            self.log.write_text("")
+            env = {
+                "PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.root), "MPE_ENV_FILE": "",
+                "PI_USER": "someone", "PI_HOST": "device.invalid", "SSH_KEY": "/dev/null",
+                "PI_MPE_MODULE": str(self.root / "missing-checkout"),  # the device cannot source paths.sh
+                "MPE_PERSONAL_REPO": str(self.lib),
+                "MPE_SURGE_RESOURCES": "", "MPE_SURGE_DOCS": "",
+            }
+            proc = subprocess.run(["bash", str(REPO / "scripts" / script)], capture_output=True, text=True, env=env, cwd=self.root)
+            self.assertEqual(self.patch_scps(), [], script)
+            if expect_rc_zero:
+                self.assertIn("Skipping the patch steps", proc.stdout)
+            else:
+                self.assertNotEqual(proc.returncode, 0)
 
     def test_unlinked_roots_pass_the_guard(self) -> None:
         (self.docs / "Patches").mkdir()

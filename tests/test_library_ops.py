@@ -252,6 +252,55 @@ class LiveSnapshotAndUndoTests(LibraryCase):
         lib.undo_restore(self.cfg, result.tag)
         self.assertEqual((self.repo / BASS).read_bytes(), b"user-edit")
 
+    def test_undo_backs_up_edits_made_since_the_restore_first(self) -> None:
+        put(self.repo, BASS, b"user-edit")
+        result = lib.restore_patch(self.cfg, KEY)
+        put(self.repo, BASS, b"edit made after the restore")
+        undone = lib.undo_restore(self.cfg, result.tag)
+        self.assertEqual((self.repo / BASS).read_bytes(), b"user-edit")
+        self.assertNotEqual(undone.tag, result.tag)
+        self.assertEqual(git(self.repo, "show", f"{undone.tag}:{BASS}"), "edit made after the restore")
+        self.assertIn(undone.tag, git(self.origin, "tag", "-l").split("\n"))
+
+    def test_undo_with_a_failing_push_leaves_the_files_alone(self) -> None:
+        put(self.repo, BASS, b"user-edit")
+        result = lib.restore_patch(self.cfg, KEY)
+        put(self.repo, BASS, b"edit made after the restore")
+        git(self.repo, "remote", "set-url", "origin", str(Path(self._tmp.name) / "missing.git"))
+        with self.assertRaises(lib.LibraryError):
+            lib.undo_restore(self.cfg, result.tag)
+        self.assertEqual((self.repo / BASS).read_bytes(), b"edit made after the restore")
+
+    def test_overrides_in_the_device_env_file_apply_to_its_own_home_only(self) -> None:
+        import unittest.mock as mock
+
+        self.seed_settings()
+        home = Path(self._tmp.name) / "own-home"
+        home.mkdir()
+        elsewhere = Path(self._tmp.name) / "elsewhere-fx.json"
+        elsewhere.write_text(json.dumps({"user:From Override": {"mask": 1, "depth": 0.5}}))
+        (home / ".patch_browser_fx.json").write_text(json.dumps({"user:From Home": {"mask": 1, "depth": 0.5}}))
+        env_file = Path(self._tmp.name) / "device.env"
+        env_file.write_text(f"MPE_FX_FILE={elsewhere}\n")
+        with mock.patch.dict(os.environ, {"MPE_ENV_FILE": str(env_file), "MPE_HOME": str(home)}):
+            self.cfg.live_home = home
+            lib.restore_patch(self.cfg, KEY)
+        self.assertEqual(self.fx_keys(), {"user:From Override"})
+
+    def test_env_file_overrides_are_ignored_for_someone_elses_home(self) -> None:
+        import unittest.mock as mock
+
+        self.seed_settings()
+        other = Path(self._tmp.name) / "other-home"
+        other.mkdir()
+        (other / ".patch_browser_fx.json").write_text(json.dumps({"user:From Home": {"mask": 1, "depth": 0.5}}))
+        env_file = Path(self._tmp.name) / "laptop.env"
+        env_file.write_text("MPE_FX_FILE=/nonexistent/laptop-fx.json\n")
+        with mock.patch.dict(os.environ, {"MPE_ENV_FILE": str(env_file), "MPE_HOME": str(Path(self._tmp.name) / "mine")}):
+            self.cfg.live_home = other
+            lib.restore_patch(self.cfg, KEY)
+        self.assertEqual(self.fx_keys(), {"user:From Home"})
+
     def test_undo_force_keeps_the_other_edit_on_disk(self) -> None:
         put(self.repo, BASS, b"user-edit")
         result = lib.restore_patch(self.cfg, KEY)

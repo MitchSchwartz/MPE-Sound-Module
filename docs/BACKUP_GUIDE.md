@@ -54,7 +54,7 @@ Patch edits are not in a capture. Once the device is wired to its checkout they 
 | `mpe-library restore-patch <stable_key>` | One patch back to the template's version; clears that patch's user settings (FX, hold, pressure trim, normalization trim, instrument tag). Calibrated baselines stay. |
 | `mpe-library restore-stock` | All stock patches and CC0 collections back to the template. Your patches and settings are untouched. |
 | `mpe-library factory-reset` | Stock, your patches (back to the template's starter set) and the per-patch settings (back to the template's `defaults/`, else empty). |
-| `mpe-library undo <tag>` | Puts back what a restore replaced: only the paths that backup covered. Refuses if tracked files outside those paths have uncommitted changes (`--force` to override; they are never touched either way). |
+| `mpe-library undo <tag>` | Puts back what a restore replaced: only the paths that backup covered. Like every restore it first makes a backup commit, tag and push of those paths, so edits made since the restore are kept. Refuses if tracked files outside those paths have uncommitted changes (`--force` to override; they are never touched either way). |
 
 Every restore mode does this before it changes anything, in this order:
 
@@ -90,7 +90,7 @@ Fresh SD card or image, then, from the laptop:
 
 **Capture refuses: "cannot take a read-only capture".** The device's MPE-Module checkout predates streaming capture. Update it the usual way; the capture script will not do it for you.
 
-**`deploy-patches.sh` / `deploy-all.sh` refuse.** The patch roots are links into the library, and extracting a tarball over a link would detach it. Update patches through the library (`git pull` in the device's checkout, or `mpe-library update`).
+**`deploy-patches.sh` refuses, and `deploy-all.sh` skips its patch steps.** The patch roots are links into the library (or could not be checked), and extracting a tarball over a link would detach it. `deploy-all.sh` still deploys code, units and the binary. Update patches through the library (`git pull` in the device's checkout, or `mpe-library update`).
 
 **`setup-pi-symlinks.sh` refuses.** A live directory has files the checkout lacks or different versions of them. Copy those into the checkout, commit, run again. Nothing was changed.
 

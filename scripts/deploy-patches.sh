@@ -42,7 +42,7 @@ if ! mpe_pi_ssh "echo Connected" > /dev/null; then
 fi
 
 # Refuse before anything is sent if the roots are wired to the library (see refuse-linked-roots.sh).
-if ! { mpe_pi_source_line; echo; /bin/cat "$SCRIPT_DIR/lib/refuse-linked-roots.sh"; } | mpe_pi_ssh bash -s; then
+if ! { echo "$(mpe_pi_source_line) || exit 2"; /bin/cat "$SCRIPT_DIR/lib/refuse-linked-roots.sh"; } | mpe_pi_ssh bash -s; then
     echo "❌ Deploy refused: patch roots are linked to the personal library."
     exit 1
 fi

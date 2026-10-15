@@ -169,9 +169,17 @@ def fetch_upstream(cfg: Config, result: Result) -> None:
         raise LibraryError(f"{cfg.upstream_ref} is not available; fetch the template once while online")
 
 
-def _require_clean_index(cfg: Config) -> None:
-    if _git(cfg, "diff", "--cached", "--quiet", check=False).returncode != 0:
-        raise LibraryError("the index has staged changes; commit or unstage them first")
+def _under(path: str, bases: list[str]) -> bool:
+    return any(path == b or path.startswith(b.rstrip("/") + "/") for b in bases)
+
+
+def _require_clean_index(cfg: Config, allowed: list[str] | None = None) -> None:
+    """Staged changes are fine inside the paths about to be backed up (a restore leaves
+    its result staged); anything staged elsewhere would be swept into the commit."""
+    staged = [p for p in _git(cfg, "diff", "--cached", "--name-only", "-z").stdout.split("\0") if p]
+    stray = [p for p in staged if not _under(p, allowed or [])]
+    if stray:
+        raise LibraryError(f"the index has staged changes outside the backed-up paths (first: {stray[0]}); commit or unstage them first")
 
 
 def snapshot_live_settings(cfg: Config, result: Result) -> None:
@@ -187,7 +195,16 @@ def snapshot_live_settings(cfg: Config, result: Result) -> None:
     cmd = ["bash", str(script), "--from", str(cfg.live_home), "--repo", str(cfg.repo)]
     if cfg.device_id:
         cmd += ["--device-id", cfg.device_id]
-    env = dict(os.environ, MPE_ENV_FILE="")
+    env = dict(os.environ)
+    own_home = Path(os.environ.get("MPE_HOME") or Path.home())
+    try:
+        is_own = cfg.live_home.resolve() == own_home.resolve()
+    except OSError:
+        is_own = False
+    if not is_own:
+        # Another machine's home: this machine's /etc/mpe/mpe.env (and its MPE_*_FILE
+        # overrides) say nothing about it. On the device's own home they apply.
+        env["MPE_ENV_FILE"] = ""
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if proc.returncode != 0:
         raise LibraryError(
@@ -202,7 +219,7 @@ PATHS_TRAILER = "Backup-Paths:"
 
 def backup_and_tag(cfg: Config, paths: list[str], message: str, result: Result, *, now=None) -> None:
     """Steps 1 to 3 of the safety order. Raises before anything is restored."""
-    _require_clean_index(cfg)
+    _require_clean_index(cfg, paths)
     message = message + "\n\n" + "\n".join(f"{PATHS_TRAILER} {p}" for p in paths)
     present = [p for p in paths if _tracked_or_present(cfg, p)]
     if present:
@@ -410,7 +427,7 @@ def factory_reset(cfg: Config, *, now=None) -> Result:
     return result
 
 
-def undo_restore(cfg: Config, tag: str, *, force: bool = False) -> Result:
+def undo_restore(cfg: Config, tag: str, *, force: bool = False, now=None) -> Result:
     """Put back what a restore replaced: only the paths that backup covered.
 
     Never ``checkout <tag> -- .``: that would also wipe uncommitted edits elsewhere
@@ -426,7 +443,7 @@ def undo_restore(cfg: Config, tag: str, *, force: bool = False) -> Result:
         raise LibraryError(f"{tag} records no backed-up paths; restore by hand with git checkout {tag} -- <path>")
     dirty = [
         p for p in _git(cfg, "diff", "--name-only", "-z", "HEAD").stdout.split("\0")
-        if p and not any(p == b or p.startswith(b.rstrip("/") + "/") for b in paths)
+        if p and not _under(p, paths)
     ]
     if dirty and not force:
         raise LibraryError(
@@ -435,9 +452,13 @@ def undo_restore(cfg: Config, tag: str, *, force: bool = False) -> Result:
         )
     present = [p for p in paths if _path_in_ref(cfg, f"refs/tags/{tag}", p) or _git(
         cfg, "ls-tree", "-d", f"refs/tags/{tag}", p, check=False).stdout.strip()]
+    # Same order as every restore: edits made to these paths since the restore are
+    # backed up, tagged and pushed before the checkout overwrites them.
+    backup_and_tag(cfg, paths, f"backup before undoing {tag}", result, now=now)
     if present:
         _git(cfg, "checkout", f"refs/tags/{tag}", "--", *present)
     result.say("restored from " + tag + ": " + ", ".join(paths))
+    result.say("edits since the restore are in the new tag above")
     result.say("files added after the backup are left in place")
     return result
 

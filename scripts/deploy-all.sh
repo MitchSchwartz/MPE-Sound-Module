@@ -24,10 +24,15 @@ fi
 echo "✓ Connected"
 echo ""
 
-# Refuse before anything is sent if the roots are wired to the library (see refuse-linked-roots.sh).
-if ! { mpe_pi_source_line; echo; /bin/cat "$SCRIPT_DIR/lib/refuse-linked-roots.sh"; } | mpe_pi_ssh bash -s; then
-    echo "❌ Deploy refused: patch roots are linked to the personal library."
-    exit 1
+# Patch steps extract tarballs over the Surge patch roots. If those are links into the
+# personal library (or we cannot tell), skip ONLY those steps: code, units and the
+# binary still deploy. Patches then travel through the library (git), not tar.
+PATCH_DEPLOY=1
+if ! { echo "$(mpe_pi_source_line) || exit 2"; /bin/cat "$SCRIPT_DIR/lib/refuse-linked-roots.sh"; } | mpe_pi_ssh bash -s; then
+    PATCH_DEPLOY=0
+    echo "⚠️  Skipping the patch steps (4, 5 and the user patches in 7): the roots are linked to the personal library, or could not be checked."
+    echo "    Code and units deploy as usual. Update patches via the library (docs/LIBRARY-MIGRATION.md)."
+    echo ""
 fi
 
 echo "Step 1/7: git pull MPE-Module on Pi..."
@@ -55,26 +60,26 @@ fi
 echo ""
 
 echo "Step 4/7: Deploying factory patches (47MB)..."
-if [ -d "$ASSETS/patches/patches_factory" ]; then
+if [ "$PATCH_DEPLOY" = 1 ] && [ -d "$ASSETS/patches/patches_factory" ]; then
     cd "$ASSETS/patches" && tar czf /tmp/patches_factory.tar.gz patches_factory/
     scp -i "$SSH_KEY" /tmp/patches_factory.tar.gz "$PI_USER@$PI_HOST:/tmp/"
-    mpe_pi_ssh 'cd ~/surge/resources/data && tar xzf /tmp/patches_factory.tar.gz && rm /tmp/patches_factory.tar.gz'
+    mpe_pi_ssh "$(mpe_pi_source_line); cd \"\$MPE_SURGE_RESOURCES\" && tar xzf /tmp/patches_factory.tar.gz && rm /tmp/patches_factory.tar.gz"
     rm /tmp/patches_factory.tar.gz
     echo "✓ Factory patches deployed"
 else
-    echo "⚠️  Warning: Factory patches not found"
+    echo "⚠️  Factory patches skipped or not found"
 fi
 echo ""
 
 echo "Step 5/7: Deploying third-party patches (375MB)..."
-if [ -d "$ASSETS/patches/third-party" ]; then
+if [ "$PATCH_DEPLOY" = 1 ] && [ -d "$ASSETS/patches/third-party" ]; then
     cd "$ASSETS/patches" && tar czf /tmp/patches_3rdparty.tar.gz third-party/
     scp -i "$SSH_KEY" /tmp/patches_3rdparty.tar.gz "$PI_USER@$PI_HOST:/tmp/"
-    mpe_pi_ssh 'cd ~/surge/resources/data && tar xzf /tmp/patches_3rdparty.tar.gz && mv third-party patches_3rdparty && rm /tmp/patches_3rdparty.tar.gz'
+    mpe_pi_ssh "$(mpe_pi_source_line); cd \"\$MPE_SURGE_RESOURCES\" && tar xzf /tmp/patches_3rdparty.tar.gz && mv third-party patches_3rdparty && rm /tmp/patches_3rdparty.tar.gz"
     rm /tmp/patches_3rdparty.tar.gz
     echo "✓ Third-party patches deployed"
 else
-    echo "⚠️  Warning: Third-party patches not found"
+    echo "⚠️  Third-party patches skipped or not found"
 fi
 echo ""
 
@@ -95,7 +100,7 @@ if [ -f "$ASSETS/user-data/SurgeXTUserDefaults.xml" ]; then
     scp -i "$SSH_KEY" "$ASSETS/user-data/SurgeXTUserDefaults.xml" \
         "$PI_USER@$PI_HOST:.local/share/Surge\ XT/"
 fi
-if [ -d "$ASSETS/user-data/Patches" ]; then
+if [ "$PATCH_DEPLOY" = 1 ] && [ -d "$ASSETS/user-data/Patches" ]; then
     cd "$ASSETS/user-data" && tar czf /tmp/user-patches.tar.gz Patches/
     scp -i "$SSH_KEY" /tmp/user-patches.tar.gz "$PI_USER@$PI_HOST:/tmp/"
     mpe_pi_ssh bash -s <<EOF

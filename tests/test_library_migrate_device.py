@@ -202,6 +202,51 @@ class MigrateTests(unittest.TestCase):
         self.assertIn(f"MPE_PERSONAL_REPO={self.old}", self.env_file.read_text())
         self.assertIn("MPE_UI_MODE=touch", self.env_file.read_text())
 
+    def test_rollback_stops_at_the_pre_migration_state_not_at_older_backups(self) -> None:
+        import shutil
+
+        # The user root starts as a LINK to an older copy, with a stale backup dir beside it.
+        older = self.root / "older-copy"
+        shutil.copytree(self.docs / "Patches", older)
+        shutil.rmtree(self.docs / "Patches")
+        (self.docs / "Patches").symlink_to(older)
+        stale = self.docs / "Patches.backup.1000"
+        self.put(stale / "Ancient.fxp", b"ancient")
+        self.run_step("snapshot")
+        link = self.run_step("link", "--dir", str(self.new))
+        self.assertEqual(link.returncode, 0, link.stdout + link.stderr)
+        self.assertEqual((self.docs / "Patches").resolve(), (self.new / "assets/user-data/Patches").resolve())
+
+        back = self.run_step("rollback")
+        self.assertEqual(back.returncode, 0, back.stdout + back.stderr)
+        # exactly the state before `link`: still a link to the older copy, stale dir untouched
+        self.assertTrue((self.docs / "Patches").is_symlink())
+        self.assertEqual((self.docs / "Patches").resolve(), older.resolve())
+        self.assertEqual((stale / "Ancient.fxp").read_bytes(), b"ancient")
+        self.assertFalse((self.res / "patches_factory").is_symlink())
+        self.assertIn(f"MPE_PERSONAL_REPO={self.old}", self.env_file.read_text())
+        # a second rollback has nothing recorded and changes nothing
+        again = self.run_step("rollback")
+        self.assertEqual(again.returncode, 0)
+        self.assertEqual((self.docs / "Patches").resolve(), older.resolve())
+
+    def test_a_failed_second_link_undoes_only_itself(self) -> None:
+        import shutil
+
+        second = self.root / "new-library-2"
+        shutil.copytree(self.new, second)
+        self.run_step("snapshot")
+        self.assertEqual(self.run_step("link", "--dir", str(self.new)).returncode, 0)
+        snap = self.home / ".mpe-library-migration/before.json"
+        data = json.loads(snap.read_text())
+        data["patches_per_root"]["patches_factory"] += 9
+        snap.write_text(json.dumps(data))
+        bad = self.run_step("link", "--dir", str(second))
+        self.assertNotEqual(bad.returncode, 0)
+        # still linked into the FIRST library, env still names it
+        self.assertEqual((self.docs / "Patches").resolve(), (self.new / "assets/user-data/Patches").resolve())
+        self.assertIn(f"MPE_PERSONAL_REPO={self.new.resolve()}", self.env_file.read_text())
+
     def test_rollback_restores_the_original_state_after_two_links(self) -> None:
         import shutil
 
