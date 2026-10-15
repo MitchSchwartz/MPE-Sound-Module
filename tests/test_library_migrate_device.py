@@ -44,12 +44,13 @@ class MigrateTests(unittest.TestCase):
             self.put(self.new / rel, data)
         for live, data in {
             self.res / "patches_factory/Bass/Sub.fxp": b"sub",
-            self.res / "patches_3rdparty/Emu/Synths.fxp": b"emu",
+            self.res / "patches_3rdparty/patches_3rdparty/Emu/Synths.fxp": b"emu",
             self.docs / "Patches/Mine.fxp": b"mine",
         }.items():
             self.put(live, data)
         (self.home / ".patch_browser_fx.json").write_text(
-            json.dumps({"factory:Bass/Sub": {"mask": 1}, "user:Mine": {"mask": 2}})
+            json.dumps({"factory:Bass/Sub": {"mask": 1}, "user:Mine": {"mask": 2},
+                        "thirdparty:patches_3rdparty/Emu/Synths": {"mask": 4}})
         )
         self.env_file = self.root / "mpe.env"
         self.env_file.write_text(f"MPE_PERSONAL_REPO={self.old}\nMPE_UI_MODE=touch\n")
@@ -83,6 +84,10 @@ class MigrateTests(unittest.TestCase):
     def test_full_sequence_then_rollback_and_reruns(self) -> None:
         self.assertEqual(self.run_step("snapshot").returncode, 0)
         self.assertEqual(self.run_step("snapshot").returncode, 0)  # idempotent: keeps the first
+        snap = json.loads((self.home / ".mpe-library-migration/before.json").read_text())
+        # all three fx keys land, the nested third-party one included; verify below
+        # fails if linking moved any of them
+        self.assertEqual(snap["store_hits"]["fx"]["stable_hits"], 3)
 
         dry = self.run_step("link", "--dir", str(self.new), "--dry-run")
         self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
