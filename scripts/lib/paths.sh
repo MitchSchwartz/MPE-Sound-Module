@@ -52,14 +52,27 @@ mpe_apply_pi_home() {
 
 mpe_apply_pi_home
 
+# The personal library checkout: the user's own full copy of the template
+# library (patches, settings snapshots, captures). Same candidates, same order
+# as patch_scanner.resolve_personal_repo(). The clean template is a git remote
+# of that checkout, named `upstream`.
 MPE_PERSONAL_REPO="${MPE_PERSONAL_REPO:-}"
 if [ -n "$MPE_PERSONAL_REPO" ] && [ -d "$MPE_PERSONAL_REPO" ]; then
     MPE_PERSONAL_REPO="$(cd "$MPE_PERSONAL_REPO" && pwd)"
-elif [ -d "$MPE_MODULE_REPO/../MPE-Library" ]; then
-    MPE_PERSONAL_REPO="$(cd "$MPE_MODULE_REPO/../MPE-Library" && pwd)"
-elif [ -d "$MPE_MODULE_REPO/../MPE-Personal" ]; then
-    MPE_PERSONAL_REPO="$(cd "$MPE_MODULE_REPO/../MPE-Personal" && pwd)"
+else
+    for _cand in MPE-Library MPE-Personal mpe-assets; do
+        if [ -d "$MPE_MODULE_REPO/../$_cand" ]; then
+            MPE_PERSONAL_REPO="$(cd "$MPE_MODULE_REPO/../$_cand" && pwd)"
+            break
+        fi
+    done
+    unset _cand
 fi
+# Remote names and branch of the template inside the personal checkout.
+MPE_LIBRARY_ORIGIN_REMOTE="${MPE_LIBRARY_ORIGIN_REMOTE:-origin}"
+MPE_LIBRARY_UPSTREAM_REMOTE="${MPE_LIBRARY_UPSTREAM_REMOTE:-upstream}"
+MPE_LIBRARY_UPSTREAM_REF="${MPE_LIBRARY_UPSTREAM_REF:-main}"
+export MPE_LIBRARY_ORIGIN_REMOTE MPE_LIBRARY_UPSTREAM_REMOTE MPE_LIBRARY_UPSTREAM_REF
 MPE_ASSETS_DIR="${MPE_PERSONAL_REPO:+$MPE_PERSONAL_REPO/assets}"
 
 MPE_SURGE_ROOT="${MPE_SURGE_ROOT:-$HOME/surge}"
@@ -98,7 +111,7 @@ SURGE_PROGRAMDATA="${SURGE_PROGRAMDATA:-$_default_programdata}"
 mpe_require_personal() {
     if [ -z "$MPE_PERSONAL_REPO" ] || [ ! -d "$MPE_ASSETS_DIR" ]; then
         echo "ERROR: Private assets repo not found."
-        echo "Clone it beside MPE-Module (e.g. ../mpe-assets) or set MPE_PERSONAL_REPO."
+        echo "Clone your personal library beside MPE-Module or set MPE_PERSONAL_REPO."
         exit 1
     fi
 }

@@ -1,0 +1,151 @@
+"""library-migrate-device.sh against a temp "device": every step idempotent, reversible, silent."""
+
+from __future__ import annotations
+
+import json
+import os
+import stat
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "library-migrate-device.sh"
+
+
+class MigrateTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.home = self.root / "home"
+        self.res = self.home / "surge/resources/data"
+        self.docs = self.home / "docs"
+        self.new = self.root / "new-library"
+        self.old = self.home / "old-library"
+        bindir = self.root / "bin"
+        bindir.mkdir()
+        sudo = bindir / "sudo"
+        sudo.write_text('#!/usr/bin/env bash\nexec "$@"\n')
+        sudo.chmod(sudo.stat().st_mode | stat.S_IEXEC)
+        # a log of anything that tries to restart a unit
+        systemctl = bindir / "systemctl"
+        systemctl.write_text(f'#!/usr/bin/env bash\necho "$@" >> {self.root}/systemctl.log\n')
+        systemctl.chmod(systemctl.stat().st_mode | stat.S_IEXEC)
+        self.bin = bindir
+
+        self.old.mkdir(parents=True)
+        (self.old / "stale.txt").write_text("old copy")
+        for rel, data in {
+            "assets/patches/patches_factory/Bass/Sub.fxp": b"sub",
+            "assets/patches/third-party/patches_3rdparty/Emu/Synths.fxp": b"emu",
+            "assets/user-data/Patches/Mine.fxp": b"mine",
+        }.items():
+            self.put(self.new / rel, data)
+        for live, data in {
+            self.res / "patches_factory/Bass/Sub.fxp": b"sub",
+            self.res / "patches_3rdparty/Emu/Synths.fxp": b"emu",
+            self.docs / "Patches/Mine.fxp": b"mine",
+        }.items():
+            self.put(live, data)
+        (self.home / ".patch_browser_fx.json").write_text(
+            json.dumps({"factory:Bass/Sub": {"mask": 1}, "user:Mine": {"mask": 2}})
+        )
+        self.env_file = self.root / "mpe.env"
+        self.env_file.write_text(f"MPE_PERSONAL_REPO={self.old}\nMPE_UI_MODE=touch\n")
+
+    @staticmethod
+    def put(path: Path, data: bytes) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+    def run_step(self, *args: str) -> subprocess.CompletedProcess:
+        env = {
+            "PATH": f"{self.bin}:{os.environ['PATH']}",
+            "HOME": str(self.home),
+            "MPE_HOME": str(self.home),
+            "MPE_ENV_FILE": "",
+            "MPE_PERSONAL_REPO": str(self.old),
+            "MPE_SURGE_RESOURCES": str(self.res),
+            "MPE_SURGE_DOCS": str(self.docs),
+            "MPE_APPLIANCE_ENV_FILE": str(self.env_file),
+        }
+        return subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True, env=env)
+
+    def is_linked(self) -> bool:
+        return all(p.is_symlink() for p in (self.res / "patches_factory", self.res / "patches_3rdparty", self.docs / "Patches"))
+
+    def test_link_needs_a_snapshot_first(self) -> None:
+        proc = self.run_step("link", "--dir", str(self.new))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertFalse(self.is_linked())
+
+    def test_full_sequence_then_rollback_and_reruns(self) -> None:
+        self.assertEqual(self.run_step("snapshot").returncode, 0)
+        self.assertEqual(self.run_step("snapshot").returncode, 0)  # idempotent: keeps the first
+
+        dry = self.run_step("link", "--dir", str(self.new), "--dry-run")
+        self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
+        self.assertFalse(self.is_linked())
+
+        for _ in range(2):  # a re-run is harmless
+            proc = self.run_step("link", "--dir", str(self.new))
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(self.is_linked())
+        self.assertIn(f"MPE_PERSONAL_REPO={self.new.resolve()}", self.env_file.read_text())
+        self.assertIn("MPE_UI_MODE=touch", self.env_file.read_text())
+        # same patches resolve through the links, and the settings still land
+        self.assertEqual((self.docs / "Patches/Mine.fxp").read_bytes(), b"mine")
+        self.assertEqual(self.run_step("verify").returncode, 0)
+
+        # never restarts anything
+        self.assertFalse((self.root / "systemctl.log").exists())
+
+        back = self.run_step("rollback")
+        self.assertEqual(back.returncode, 0, back.stdout + back.stderr)
+        self.assertFalse(self.is_linked())
+        self.assertEqual((self.res / "patches_factory/Bass/Sub.fxp").read_bytes(), b"sub")
+        self.assertIn(f"MPE_PERSONAL_REPO={self.old}", self.env_file.read_text())
+        self.assertIn("MPE_UI_MODE=touch", self.env_file.read_text())
+        self.assertEqual(self.run_step("rollback").returncode, 0)
+
+    def test_link_refuses_and_changes_nothing_when_device_has_extra_patch(self) -> None:
+        self.run_step("snapshot")
+        self.put(self.docs / "Patches/OnlyHere.fxp", b"x")
+        proc = self.run_step("link", "--dir", str(self.new))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertFalse(self.is_linked())
+        self.assertIn(f"MPE_PERSONAL_REPO={self.old}", self.env_file.read_text())
+
+    def test_cleanup_lists_by_default_and_refuses_the_active_library(self) -> None:
+        for extra in ([], ["--yes"]):
+            proc = self.run_step("cleanup", "--old-copy", str(self.old), *extra)
+            self.assertNotEqual(proc.returncode, 0)  # MPE_PERSONAL_REPO still points at it
+            self.assertIn("active library", proc.stderr)
+            self.assertTrue(self.old.exists())
+
+    def test_cleanup_deletes_only_with_yes(self) -> None:
+        self.run_step("snapshot")
+        self.run_step("link", "--dir", str(self.new))
+        env_text = self.env_file.read_text()
+        self.assertIn(str(self.new.resolve()), env_text)
+        env = {
+            "PATH": f"{self.bin}:{os.environ['PATH']}",
+            "HOME": str(self.home),
+            "MPE_HOME": str(self.home),
+            "MPE_ENV_FILE": "",
+            "MPE_PERSONAL_REPO": str(self.new),
+            "MPE_SURGE_RESOURCES": str(self.res),
+            "MPE_SURGE_DOCS": str(self.docs),
+        }
+        run = lambda *a: subprocess.run(["bash", str(SCRIPT), *a], capture_output=True, text=True, env=env)  # noqa: E731
+        self.assertEqual(run("cleanup", "--old-copy", str(self.old)).returncode, 0)
+        self.assertTrue(self.old.exists())
+        self.assertEqual(run("cleanup", "--old-copy", str(self.old), "--yes").returncode, 0)
+        self.assertFalse(self.old.exists())
+        self.assertFalse(list(self.res.glob("patches_*.backup.*")))
+        self.assertTrue(self.is_linked())
+
+
+if __name__ == "__main__":
+    unittest.main()
