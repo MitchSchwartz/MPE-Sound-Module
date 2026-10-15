@@ -10,7 +10,7 @@ import pygame
 
 from patch_browser.all_patches_index import build_flat_patch_list
 from patch_browser.dsi_splash import boot_animation_phase
-from patch_browser.favorites_sections import HEADER_KIND, section_starts, sectioned_entries
+from patch_browser.favorites_sections import HEADER_KIND, favorite_row_key, section_starts, sectioned_entries
 from patch_browser.instrument_filter import (
     filter_patches_by_instrument,
     patches_in_browse_subtree,
@@ -315,7 +315,7 @@ class TouchBrowserPatchesMixin:
             entry["sectioned"] = True
         return entries + sectioned_entries(
             patch_entries,
-            lambda patch: sections[str(patch.get("path", ""))],
+            lambda patch: sections[favorite_row_key(patch)],
         )
 
     def _patches_in_browse_folder(self) -> list[dict]:
@@ -665,6 +665,10 @@ class TouchBrowserPatchesMixin:
         self.left_nav_collapsed = not self.left_nav_collapsed
         self._relayout()
     def _select_patch(self, patch: dict) -> None:
+        if patch.get("missing"):
+            # A favorite whose patch is gone from the library: hold the row to remove it.
+            self._toast("Patch missing from the library", 2.5)
+            return
         from_all = self.left_nav_mode == LeftNavMode.ALL_PATCHES
         folder_idx = None
         inner: tuple[str, ...] = ()

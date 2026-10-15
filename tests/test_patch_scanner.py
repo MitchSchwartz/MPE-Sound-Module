@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from patch_browser.favorites_index import FavoritesIndex
 from patch_browser.patch_scanner import (
     PatchScanner,
     favorites_display_name,
@@ -65,9 +66,11 @@ class PatchScannerTests(unittest.TestCase):
         self.assertEqual(favorites_display_name("Quick Access"), "!Quick Access")
         self.assertEqual(favorites_display_name("!Quick Access"), "!Quick Access")
 
-    def test_favorites_folder_matches_case_insensitive(self) -> None:
-        self.assertTrue(favorites_folder_matches("quick access"))
+    def test_favorites_folder_matches_the_virtual_label_only(self) -> None:
+        self.assertTrue(favorites_folder_matches("!quick access"))
         self.assertTrue(favorites_folder_matches("!Quick Access"))
+        # the folder of that name on disk is an ordinary category
+        self.assertFalse(favorites_folder_matches("Quick Access"))
 
     def test_quick_access_category_and_nested_scan(self) -> None:
         qa = self.root / "patches_factory"
@@ -81,12 +84,15 @@ class PatchScannerTests(unittest.TestCase):
         (qa_dir / "Solo.fxp").write_bytes(b"x")
 
         scanner = PatchScanner([user])
+        scanner.favorites_index = FavoritesIndex(self.root / "fav.json")
         scanner.scan_patches()
         label = favorites_display_name()
         self.assertIn(label, scanner.get_categories())
+        # patches saved into that folder are user patches, favorited on scan
         patches = scanner.get_patches_in_category(label)
         self.assertEqual(len(patches), 2)
         self.assertEqual(scanner.get_subfolders(label), ["Gig A"])
+        self.assertIn("Quick Access", scanner.get_categories())
 
     def test_quick_scan_category_recursive(self) -> None:
         sub = self.factory / "Keys" / "Electric"

@@ -432,7 +432,7 @@ class TouchBrowserContextMixin:
                 self._sync_categories_after_favorites_change()
                 self._close_context_menu()
                 self._toast(
-                    f"Moved to {folder}" if ok else "Could not move copy",
+                    f"Moved to {folder}" if ok else "Could not move",
                     2.0,
                 )
             return
@@ -480,13 +480,18 @@ class TouchBrowserContextMixin:
         canonical = self.scanner.get_patch_by_stable_key(stable_key)
         if canonical is not None and canonical is not patch:
             index.enrich_patch(canonical)
-        # Favorites sections are cached per copy; this may move one.
+        # A favorite's section and chips come from the patch: rebuild the views.
         self.scanner.invalidate_favorite_cache()
         path = patch.get("path")
-        if self.detail_patch and self.detail_patch.get("path") == path:
-            self.detail_patch = dict(patch)
-        if self.loaded_patch_info and self.loaded_patch_info.get("path") == path:
-            self.loaded_patch_info = dict(patch)
+        # A favorites row is a view of the patch: the fresh fields (instrument)
+        # come from the patch, where it is listed stays what it was.
+        where = ("category", "folder_segments", "inner_segments", "favorite_view")
+        for attr in ("detail_patch", "loaded_patch_info"):
+            held = getattr(self, attr)
+            if held and held.get("path") == path:
+                fresh = dict(patch)
+                fresh.update({k: held[k] for k in where if k in held})
+                setattr(self, attr, fresh)
 
     def _undo_set_instrument(self, undo: InstrumentUndo) -> None:
         """The toast's Undo: the patch's previous instrument (or none), back
@@ -510,12 +515,8 @@ class TouchBrowserContextMixin:
         if same_view:
             self.nav_list.set_scroll_pixels(undo.scroll_pixels)
         # Not naming the instrument: a favorite's section comes from its source
-        # patch (favorites_sections), so the copy's own tag would misname it.
+        # patch (favorites_sections); the toast names the section it landed in.
         self._toast("Instrument change undone", 2.0)
-
-    def _qa_parent_path(self, target: ContextTarget):
-        qa_root = self.scanner.get_favorites_folder_path()
-        return qa_root.joinpath(*target.inner_segments)
 
     def _delete_qa_folder(self, target: ContextTarget) -> None:
         folder_key = qa_folder_key_from_target_inner(target.inner_segments) or target.folder_name.strip()
@@ -523,10 +524,7 @@ class TouchBrowserContextMixin:
             self._toast("Select a subfolder to delete", 2.0)
             return
         try:
-            self.scanner.favorites_index.delete_folder(
-                folder_key,
-                qa_root=self.scanner.get_favorites_folder_path(),
-            )
+            self.scanner.favorites_index.delete_folder(folder_key)
             self.scanner.favorites_index.save()
             self._pop_browse_after_folder_delete(folder_key)
             self._sync_categories_after_favorites_change()
@@ -584,25 +582,22 @@ class TouchBrowserContextMixin:
         if not name or target is None:
             self._toast("Name required", 2.0)
             return
-        qa_root = self.scanner.get_favorites_folder_path()
         index = self.scanner.favorites_index
         kind = self._name_prompt_kind
         try:
             if kind == "qa_new":
-                parent = self._qa_parent_path(target)
-                parent.mkdir(parents=True, exist_ok=True)
-                path = parent / name
-                if path.exists():
+                if "/" in name:
+                    raise ValueError("a folder name cannot contain /")
+                folder_key = qa_folder_key_from_target_inner(target.inner_segments + (name,))
+                if folder_key in index.folders:
                     raise ValueError(f"folder already exists: {name}")
-                path.mkdir(parents=True, exist_ok=True)
-                if not target.inner_segments:
-                    index.ensure_folder(name)
+                index.create_folder(folder_key)
                 index.save()
                 self._sync_categories_after_favorites_change()
                 self._toast(f"Created {name}", 2.0)
             elif kind == "qa_rename":
                 old = target.folder_name.strip()
-                index.rename_folder(old, name, qa_root=qa_root)
+                index.rename_folder(old, name)
                 index.save()
                 self._sync_categories_after_favorites_change()
                 self._toast(f"Renamed to {name}", 2.0)

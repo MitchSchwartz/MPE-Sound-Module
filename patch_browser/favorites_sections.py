@@ -18,11 +18,10 @@ own choice (long-press, Set instrument...), else the shipped baseline
 (``data/patch_metadata_baseline.json``), else the folder/name heuristic. The
 filter-pane chips use the same field, so the sections and the chips agree.
 
-A favorite is a *copy* under the Quick Access folder, so its own
-``instrument_primary`` was classified from the copy's path, whose folder says
-nothing about the instrument. The source patch's instrument, classified from
-its real library folder, is the better signal, and is used unless the user set
-an instrument on the copy itself.
+A favorite is a pointer to its patch (``favorites_index``), so there is one
+patch and one ``instrument_primary``: the patch's own. Before pointers a favorite
+was a copy under the Quick Access folder whose own tag said nothing, and the
+source's was consulted first; that second opinion is gone.
 """
 
 from __future__ import annotations
@@ -65,29 +64,26 @@ _SECTION_TAGS: dict[str, str] = {
 HEADER_KIND = "header"
 
 
-def favorite_group(
-    *,
-    user_instrument: str | None,
-    source_primary: str | None,
-    own_primary: str | None,
-) -> str:
+def favorite_group(*, user_instrument: str | None, primary: str | None) -> str:
     """The section a favorite is listed under. The one decision site.
 
-    ``user_instrument``: what the user set on this favorite (Set instrument...),
-    or None. ``source_primary``: the library patch it was copied from, or None
-    when the copy cannot be traced. ``own_primary``: the copy's own scan-time
-    instrument.
+    ``user_instrument``: what the user set on this patch (Set instrument...), or
+    None. ``primary``: the patch's scan-time ``instrument_primary``.
 
-    The user's choice wins, even "other". Otherwise the first of source, then
-    copy, that names a real instrument; neither does means "other". Anything
-    outside the vocabulary counts as no answer, so it can never make a section.
+    The user's choice wins, even "other". Otherwise the patch's own instrument if
+    it names one in the vocabulary; anything else means "other", so it can never
+    make a section.
     """
     if user_instrument:
         return user_instrument if user_instrument in INSTRUMENT_DISPLAY_ORDER else OTHER_GROUP
-    for candidate in (source_primary, own_primary):
-        if candidate and candidate != OTHER_GROUP and candidate in INSTRUMENT_DISPLAY_ORDER:
-            return candidate
+    if primary and primary != OTHER_GROUP and primary in INSTRUMENT_DISPLAY_ORDER:
+        return primary
     return OTHER_GROUP
+
+
+def favorite_row_key(patch: dict) -> str:
+    """What ``PatchScanner.favorite_sections`` keys a row by: its stable key."""
+    return str(patch.get("stable_key") or patch.get("path") or "")
 
 
 def section_label(group: str) -> str:

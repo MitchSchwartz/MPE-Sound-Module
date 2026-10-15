@@ -41,6 +41,13 @@ class ContextMenuTests(unittest.TestCase):
         self.assertIn("unfavorite", ids)
         self.assertIn("move_pick_folder", ids)
 
+    def test_a_missing_favorite_offers_only_remove(self) -> None:
+        target = ContextTarget(kind="patch", patch={"name": "Ghost", "missing": True})
+        for favorited in (True, False):
+            self.assertEqual(
+                [a[0] for a in build_context_actions(target, is_favorited=favorited)], ["unfavorite"]
+            )
+
     def test_qa_folder_liked_only_new(self) -> None:
         target = ContextTarget(
             kind="qa_folder",
