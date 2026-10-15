@@ -24,7 +24,7 @@ parent/
     │   ├── patches/patches_factory/                stock factory library
     │   ├── patches/third-party/patches_3rdparty/   stock third-party library
     │   ├── <CC0 collections>/
-    │   └── user-data/Patches/                      your patches and favorites copies
+    │   └── user-data/Patches/                      your patches (favorites are pointers in the index, not files)
     ├── settings/                                   copies of the per-patch stores (see below)
     │   └── device/<device-id>/                     device-bound: DAC level, brightness, mpe.env
     ├── state/appliance-state/                      captures (never under assets/)

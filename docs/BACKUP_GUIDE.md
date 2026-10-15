@@ -10,7 +10,7 @@ Everything goes into your **personal library** (a git checkout, `MPE_PERSONAL_RE
 
 | What | Where in the library | Moves by |
 |------|----------------------|----------|
-| Your patches and favorites copies | `assets/user-data/Patches/` | The device's symlink into the checkout, once wired. Until then: `pull-all-from-device.sh`, `sync-from-device.sh`, `backup-quick-select.sh` |
+| Your patches | `assets/user-data/Patches/` | The device's symlink into the checkout, once wired. Until then: `pull-all-from-device.sh`, `sync-from-device.sh`, `backup-quick-select.sh` |
 | Per-patch settings and UI prefs (FX, hold, pressure, normalization, instrument tags, favorites index, UI, volume, Surge defaults, looper HUD state) | `settings/` | Copied, not linked ([PATHS.md](PATHS.md)) |
 | Device-bound settings (DAC level, brightness, `mpe.env`) | `settings/device/<device-id>/` | Copied |
 | Full dated capture of the device (config, calibration backups, drop-ins) | `state/appliance-state/captures/<date>/` | `capture-external-state.sh` + `archive-state-to-assets.sh` |

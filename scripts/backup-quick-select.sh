@@ -40,8 +40,10 @@ set -e
 $(mpe_pi_source_line)
 QA="\${MPE_SURGE_DOCS:-\$HOME/Documents/Surge XT}/Patches/$FAV_NAME"
 if [ ! -d "\$QA" ]; then
-  echo "ERROR: Quick Select not found: \$QA" >&2
-  exit 1
+  # Favorites are pointers now: this folder only holds patches saved from a computer.
+  echo "Quick Select folder not found (fine once favorites are pointers): \$QA" >&2
+  tar czf - -T /dev/null
+  exit 0
 fi
 cd "\$(dirname "\$QA")"
 tar czf - "$FAV_NAME"

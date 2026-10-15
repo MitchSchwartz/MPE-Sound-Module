@@ -25,8 +25,10 @@ The Pi browser pins **one user patch folder** at the top of the category list. D
 **PC workflow (recommended):**
 
 1. In Surge XT, create `~/Documents/Surge XT/Patches/!Quick Access/` (or your custom name — leading `!` recommended).
-2. Save or copy patches into that folder.
+2. Save patches into that folder. A patch saved there is a user patch and is favorited automatically on the next scan.
 3. Deploy with the steps below.
+
+Favorites made on the device are pointers (index entries), not files in this folder; see [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md).
 
 On-device copy via encoder hold is **disabled** — it overlapped mode toggle. Use the PC workflow above.
 
