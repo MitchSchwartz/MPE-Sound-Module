@@ -56,6 +56,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -4026,6 +4027,14 @@ static int build_runner_check(const char *mode)
 
 int main(int argc, char **argv)
 {
+    /* Crashes here are expected: the runner check aborts on purpose and
+     * mutants trip CHECKs. Make the process non-dumpable so the kernel
+     * writes no core, and the desktop crash reporter stays quiet. The
+     * runner still sees the signal. FX_SELFTEST_COREDUMP=1 keeps dumps. */
+    const char *dump = getenv("FX_SELFTEST_COREDUMP");
+    if (dump == NULL || strcmp(dump, "1") != 0) {
+        prctl(PR_SET_DUMPABLE, 0);
+    }
     const char *full = getenv("FX_SELFTEST_FULL");
     g_full = full != NULL && strcmp(full, "1") == 0;
     if (argc == 3 && strcmp(argv[1], "--parse") == 0) {
