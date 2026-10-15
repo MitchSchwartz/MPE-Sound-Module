@@ -1,296 +1,92 @@
-# Backup Guide
+# Backup guide
 
-Complete guide to backing up and restoring your Pi-Surge-MPE device.
+How the device's patches and settings are backed up, restored and reset. Path
+and variable reference: **[PATHS.md](PATHS.md)**. Moving a device onto the git
+workflow for the first time: **[LIBRARY-MIGRATION.md](LIBRARY-MIGRATION.md)**.
 
-## Overview
+## What is backed up, and where
 
-Clone both repos as siblings under the same parent folder. Backup data goes in **your private assets repo**; run pull/sync scripts from **MPE-Module**. Path overrides: **[PATHS.md](PATHS.md)**.
+Everything goes into your **personal library** (a git checkout, `MPE_PERSONAL_REPO`), so history is the archive.
 
-Everything needed to restore the device can be committed to the assets repo:
-- Surge XT CLI binary (24MB)
-- All 3,192 patches (422MB)
-- System configurations
-- Scripts and documentation
+| What | Where in the library | Moves by |
+|------|----------------------|----------|
+| Your patches and favorites copies | `assets/user-data/Patches/` | The device's symlink into the checkout, once wired. Until then: `pull-all-from-device.sh`, `sync-from-device.sh`, `backup-quick-select.sh` |
+| Per-patch settings and UI prefs (FX, hold, pressure, normalization, instrument tags, favorites index, UI, volume, Surge defaults, looper HUD state) | `settings/` | Copied, not linked ([PATHS.md](PATHS.md)) |
+| Device-bound settings (DAC level, brightness, `mpe.env`) | `settings/device/<device-id>/` | Copied |
+| Full dated capture of the device (config, calibration backups, drop-ins) | `state/appliance-state/captures/<date>/` | `capture-external-state.sh` + `archive-state-to-assets.sh` |
+| Template versions your edits overrode | `.library/kept-template-versions.json` | `mpe-library update` |
 
-**Total repo size:** ~450MB
+Not backed up: runtime-only files (poly state, live pressure, last patch, watchdog and clock scratch, `/run/mpe/*`) and the SSH keys. The looper's saved songs and clips are in the dated capture on the laptop but `library-writeback.sh` leaves them out of the git commit (tens of MB of audio; they wait for LFS, or pass `--with-looper`). The Surge binary is not stored in the template.
 
----
+One file list drives the capture and the settings copy: [`config/platform/external-state-paths.list`](../config/platform/external-state-paths.list).
 
-## Initial Setup (One Time Only)
+## A backup never changes the device
 
-### Step 1: Pull All Assets from Device
+Taking a capture is read-only on the appliance. `capture-external-state.sh` (laptop mode) does not touch the device's git checkout and leaves no files there: the device builds the capture in RAM and streams it back as a tar. If the device's checkout is too old to do that, the script says so and stops; updating the checkout is a deliberate act of its own.
 
-Run the pull script to download everything from the Pi:
+## Weekly write-back (laptop)
 
 ```bash
 cd MPE-Module
-bash scripts/pull-all-from-device.sh
+./scripts/library-writeback.sh --device-id <device-id>        # add --push to push
 ```
 
-This will download:
-- Surge binary (24MB) → `assets/binaries/`
-- Factory patches (47MB, 639 patches) → `assets/patches/factory/`
-- Third-party patches (375MB, 2,553 patches) → `assets/patches/third-party/`
-- Active system configs → `assets/configs/active/`
-- User data → `assets/user-data/`
+That runs, in order: the read-only capture, `library-snapshot-settings.sh` (captured settings into `settings/`, credential scan), `archive-state-to-assets.sh` (capture tree into `state/appliance-state/captures/<date>/`), then one commit that adds `settings/` and `state/` only (without the looper audio). `--no-capture` reuses the newest capture already under `state/`. The script commits nothing else and never forces a push.
 
-**Time:** 5-10 minutes (depends on network speed)
-
-### Step 2: Commit to Git
+The steps can be run alone:
 
 ```bash
-cd ../mpe-assets
-git status
-git add assets/
-git commit -m "Initial backup: binary + patches + configs"
-git push
+MPE_CLI_CONFIG=~/.config/mpe/mpe.env ./scripts/provision/capture-external-state.sh
+./scripts/library-snapshot-settings.sh --from state/<capture> --device-id <device-id>
+./scripts/provision/archive-state-to-assets.sh state/<capture>
 ```
 
-**Note:** First push will be slow (~450MB upload). This is normal and only happens once.
+Patch edits are not in a capture. Once the device is wired to its checkout they sit in that working tree (`git -C <checkout> status` on the device shows them). **On-device auto-commit is not built yet**: until it is, commit and push from the device by hand, or pull the files with `sync-from-device.sh`. Auto-commit is a follow-up, designed to run on events (idle after a change, clean shutdown, user request) and never in a loop.
 
----
+## Restore to default
 
-## Ongoing Backups (Weekly Recommended)
+`scripts/mpe-library` (needs `MPE_PERSONAL_REPO` or `--repo`, and the `upstream` remote). **Stop the patch browser first** if you will copy the result onto the device: it holds its stores in memory and would write them back.
 
-**Device state** (calibration, patch-browser JSON, `/etc/mpe/mpe.env`):
+| Command | Does |
+|---------|------|
+| `mpe-library restore-patch <stable_key>` | One patch back to the template's version; clears that patch's user settings (FX, hold, pressure trim, normalization trim, instrument tag). Calibrated baselines stay. |
+| `mpe-library restore-stock` | All stock patches and CC0 collections back to the template. Your patches and settings are untouched. |
+| `mpe-library factory-reset` | Stock, your patches (back to the template's starter set) and the per-patch settings (back to the template's `defaults/`, else empty). |
+
+Every mode does this before it changes anything, in this order:
+
+1. a backup commit of what is about to change,
+2. a tag `pre-restore/<UTC timestamp>` on it,
+3. a push of the branch and the tag (never forced).
+
+If the push fails, nothing is restored (pass `--allow-offline` to go ahead anyway; the commit and tag stay local). **Undo:** `git checkout pre-restore/<timestamp> -- .` in the checkout; the tag also survives a lost device because it was pushed.
+
+Then apply the settings to the device: stop the browser, `./scripts/library-snapshot-settings.sh --in --device-id <device-id>`, start it.
+
+## Pulling template updates
 
 ```bash
-MPE_CLI_CONFIG=~/.config/mpe/mpe.env.pi5 ./scripts/provision/capture-external-state.sh
-./scripts/provision/archive-state-to-assets.sh
-cd ../MPE-Library && git add assets/appliance-state && git commit -m "state backup $(date +%Y-%m-%d)" && git push
+scripts/mpe-library update
 ```
 
-### Quick Sync
+Fetches `upstream` and merges it into the personal library. **Your edits win every conflict.** Patches (`.fxp`) are binary and git cannot merge them, so a patch changed on both sides keeps your version and the template's version is recorded as a git blob reference in `.library/kept-template-versions.json` (`path`, `upstream_commit`, `blob`). No template copy is written into the tree: any `.fxp` under a scan root would show up in the browser as a duplicate patch. A patch the template withdrew is deleted only if you never modified it. Re-running when nothing is new changes nothing.
 
-Use the sync script to pull only changed files (configs, user data):
+`mpe-library absorb <commit>` is for the one-time strip commit the template makes when it drops the personal folders: merging it normally would delete those folders in your library, so absorb it with `merge -s ours` once, before the next update.
 
-```bash
-bash scripts/sync-from-device.sh
-```
+## Disaster recovery
 
-This syncs:
-- System service files (if modified)
-- User preferences
-- Custom patches (if any)
+Fresh SD card or image, then, from the laptop:
 
-**Time:** 10-30 seconds
-
-### Review and Commit
-
-```bash
-git status                    # See what changed
-git diff                      # Review changes
-git add -A
-git commit -m "Weekly backup $(date +%Y-%m-%d)"
-git push
-```
-
-**Time:** 3-5 seconds (git only uploads changes)
-
----
-
-## Disaster Recovery
-
-### Scenario: SD Card Failed
-
-**Prerequisites:**
-- Fresh SD card with Raspberry Pi OS Lite
-- SSH configured and Pi on network
-- SSH key configured in `config/mpe.env` (`SSH_KEY`) available
-
-### Step 1: Clone Repository
-
-On your Windows machine:
-
-```bash
-git clone https://github.com/yourusername/MPE-Module.git
-cd MPE-Module
-```
-
-**Time:** 2-3 minutes (downloading ~450MB)
-
-### Step 2: Deploy to Pi
-
-```bash
-bash scripts/deploy-all.sh
-```
-
-This will:
-1. Create directories on Pi
-2. Deploy Surge binary
-3. Deploy all patches
-4. Deploy scripts
-5. Deploy Python scripts
-6. Deploy systemd services
-7. Deploy udev rules
-8. Start services
-
-**Time:** 5-10 minutes
-
-### Step 3: Verify
-
-```bash
-ssh $PI_USER@$PI_HOST 'systemctl status surge-xt-cli'
-ssh $PI_USER@$PI_HOST 'tail -30 ~/surge-cli.log'
-```
-
-✅ Device restored! Play your MIDI controller to test.
-
----
-
-## What Gets Backed Up
-
-| Item | Frequency | Size | Location |
-|------|-----------|------|----------|
-| Surge binary | One-time | 24MB | `assets/binaries/` |
-| Factory patches | One-time | 47MB | `assets/patches/factory/` |
-| Third-party patches | One-time | 375MB | `assets/patches/third-party/` |
-| System configs | Weekly | <1MB | `assets/configs/active/` |
-| User preferences | Weekly | <1MB | `assets/user-data/` |
-| Custom patches | As needed | Varies | `assets/user-data/custom-patches/` |
-
----
-
-## Backup Schedule
-
-### Recommended Schedule
-
-| Frequency | Action | Command |
-|-----------|--------|---------|
-| **One time** | Initial backup | `bash scripts/pull-all-from-device.sh` |
-| **Weekly** | Sync changes | `bash scripts/sync-from-device.sh` |
-| **Before updates** | Full sync | `bash scripts/sync-from-device.sh` |
-| **After major changes** | Immediate sync | `bash scripts/sync-from-device.sh` |
-
-### Automated Backups (Optional)
-
-You can set up Windows Task Scheduler to run `sync-from-device.sh` automatically:
-
-1. Open Task Scheduler
-2. Create Basic Task
-3. Name: "Pi-Surge Backup"
-4. Trigger: Weekly (Sunday, 2:00 AM)
-5. Action: Start a program
-   - Program: `C:\Program Files\Git\bin\bash.exe`
-   - Arguments: `scripts/sync-from-device.sh`
-   - Start in: your `MPE-Module` clone directory
-6. Finish
-
-**Note:** Your computer must be on for scheduled backups to run.
-
----
-
-## Cloud Backup (Recommended)
-
-For extra protection, sync your local repo folder to cloud storage:
-
-### Option 1: OneDrive
-
-Move your repo folder into OneDrive/Drive sync if desired — example:
-
-```bash
-mv ~/GitHub/MPE-Module ~/OneDrive/GitHub/MPE-Module
-```
-
-OneDrive will automatically sync the ~450MB to cloud.
-
-### Option 2: Google Drive / Dropbox
-
-Add your repo folder to Google Drive or Dropbox sync.
-
-**Benefit:** If your computer fails, the backup is still safe in the cloud.
-
----
+1. Deploy the code and units: [RESTORE.md](RESTORE.md), `scripts/deploy-all.sh`.
+2. Re-create the library on the device and wire it ([LIBRARY-MIGRATION.md](LIBRARY-MIGRATION.md)), or push patches with `scripts/deploy-patches.sh` until it is.
+3. Apply captured state: `scripts/provision/apply-external-state.sh --state state/<capture>`, or `library-snapshot-settings.sh --in`.
 
 ## Troubleshooting
 
-### Pull Script Fails
+**Cannot reach the device.** `PI_HOST`, `PI_USER` and `SSH_KEY` come from `config/mpe.env` or the environment; there are no built-in defaults for the user.
 
-**Error:** "Cannot connect to Pi"
+**Capture refuses: "cannot take a read-only capture".** The device's MPE-Module checkout predates streaming capture. Update it the usual way; the capture script will not do it for you.
 
-```bash
-# Try with IP address
-export PI_HOST=<pi-ip>
-bash scripts/pull-all-from-device.sh
-```
+**`setup-pi-symlinks.sh` refuses.** A live directory has files the checkout lacks or different versions of them. Copy those into the checkout, commit, run again. Nothing was changed.
 
-**Error:** "Permission denied"
-
-```bash
-# Check SSH key from config/mpe.env
-ls -la "$SSH_KEY"
-chmod 600 "$SSH_KEY"
-```
-
-### Deploy Script Fails
-
-**Error:** "No such file or directory"
-
-Make sure you ran `pull-all-from-device.sh` first to populate `assets/` directory.
-
-### Git Push is Slow
-
-First push with 450MB of assets will be slow (5-10 minutes). Subsequent pushes are fast because git only sends changes.
-
-### Out of Disk Space
-
-The assets take ~450MB locally. Make sure you have at least 1GB free on your Windows machine.
-
----
-
-## FAQ
-
-### Q: Do I need to pull patches every time?
-
-**A:** No! After the initial `pull-all-from-device.sh`, use `sync-from-device.sh` which only pulls config changes and user data (not the large patch files).
-
-### Q: Can I delete assets/ locally to save space?
-
-**A:** Not recommended. If you delete assets/, you can't deploy to a fresh Pi without re-pulling from the device (which defeats the backup purpose).
-
-### Q: What if the binary updates?
-
-**A:** After updating Surge on the Pi, run `pull-all-from-device.sh` again to get the new binary, then commit and push.
-
-### Q: Can I use this on multiple Pis?
-
-**A:** Yes! The `deploy-all.sh` script can deploy to any Pi:
-
-```bash
-export PI_HOST=other-pi.local
-bash scripts/deploy-all.sh
-```
-
-### Q: What's NOT backed up?
-
-**Not in git:**
-- SSH private keys (security risk)
-- Temporary logs
-- Build artifacts
-
-These should be backed up separately or can be regenerated.
-
----
-
-## Summary
-
-**Initial setup:**
-```bash
-bash scripts/pull-all-from-device.sh  # One time
-git add -A && git commit -m "Initial backup" && git push
-```
-
-**Weekly backups:**
-```bash
-bash scripts/sync-from-device.sh
-git add -A && git commit -m "Backup $(date +%Y-%m-%d)" && git push
-```
-
-**Disaster recovery:**
-```bash
-git clone https://github.com/yourusername/MPE-Module.git
-cd MPE-Module
-bash scripts/deploy-all.sh
-```
-
-✅ Simple, complete, and reliable!
+**Push is slow the first time.** The library is about 450 MB; later pushes send only changes.
