@@ -191,7 +191,7 @@ class TouchBrowserNormalizationMixin:
         """Quick Select patches (root + nested subfolders) for cal scope hints."""
         label = favorites_display_name()
         with self._scan_lock:
-            return list(self.scanner.patches.get(label, []))
+            return [p for p in self.scanner.patches.get(label, []) if not p.get("missing")]
 
     def _calibration_scope_stats(self, mode: CalibrateMode) -> tuple[int, int]:
         """Return (target_count, total_in_scope) for confirm modal duration hints."""

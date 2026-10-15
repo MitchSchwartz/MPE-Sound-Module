@@ -34,6 +34,9 @@ def build_context_actions(
         ]
     if target.kind == "patch":
         actions: list[tuple[str, str]] = []
+        if (target.patch or {}).get("missing"):
+            # A favorite whose patch is gone: nothing to load, move or classify.
+            return [("unfavorite", "Remove from Quick Select")]
         if is_favorited:
             actions.append(("unfavorite", "Remove from Quick Select"))
             actions.append(("move_pick_folder", "Move to folder…"))

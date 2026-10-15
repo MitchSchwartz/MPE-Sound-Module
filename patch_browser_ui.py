@@ -289,7 +289,7 @@ class PatchDisplay:
             if dialog_type == "copy_to_favorites":
                 # Show copy to favorites confirmation
                 patch_name = patch['name'][:18] if patch and len(patch['name']) > 18 else (patch['name'] if patch else "")
-                draw.text((0, 0), f"Copy to {favorites_display_name()}?"[:20], fill="white", font=self.font_small)
+                draw.text((0, 0), f"Add to {favorites_display_name()}?"[:20], fill="white", font=self.font_small)
                 draw.text((0, 12), patch_name, fill="white", font=self.font_small)
                 draw.text((0, 30), "> No" if selection == 0 else "  No", fill="white", font=self.font_small)
                 draw.text((0, 42), "  Yes" if selection == 0 else "> Yes", fill="white", font=self.font_small)

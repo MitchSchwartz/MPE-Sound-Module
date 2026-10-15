@@ -811,6 +811,8 @@ class TouchBrowserDrawMixin:
                 pygame.draw.rect(self.screen, self.theme.surface_alt, row_rect, border_radius=8)
 
             text_color = self.theme.text if is_highlight or is_loaded else self.theme.muted
+            if entry["kind"] == "patch" and entry["patch"].get("missing"):
+                text_color = self.theme.muted  # greyed: nothing to load
             name_max_w = max(1, row_rect.w - 28)
             if entry["kind"] == "folder":
                 clipped = ellipsize_text(self.font_md, entry["label"], name_max_w)
@@ -819,7 +821,9 @@ class TouchBrowserDrawMixin:
                 self.screen.blit(name_s, (row_rect.x + 10, ty))
             else:
                 patch = entry["patch"]
-                if entry.get("sectioned"):
+                if patch.get("missing"):
+                    subtitle = "Missing - hold to remove"
+                elif entry.get("sectioned"):
                     # Under a section header the instrument line would repeat
                     # the header (Mitch, 2026-10-13): the name alone, centred
                     # in the unchanged 58 px row so the tap target stays put.
@@ -833,7 +837,9 @@ class TouchBrowserDrawMixin:
                 if subtitle:
                     self.screen.blit(name_s, (row_rect.x + 10, row_rect.y + 6))
                     inst_clipped = ellipsize_text(self.font_sm, subtitle, name_max_w)
-                    inst_s = self.font_sm.render(inst_clipped, True, self.theme.muted)
+                    inst_s = self.font_sm.render(
+                        inst_clipped, True, text_color if patch.get("missing") else self.theme.muted
+                    )
                     self.screen.blit(inst_s, (row_rect.x + 10, row_rect.y + 26))
                 else:
                     ty = row_rect.y + (row_rect.h - name_s.get_height()) // 2

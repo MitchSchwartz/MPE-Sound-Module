@@ -52,43 +52,19 @@ QA = "Quick Access"
 
 class FavoriteGroupAuthority(unittest.TestCase):
     def test_the_users_choice_wins_even_other(self) -> None:
-        self.assertEqual(
-            favorite_group(user_instrument="pad", source_primary="bass", own_primary="lead"),
-            "pad",
-        )
-        self.assertEqual(
-            favorite_group(user_instrument="other", source_primary="bass", own_primary="lead"),
-            "other",
-        )
+        self.assertEqual(favorite_group(user_instrument="pad", primary="bass"), "pad")
+        self.assertEqual(favorite_group(user_instrument="other", primary="bass"), "other")
 
-    def test_the_source_patch_beats_the_copy(self) -> None:
-        """The copy's own tag was classified from the Quick Access path."""
-        self.assertEqual(
-            favorite_group(user_instrument=None, source_primary="bass", own_primary="lead"),
-            "bass",
-        )
-
-    def test_the_copy_answers_when_the_source_cannot(self) -> None:
-        for source in (None, "", "other", "not-an-instrument"):
-            with self.subTest(source=source):
-                self.assertEqual(
-                    favorite_group(user_instrument=None, source_primary=source, own_primary="keys"),
-                    "keys",
-                )
+    def test_the_patchs_own_instrument_answers_otherwise(self) -> None:
+        self.assertEqual(favorite_group(user_instrument=None, primary="bass"), "bass")
 
     def test_no_signal_is_other(self) -> None:
         for own in (None, "", "other", "kazoo"):
             with self.subTest(own=own):
-                self.assertEqual(
-                    favorite_group(user_instrument=None, source_primary=None, own_primary=own),
-                    OTHER_GROUP,
-                )
+                self.assertEqual(favorite_group(user_instrument=None, primary=own), OTHER_GROUP)
 
     def test_an_unknown_user_value_cannot_make_a_section(self) -> None:
-        self.assertEqual(
-            favorite_group(user_instrument="kazoo", source_primary="bass", own_primary="bass"),
-            OTHER_GROUP,
-        )
+        self.assertEqual(favorite_group(user_instrument="kazoo", primary="bass"), OTHER_GROUP)
 
     def test_labels_and_strip_tags_are_distinct(self) -> None:
         tags = [section_tag(g) for g in INSTRUMENT_DISPLAY_ORDER]
@@ -161,7 +137,7 @@ LIBRARY = {
 FAVORITES = [("Basses", "Attacky"), ("Basses", "Deep Sub"), ("Keys", "Rhodes Mk1"),
              ("Pads", "Glass Choir"), ("Pads", "Warm Cloud"), ("Leads", "Photon"),
              ("Basses", "Reese Low"), ("Keys", "Wurli Soft")]
-UNTRACED = ["Mystery Patch"]  # a copy with no index entry
+UNTRACED = ["Mystery Patch"]  # a favorite whose patch is not in the library
 
 
 class _Library:
@@ -173,15 +149,9 @@ class _Library:
             (self.lib / folder).mkdir(parents=True)
             for name in names:
                 (self.lib / folder / f"{name}.fxp").write_bytes(b"")
-        qa = self.lib / QA
-        qa.mkdir()
-        entries = {}
-        for folder, name in FAVORITES:
-            dest = qa / f"{name}.fxp"
-            dest.write_bytes(b"")
-            entries[f"user:{folder}/{name}"] = {"folder": "", "dest_path": str(dest)}
+        entries = {f"user:{folder}/{name}": {"folder": ""} for folder, name in FAVORITES}
         for name in UNTRACED:
-            (qa / f"{name}.fxp").write_bytes(b"")
+            entries[f"user:Gone/{name}"] = {"folder": ""}
         index_path = root / "favorites.json"
         index_path.write_text(json.dumps({"version": 2, "folders": [], "entries": entries}))
         self.user_meta = root / "user-metadata.json"
@@ -209,38 +179,33 @@ class ScannerFavoriteSections(unittest.TestCase):
 
     def _groups(self) -> dict[str, str]:
         info = self.scanner.favorite_sections(self.library.qa_patches())
-        return {Path(p).stem: g for p, g in info.items()}
+        return {key.rpartition("/")[2]: g for key, g in info.items()}
 
-    def test_copies_take_the_source_folders_instrument(self) -> None:
+    def test_rows_take_the_patchs_instrument(self) -> None:
         groups = self._groups()
         self.assertEqual(groups["Attacky"], "bass")
         self.assertEqual(groups["Rhodes Mk1"], "keys")
         self.assertEqual(groups["Glass Choir"], "pad")
         self.assertEqual(groups["Photon"], "lead")
-        # Its own tag came from the Quick Access path: no instrument there.
-        copy = next(p for p in self.library.qa_patches() if p["name"] == "Attacky")
-        self.assertEqual(copy["instrument_primary"], "other")
 
-    def test_an_untraced_copy_is_other(self) -> None:
+    def test_a_missing_patch_is_other(self) -> None:
         self.assertEqual(self._groups()["Mystery Patch"], OTHER_GROUP)
 
-    def test_a_user_instrument_on_the_copy_moves_it(self) -> None:
-        copy = next(p for p in self.library.qa_patches() if p["name"] == "Attacky")
-        self.scanner.metadata_index.set_user_instrument(copy["stable_key"], "pad", patch=copy)
-        self.scanner.invalidate_favorite_cache()
+    def test_a_user_instrument_moves_it(self) -> None:
+        row = next(p for p in self.library.qa_patches() if p["name"] == "Attacky")
+        self.scanner.metadata_index.set_user_instrument(row["stable_key"], "pad", patch=row)
         self.assertEqual(self._groups()["Attacky"], "pad")
 
-    def test_cached_until_invalidated(self) -> None:
-        self._groups()
-        with mock.patch.object(
-            type(self.scanner.favorites_index), "entries", new_callable=mock.PropertyMock
-        ) as entries:
-            self._groups()
-            entries.assert_not_called()
-            self.scanner.invalidate_favorite_cache()
-            entries.return_value = {}
-            self._groups()
-            entries.assert_called()
+    def test_the_row_and_the_library_entry_agree_after_an_instrument_change(self) -> None:
+        row = next(p for p in self.library.qa_patches() if p["name"] == "Attacky")
+        index = self.scanner.metadata_index
+        index.set_user_instrument(row["stable_key"], "pad", patch=row)
+        canonical = self.scanner.get_patch_by_stable_key(row["stable_key"])
+        index.enrich_patch(canonical)
+        self.scanner.invalidate_favorite_cache()
+        fresh = next(p for p in self.library.qa_patches() if p["name"] == "Attacky")
+        self.assertEqual(fresh["instrument_primary"], "pad")
+        self.assertEqual(fresh["instrument_primary"], canonical["instrument_primary"])
 
 
 # --- the list widget with header rows ----------------------------------------
@@ -387,6 +352,39 @@ class _BrowserCase(unittest.TestCase):
         b._handle_evdev_browser_touch("down", pos)
         b._handle_evdev_browser_touch("up", pos)
 
+    def _drawn_rows(self) -> dict[str, list[tuple[str, int]]]:
+        """Draw the list once; return each row's texts by font, with blit y.
+
+        Keys: "md" (patch names, font_md) and "sm" (subtitles and header text,
+        font_sm), each a list of (text, y).
+        """
+        b = self.browser
+        drawn: dict[str, list[tuple[str, int]]] = {"md": [], "sm": []}
+        surfaces: dict[int, tuple[str, str]] = {}
+
+        def recorder(key, real):
+            def render(text, aa, color):
+                surf = real(text, aa, color)
+                surfaces[id(surf)] = (key, text)
+                return surf
+            return render
+
+        screen = mock.Mock()
+        screen.get_clip.return_value = None
+
+        def blit(surf, pos, *args, **kwargs):
+            if id(surf) in surfaces:
+                key, text = surfaces[id(surf)]
+                drawn[key].append((text, pos[1]))
+
+        screen.blit.side_effect = blit
+        with mock.patch.object(b, "screen", screen), \
+                mock.patch.object(b.font_md, "render", side_effect=recorder("md", b.font_md.render)), \
+                mock.patch.object(b.font_sm, "render", side_effect=recorder("sm", b.font_sm.render)), \
+                mock.patch("patch_browser.touch_browser_draw.pygame.draw"):
+            b._draw_browse_patches_list()
+        return drawn
+
     def patch_index(self, name: str) -> int:
         return next(
             i for i, e in enumerate(self.entries())
@@ -479,39 +477,6 @@ class FavoritesListInTheBrowser(_BrowserCase):
         self.browser._refresh_lists()
         self.assertEqual(nav.scroll_pixels, 123)
 
-    def _drawn_rows(self) -> dict[str, list[tuple[str, int]]]:
-        """Draw the list once; return each row's texts by font, with blit y.
-
-        Keys: "md" (patch names, font_md) and "sm" (subtitles and header text,
-        font_sm), each a list of (text, y).
-        """
-        b = self.browser
-        drawn: dict[str, list[tuple[str, int]]] = {"md": [], "sm": []}
-        surfaces: dict[int, tuple[str, str]] = {}
-
-        def recorder(key, real):
-            def render(text, aa, color):
-                surf = real(text, aa, color)
-                surfaces[id(surf)] = (key, text)
-                return surf
-            return render
-
-        screen = mock.Mock()
-        screen.get_clip.return_value = None
-
-        def blit(surf, pos, *args, **kwargs):
-            if id(surf) in surfaces:
-                key, text = surfaces[id(surf)]
-                drawn[key].append((text, pos[1]))
-
-        screen.blit.side_effect = blit
-        with mock.patch.object(b, "screen", screen), \
-                mock.patch.object(b.font_md, "render", side_effect=recorder("md", b.font_md.render)), \
-                mock.patch.object(b.font_sm, "render", side_effect=recorder("sm", b.font_sm.render)), \
-                mock.patch("patch_browser.touch_browser_draw.pygame.draw"):
-            b._draw_browse_patches_list()
-        return drawn
-
     def test_sectioned_rows_draw_no_subtitle_and_centre_the_name(self) -> None:
         """Approved 2026-10-13: the header names the instrument, the row does not."""
         self.open_favorites()
@@ -554,6 +519,152 @@ class FavoritesListInTheBrowser(_BrowserCase):
         self.open_folder("Pack")
         b._draw_browse_patches_list()
         b._draw_jump_strip()
+
+
+class PointerFavoritesInTheBrowser(_BrowserCase):
+    """The pointer index through every UI path (2026-10-15)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.browser._toast = mock.Mock()
+        self.browser._select_patch = lambda patch: TouchPatchBrowser._select_patch(self.browser, patch)
+
+    def row(self, name: str) -> dict:
+        return next(p for p in self.library.qa_patches() if p["name"] == name)
+
+    def test_the_missing_row_is_listed_and_loads_nothing(self) -> None:
+        self.open_favorites()
+        row = self.row("Mystery Patch")
+        self.assertTrue(row["missing"])
+        self.assertIn("Mystery Patch", [e["patch"]["name"] for e in self.entries() if e["kind"] == "patch"])
+        self.browser._select_patch(row)
+        self.browser.loader.load_patch.assert_not_called()
+        self.browser._toast.assert_called()
+        self.assertIsNone(self.browser.loaded_patch_info)
+
+    def test_a_present_row_loads_the_source_file_under_the_source_key(self) -> None:
+        self.browser.loader.osc_enabled = True
+        self.browser.loader.load_patch.return_value = True
+        self.open_favorites()
+        row = self.row("Attacky")
+        source = self.library.scanner.get_patch_by_stable_key(row["stable_key"])
+        self.browser._select_patch(row)
+        self.browser.loader.load_patch.assert_called_once_with(source["path"], stable_key=source["stable_key"])
+        self.assertEqual(self.browser.loaded_patch_info["stable_key"], source["stable_key"])
+
+    def test_a_missing_row_offers_only_remove_and_remove_works(self) -> None:
+        self.open_favorites()
+        index = self.patch_index("Mystery Patch")
+        target = self.browser._context_target_for_nav_index(index)
+        self.browser._open_context_menu(target)
+        self.assertEqual([a[0] for a in self.browser._context_menu_actions], ["unfavorite"])
+        self.browser._execute_context_action("unfavorite")
+        self.browser._execute_context_action("unfavorite_confirm")
+        self.assertFalse(self.library.scanner.favorites_index.is_favorited("user:Gone/Mystery Patch"))
+        self.open_favorites()
+        self.assertNotIn("Mystery Patch", [e["patch"]["name"] for e in self.entries() if e["kind"] == "patch"])
+
+    def test_the_missing_row_is_drawn_greyed_with_a_note(self) -> None:
+        self.open_favorites()
+        b = self.browser
+        b.nav_list.scroll_to_index(self.patch_index("Mystery Patch"))
+        drawn = self._drawn_rows()
+        self.assertIn("Mystery Patch", [t for t, _y in drawn["md"]])
+        self.assertTrue(any("Missing" in t for t, _y in drawn["sm"]), drawn["sm"])
+
+    def test_heart_toggle_adds_and_removes_an_entry_without_a_file(self) -> None:
+        b = self.browser
+        scanner = self.library.scanner
+        patch = scanner.get_patch_by_stable_key("user:Pack/Pack Patch 01")
+        b.detail_patch = dict(patch)
+        before = {p.name for p in self.library.lib.rglob("*") if p.is_file()}
+        b._toggle_favorites()
+        self.assertTrue(scanner.favorites_index.is_favorited(patch["stable_key"]))
+        self.assertEqual({p.name for p in self.library.lib.rglob("*") if p.is_file()}, before)
+        self.assertIn("Pack Patch 01", [p["name"] for p in self.library.qa_patches()])
+        b._toggle_favorites()
+        self.assertFalse(scanner.favorites_index.is_favorited(patch["stable_key"]))
+        self.assertNotIn("Pack Patch 01", [p["name"] for p in self.library.qa_patches()])
+
+    def test_add_folder_move_and_remove_all_through_the_menu(self) -> None:
+        b = self.browser
+        scanner = self.library.scanner
+        self.open_folder("Pack")
+        from patch_browser.context_menu import ContextTarget
+
+        folder = ContextTarget(kind="library_folder", category="Pack", inner_segments=())
+        b._open_context_menu(folder)
+        b._execute_context_action("add_all_qa")
+        self.assertEqual(len(scanner.favorites_index.entries), len(FAVORITES) + len(UNTRACED) + 30)
+        self.assertEqual(scanner.favorites_index.folder_for("user:Pack/Pack Patch 01"), "Pack")
+        # move one through the folder picker
+        scanner.favorites_index.create_folder("Other")
+        patch = scanner.get_patch_by_stable_key("user:Pack/Pack Patch 01")
+        b._open_context_menu(ContextTarget(kind="patch", category="!Quick Access", patch=dict(patch)))
+        b._execute_context_action("move_pick_folder")
+        self.assertIn("pick_folder:Other", [a[0] for a in b._context_menu_actions])
+        b._execute_context_action("pick_folder:Other")
+        self.assertEqual(scanner.favorites_index.folder_for("user:Pack/Pack Patch 01"), "Other")
+        # remove the whole folder
+        b._context_target = ContextTarget(
+            kind="qa_folder", category="!Quick Access", inner_segments=("Pack",), folder_name="Pack"
+        )
+        b._execute_context_action("qa_remove_all_confirm")
+        # the 29 still in Pack go; the one moved to Other stays
+        self.assertEqual(len(scanner.favorites_index.entries), len(FAVORITES) + len(UNTRACED) + 1)
+        self.assertTrue(scanner.favorites_index.is_favorited("user:Pack/Pack Patch 01"))
+
+    def test_new_rename_and_delete_folder_edit_only_the_index(self) -> None:
+        b = self.browser
+        index = self.library.scanner.favorites_index
+        before = {p.name for p in self.library.lib.rglob("*")}
+        from patch_browser.context_menu import ContextTarget
+
+        root = ContextTarget(kind="qa_folder", category="!Quick Access", inner_segments=())
+        b._context_target = root
+        b._name_prompt_kind = "qa_new"
+        b._name_prompt_text = "Gig"
+        b._commit_name_prompt()
+        self.assertEqual(index.folders, ["Gig"])
+        b._context_target = ContextTarget(
+            kind="qa_folder", category="!Quick Access", inner_segments=("Gig",), folder_name="Gig"
+        )
+        b._name_prompt_kind = "qa_new"
+        b._name_prompt_text = "Deep"
+        b._commit_name_prompt()
+        self.assertEqual(index.folders, ["Gig", "Gig/Deep"])
+        b._name_prompt_kind = "qa_rename"
+        b._name_prompt_text = "Show"
+        b._context_target = ContextTarget(
+            kind="qa_folder", category="!Quick Access", inner_segments=("Gig",), folder_name="Gig"
+        )
+        b._commit_name_prompt()
+        self.assertEqual(index.folders, ["Show", "Show/Deep"])
+        b._context_target = ContextTarget(
+            kind="qa_folder", category="!Quick Access", inner_segments=("Show",), folder_name="Show"
+        )
+        b._delete_qa_folder(b._context_target)
+        self.assertEqual(index.folders, [])
+        self.assertEqual({p.name for p in self.library.lib.rglob("*")}, before)  # no directories made
+
+    def test_a_duplicate_folder_name_is_refused(self) -> None:
+        b = self.browser
+        from patch_browser.context_menu import ContextTarget
+
+        b._context_target = ContextTarget(kind="qa_folder", category="!Quick Access", inner_segments=())
+        for _ in range(2):
+            b._name_prompt_kind = "qa_new"
+            b._name_prompt_text = "Gig"
+            b._commit_name_prompt()
+        self.assertEqual(self.library.scanner.favorites_index.folders, ["Gig"])
+
+    def test_sections_include_every_row_and_the_jump_strip_follows(self) -> None:
+        self.open_favorites()
+        groups = [e["group"] for e in self.entries() if e["kind"] == HEADER_KIND]
+        self.assertEqual(groups, ["bass", "keys", "lead", "pad", "other"][: len(groups)])
+        self.assertEqual(sum(e["count"] for e in self.entries() if e["kind"] == HEADER_KIND),
+                         len(FAVORITES) + len(UNTRACED))
+        self.assertEqual([g for g, _i in self.browser._jump_strip_sections()], groups)
 
 
 # --- the jump strip -----------------------------------------------------------
