@@ -521,5 +521,138 @@ class StoreHitTests(unittest.TestCase):
             self.assertEqual(lib.compare_snapshots(before, before), [])
 
 
+class RekeyThirdPartyTests(unittest.TestCase):
+    NESTED = "thirdparty:patches_3rdparty/Emu/Synths"
+    FLAT = "thirdparty:Emu/Synths"
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.home = Path(self._tmp.name)
+        self.stores = {
+            "hold": self.home / ".patch_browser_hold.json",
+            "pressure": self.home / ".patch_browser_pressure.json",
+            "metadata": self.home / ".patch_browser_metadata.json",
+            "favorites": self.home / ".patch_browser_favorites.json",
+            "fx": self.home / ".patch_browser_fx.json",  # absent: skipped
+        }
+        self.write("hold", {self.NESTED: {"a": 1}, "factory:Bass/Sub": {"a": 2}, "_global": {"x": 1}})
+        # an orphaned flat key for ANOTHER patch stays as it is
+        self.write("pressure", {"thirdparty:Kuniklo/Pad": {"t": 1}, "Legacy Stem": {"t": 2}})
+        self.write("metadata", {"version": 1, "patches": {self.NESTED: {"tags": ["x"]}}})
+        self.write("favorites", {"version": 2, "folders": [], "entries": {self.NESTED: {"dest_path": "/q/Synths.fxp"}}})
+
+    def write(self, label: str, data: dict) -> None:
+        self.stores[label].write_text(json.dumps(data))
+
+    def read(self, label: str) -> dict:
+        return json.loads(self.stores[label].read_text())
+
+    def backups(self) -> list[str]:
+        return sorted(p.name for p in self.home.glob("*.pre-rekey.*"))
+
+    def test_rekeys_every_store_with_a_backup_of_each_changed_one(self) -> None:
+        originals = {k: p.read_bytes() for k, p in self.stores.items() if p.exists()}
+        lib.rekey_thirdparty(self.stores)
+        self.assertEqual(self.read("hold"), {self.FLAT: {"a": 1}, "factory:Bass/Sub": {"a": 2}, "_global": {"x": 1}})
+        self.assertEqual(self.read("metadata"), {"version": 1, "patches": {self.FLAT: {"tags": ["x"]}}})
+        fav = self.read("favorites")
+        self.assertEqual(fav["entries"], {self.FLAT: {"dest_path": "/q/Synths.fxp"}})
+        self.assertEqual((fav["version"], fav["folders"]), (2, []))
+        # pressure had nothing nested: untouched, no backup
+        self.assertEqual(self.stores["pressure"].read_bytes(), originals["pressure"])
+        self.assertFalse(self.stores["fx"].exists())
+        names = self.backups()
+        self.assertEqual(len(names), 3, names)
+        for label in ("hold", "metadata", "favorites"):
+            (backup,) = self.home.glob(self.stores[label].name + ".pre-rekey.*")
+            self.assertEqual(backup.read_bytes(), originals[label])
+
+    def test_second_run_changes_nothing(self) -> None:
+        lib.rekey_thirdparty(self.stores)
+        after = {k: p.read_bytes() for k, p in self.stores.items() if p.exists()}
+        names = self.backups()
+        result = lib.rekey_thirdparty(self.stores)
+        self.assertIn("nothing to re-key", " ".join(result.notes))
+        self.assertEqual({k: p.read_bytes() for k, p in self.stores.items() if p.exists()}, after)
+        self.assertEqual(self.backups(), names)
+
+    def test_both_forms_for_one_patch_refuses_and_writes_nothing(self) -> None:
+        # the conflict is in the LAST store checked; earlier stores must not be written either
+        self.write("pressure", {self.NESTED: {"t": 1}, self.FLAT: {"t": 2}})
+        originals = {k: p.read_bytes() for k, p in self.stores.items() if p.exists()}
+        with self.assertRaises(lib.LibraryError) as ctx:
+            lib.rekey_thirdparty(self.stores)
+        self.assertIn("both", str(ctx.exception))
+        self.assertEqual({k: p.read_bytes() for k, p in self.stores.items() if p.exists()}, originals)
+        self.assertEqual(self.backups(), [])
+
+    def test_unreadable_store_refuses_and_writes_nothing(self) -> None:
+        self.stores["pressure"].write_text("{not json")
+        originals = {k: p.read_bytes() for k, p in self.stores.items() if p.exists()}
+        with self.assertRaises(lib.LibraryError):
+            lib.rekey_thirdparty(self.stores)
+        self.assertEqual({k: p.read_bytes() for k, p in self.stores.items() if p.exists()}, originals)
+
+    def test_undo_restores_the_backups(self) -> None:
+        originals = {k: p.read_bytes() for k, p in self.stores.items() if p.exists()}
+        result = lib.rekey_thirdparty(self.stores)
+        (undo,) = [n for n in result.notes if n.startswith("undo:")]
+        stamp = undo.rsplit(" ", 1)[1]
+        lib.undo_rekey(self.stores, stamp)
+        self.assertEqual({k: p.read_bytes() for k, p in self.stores.items() if p.exists()}, originals)
+        with self.assertRaises(lib.LibraryError):
+            lib.undo_rekey(self.stores, "19990101T000000Z")
+
+    def test_cli_uses_the_live_home_stores(self) -> None:
+        env = dict(os.environ, MPE_HOME=str(self.home), HOME=str(self.home))
+        for k in ("MPE_FX_FILE", "MPE_HOLD_FILE", "MPE_PRESSURE_FILE", "MPE_NORMALIZATION_FILE", "MPE_FAVORITES_INDEX_FILE"):
+            env.pop(k, None)
+        script = Path(__file__).resolve().parents[1] / "scripts" / "mpe-library"
+        proc = subprocess.run(["python3", str(script), "rekey-thirdparty"], capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(self.FLAT, self.read("hold"))
+        self.assertIn(self.FLAT, self.read("favorites")["entries"])
+
+
+class VerifyIncreaseTests(unittest.TestCase):
+    def test_flattening_plus_rekey_only_adds_hits_and_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            res = home / "res"
+            # before: nested layout; the nested key lands, the flat one is orphaned
+            nested = res / "patches_3rdparty"
+            (nested / "patches_3rdparty/Emu").mkdir(parents=True)
+            (nested / "patches_3rdparty/Emu/Synths.fxp").write_bytes(b"e")
+            (nested / "patches_3rdparty/Kuniklo").mkdir()
+            (nested / "patches_3rdparty/Kuniklo/Pad.fxp").write_bytes(b"k")
+            stores = {"hold": home / "hold.json", "favorites": home / "fav.json"}
+            stores["hold"].write_text(json.dumps({"thirdparty:patches_3rdparty/Emu/Synths": {}, "thirdparty:Kuniklo/Pad": {}}))
+            stores["favorites"].write_text(json.dumps({"entries": {"thirdparty:patches_3rdparty/Emu/Synths": {}}}))
+            before = lib.store_hit_snapshot([nested], stores)
+            self.assertEqual(before["store_hits"]["hold"]["stable_hits"], 1)
+            self.assertEqual(before["store_hits"]["favorites"]["stable_hits"], 1)
+
+            # after: flat layout and re-keyed stores
+            flat_tree = home / "lib/patches_3rdparty"
+            (nested / "patches_3rdparty").rename(home / "inner")
+            nested.rmdir()
+            flat_tree.parent.mkdir()
+            (home / "inner").rename(flat_tree)
+            lib.rekey_thirdparty(stores)
+            after = lib.store_hit_snapshot([flat_tree], stores)
+            self.assertEqual(lib.compare_snapshots(before, after), [])
+            self.assertEqual(after["store_hits"]["hold"]["stable_hits"], 2)
+            self.assertEqual(lib.snapshot_increases(before, after), ["hold: stable_hits 1 -> 2 (+1)"])
+
+            # flattening WITHOUT the re-key loses the nested key's hit: verify must say so
+            for p in stores.values():
+                for b in home.glob(p.name + ".pre-rekey.*"):
+                    b.replace(p)
+            lost = lib.store_hit_snapshot([flat_tree], stores)
+            problems = lib.compare_snapshots(before, lost)
+            self.assertTrue(any(p.startswith("favorites: stable_hits") for p in problems), problems)
+
+
 if __name__ == "__main__":
     unittest.main()

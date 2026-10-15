@@ -73,6 +73,14 @@ class MigrateTests(unittest.TestCase):
         }
         return subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True, env=env)
 
+    def rekey(self) -> None:
+        proc = subprocess.run(
+            ["python3", str(SCRIPT.parent / "mpe-library"), "rekey-thirdparty"],
+            capture_output=True, text=True,
+            env={"PATH": os.environ["PATH"], "HOME": str(self.home), "MPE_HOME": str(self.home)},
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
     def is_linked(self) -> bool:
         return all(p.is_symlink() for p in (self.res / "patches_factory", self.res / "patches_3rdparty", self.docs / "Patches"))
 
@@ -88,6 +96,8 @@ class MigrateTests(unittest.TestCase):
         # all three fx keys land, the nested third-party one included; verify below
         # fails if linking moved any of them
         self.assertEqual(snap["store_hits"]["fx"]["stable_hits"], 3)
+        # linking flattens the nested third-party root, so its keys are re-keyed first
+        self.rekey()
 
         dry = self.run_step("link", "--dir", str(self.new), "--dry-run")
         self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
@@ -113,6 +123,26 @@ class MigrateTests(unittest.TestCase):
         self.assertIn(f"MPE_PERSONAL_REPO={self.old}", self.env_file.read_text())
         self.assertIn("MPE_UI_MODE=touch", self.env_file.read_text())
         self.assertEqual(self.run_step("rollback").returncode, 0)
+
+    def test_link_without_the_rekey_fails_verify_and_rolls_back(self) -> None:
+        self.run_step("snapshot")
+        proc = self.run_step("link", "--dir", str(self.new))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("fx: stable_hits 3 before, 2 after", proc.stderr)
+        self.assertFalse(self.is_linked())
+        self.assertTrue((self.res / "patches_3rdparty/patches_3rdparty/Emu/Synths.fxp").exists())
+
+    def test_verify_logs_orphaned_keys_that_land_again(self) -> None:
+        fx = self.home / ".patch_browser_fx.json"
+        data = json.loads(fx.read_text())
+        data["thirdparty:Emu/Orphan"] = {"mask": 8}
+        fx.write_text(json.dumps(data))
+        self.put(self.new / "assets/patches/third-party/patches_3rdparty/Emu/Orphan.fxp", b"o")
+        self.run_step("snapshot")
+        self.rekey()
+        proc = self.run_step("link", "--dir", str(self.new))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("more hits than before: fx: stable_hits 3 -> 4 (+1)", proc.stdout)
 
     def test_link_refuses_and_changes_nothing_when_device_has_extra_patch(self) -> None:
         self.run_step("snapshot")
@@ -164,6 +194,7 @@ class MigrateTests(unittest.TestCase):
 
     def test_cleanup_deletes_only_with_yes_and_only_when_the_library_is_pushed(self) -> None:
         self.run_step("snapshot")
+        self.rekey()
         self.run_step("link", "--dir", str(self.new))
         # not a git checkout: refuse
         r = self.run_new("cleanup", "--old-copy", str(self.old), "--yes")
@@ -218,6 +249,7 @@ class MigrateTests(unittest.TestCase):
         stale = self.docs / "Patches.backup.1000"
         self.put(stale / "Ancient.fxp", b"ancient")
         self.run_step("snapshot")
+        self.rekey()
         link = self.run_step("link", "--dir", str(self.new))
         self.assertEqual(link.returncode, 0, link.stdout + link.stderr)
         self.assertEqual((self.docs / "Patches").resolve(), (self.new / "assets/user-data/Patches").resolve())
@@ -241,6 +273,7 @@ class MigrateTests(unittest.TestCase):
         second = self.root / "new-library-2"
         shutil.copytree(self.new, second)
         self.run_step("snapshot")
+        self.rekey()
         self.assertEqual(self.run_step("link", "--dir", str(self.new)).returncode, 0)
         snap = self.home / ".mpe-library-migration/before.json"
         data = json.loads(snap.read_text())
@@ -258,6 +291,7 @@ class MigrateTests(unittest.TestCase):
         second = self.root / "new-library-2"
         shutil.copytree(self.new, second)
         self.run_step("snapshot")
+        self.rekey()
         self.assertEqual(self.run_step("link", "--dir", str(self.new)).returncode, 0)
         self.assertEqual(self.run_step("link", "--dir", str(second)).returncode, 0)
         self.assertEqual(len(list(self.root.glob("mpe.env.pre-library.*"))), 2)
