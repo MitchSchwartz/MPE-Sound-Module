@@ -105,6 +105,39 @@ class PatchScannerTests(unittest.TestCase):
         self.assertEqual(len(patches), 1)
         self.assertEqual(patches[0]["name"], "Loose")
 
+    def test_appliance_state_backups_are_not_patches(self) -> None:
+        self._touch("Keys/Real.fxp")
+        self._touch("appliance-state/captures/2026-10-01/home/favs/Backup.fxp")
+        self._touch("Keys/appliance-state/Nested.fxp")
+        self.scanner.scan_patches()
+        names = sorted(p["name"] for ps in self.scanner.patches.values() for p in ps)
+        self.assertEqual(names, ["Real"])
+        quick = self.scanner.quick_scan_category(self.factory / "Keys")
+        self.assertEqual([p["name"] for p in quick], ["Real"])
+
+    def test_library_dirs_skip_state_captures(self) -> None:
+        import os
+        from patch_browser.patch_scanner import resolve_library_patch_dirs
+
+        repo = self.root / "personal"
+        for rel in (
+            "assets/patches/patches_factory/A.fxp",
+            "assets/cc0-pack/B.fxp",
+            "assets/appliance-state/captures/x/C.fxp",
+            "assets/state/D.fxp",
+        ):
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_bytes(b"x")
+        old = os.environ.get("MPE_PERSONAL_REPO")
+        os.environ["MPE_PERSONAL_REPO"] = str(repo)
+        try:
+            names = sorted(p.name for p in resolve_library_patch_dirs(self.root))
+        finally:
+            if old is None:
+                os.environ.pop("MPE_PERSONAL_REPO")
+            else:
+                os.environ["MPE_PERSONAL_REPO"] = old
+        self.assertEqual(names, ["cc0-pack", "patches_factory"])
 
     def test_resolve_library_patch_dirs_finds_sibling_repo(self) -> None:
         from patch_browser.patch_scanner import resolve_library_patch_dirs
