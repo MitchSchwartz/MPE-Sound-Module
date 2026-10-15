@@ -99,7 +99,8 @@ _record_links() {
         now="$(_state_of "$r")"
         [ "$prev" = "$now" ] && continue
         bk="-"
-        for cand in $(comm -13 "$before_backups" <(_all_backups | sort) | grep -F -- "$r.backup." || true); do bk="$cand"; done
+        # One path per line: the user root lives under "Surge XT", so never word-split.
+        while IFS= read -r cand; do bk="$cand"; done < <(comm -13 "$before_backups" <(_all_backups | sort) | grep -F -- "$r.backup." || true)
         printf 'L|%s|%s|%s\n' "$r" "$prev" "$bk" >> "$MANIFEST"
     done < <(roots)
 }
@@ -174,9 +175,9 @@ link)
 
     env_ok=1
     "$SCRIPT_DIR/configure-pi-paths.sh" --local --paths-only --personal-repo "$DIR" || env_ok=0
-    for b in $(comm -13 "$backups_before" <(_all_backups | sort) | grep -F -- "$ENV_FILE_PATH.pre-library." || true); do
+    while IFS= read -r b; do
         echo "E|$b" >> "$MANIFEST"
-    done
+    done < <(comm -13 "$backups_before" <(_all_backups | sort) | grep -F -- "$ENV_FILE_PATH.pre-library." || true)
     link_ok=0
     if [ "$env_ok" = 1 ]; then
         "$SCRIPT_DIR/setup-pi-symlinks.sh" --local --personal-repo "$DIR" && link_ok=1
