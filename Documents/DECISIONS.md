@@ -242,7 +242,7 @@ appliance (`/etc/systemd/system/mpe-crash-probe.*`, `mpe-netconsole.service`,
 `/usr/local/sbin/mpe-crash-probe.sh`); remove with `systemctl disable --now`
 when the investigation closes.
 
-**Lab cable.** `raspberrypi5.local` "timing out" was never the WiFi. The Pi's
+**Lab cable.** `<pi5-host>.local` "timing out" was never the WiFi. The Pi's
 Ethernet port is cabled to the laptop's USB-ethernet dongle (link-local on the
 laptop side), and the Pi's `Wired connection 1` profile was DHCP: MEASURED in
 NetworkManager's journal, the lease timed out every 45 s, the activation

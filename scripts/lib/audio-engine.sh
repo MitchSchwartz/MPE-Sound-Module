@@ -139,7 +139,9 @@ mpe_jack_period() {
 
 # Read back the buffer jackd is actually running (not the env echo).
 mpe_jack_applied_period() {
-    local cur run_user="${MPE_PI_USER:-mitch}"
+    # No fork here (called from periodic loops): MPE_PI_USER comes from the
+    # appliance env. Unset -> query as the caller.
+    local cur run_user="${MPE_PI_USER:-}"
     if ! command -v jack_bufsize >/dev/null 2>&1; then
         return 1
     fi

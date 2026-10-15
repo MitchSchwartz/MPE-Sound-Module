@@ -187,7 +187,7 @@ else
         echo "Troubleshooting:"
         echo "  1. Check Pi is powered on"
         echo "  2. Try: $SSH_CMD ${PI_USER}@${PI_HOST}"
-        echo "  3. Or use IP: export PI_HOST=192.168.1.203"
+        echo "  3. Or use IP: export PI_HOST=<pi-ip>"
         exit 1
     fi
     echo "✓ Connected to Pi"

@@ -6,6 +6,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+# shellcheck source=lib/appliance-user.sh
+source "$SCRIPT_DIR/lib/appliance-user.sh"
+RUN_AS_USER="$(mpe_appliance_user)" || exit 1
+USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 ARTIFACT_DIR="${HOME}/plan-v7-$(date +%Y%m%d-%H%M%S)"
 PATCH_NAME="Crystals"
 ENV_FILE="/etc/mpe/mpe.env"
@@ -41,7 +45,7 @@ _set_env_var() {
 }
 
 echo "=== Plan V7 + V3 $(date -Is) artifacts=$ARTIFACT_DIR patch=${PATCH_NAME} ==="
-echo "poly_state=$(cat /home/mitch/.patch_browser_poly_state.json 2>/dev/null || echo missing)"
+echo "poly_state=$(cat "${USER_HOME}/.patch_browser_poly_state.json" 2>/dev/null || echo missing)"
 
 # Standing conditions
 _set_env_var MPE_POLY_GOVERNOR 0

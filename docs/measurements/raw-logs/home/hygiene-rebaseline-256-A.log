@@ -1175,6 +1175,6 @@ PROBE_END
 Applied buffer=1024 periods=3
 jackd period=1024 ok
 jackd periods=3 ok
-done commit=11789d6 log=/home/mitch/hygiene-rebaseline-256-A.log
+done commit=11789d6 log=~/hygiene-rebaseline-256-A.log
 SENTINEL harness-end
 

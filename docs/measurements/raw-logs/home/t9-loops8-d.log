@@ -1164,6 +1164,6 @@ PROBE_END
 Applied buffer=1024 periods=3
 jackd period=1024 ok
 jackd periods=3 ok
-done commit=4b633f5 log=/home/mitch/t9-loops8-d.log
+done commit=4b633f5 log=~/t9-loops8-d.log
 SENTINEL harness-end
 

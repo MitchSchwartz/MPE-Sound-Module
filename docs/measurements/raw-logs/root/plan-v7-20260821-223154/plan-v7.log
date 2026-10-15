@@ -9,4 +9,4 @@ poly_state={
 
 === V7 capacity curve ===
 Applied buffer=1024 periods=3
-/home/mitch/MPE-Module/scripts/measure-capacity-ramp.sh: line 94: voices: unbound variable
+~/MPE-Module/scripts/measure-capacity-ramp.sh: line 94: voices: unbound variable

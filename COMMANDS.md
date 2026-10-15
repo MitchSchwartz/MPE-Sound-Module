@@ -97,7 +97,7 @@ bash scripts/deploy-all.sh
 Use environment variables to deploy to a specific Pi:
 
 ```bash
-export PI_HOST=192.168.1.203
+export PI_HOST=<pi-ip>
 bash scripts/deploy-all.sh
 ```
 
@@ -193,7 +193,7 @@ ssh $PI_USER@$PI_HOST
 # or
 ssh <pi-user>@<hostname>
 # or
-ssh <pi-user>@192.168.1.203
+ssh <pi-user>@<pi-ip>
 ```
 
 With SSH key:
@@ -267,7 +267,7 @@ export SSH_KEY=$HOME/.ssh/your_pi_key
 
 Use in commands:
 ```bash
-PI_HOST=192.168.1.203 bash scripts/deploy-all.sh
+PI_HOST=<pi-ip> bash scripts/deploy-all.sh
 ```
 
 ---

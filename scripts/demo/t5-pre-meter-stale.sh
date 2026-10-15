@@ -5,6 +5,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 WATCHDOG="${REPO}/scripts/sooperlooper/sl-watchdog.py"
+# shellcheck source=../lib/appliance-user.sh
+source "${REPO}/scripts/lib/appliance-user.sh"
+RUN_AS_USER="$(mpe_appliance_user)" || exit 1
 OUT="${1:-/tmp/t5-pre-demo.log}"
 
 : >"$OUT"
@@ -21,7 +24,7 @@ _run_once() {
     _log "=== ${label} ==="
     local before after
     before="$(_count_jack_lsp)"
-    sudo -u mitch python3 "$WATCHDOG" --once --skip-source-check 2>&1 | tee -a "$OUT" || true
+    sudo -u "$RUN_AS_USER" python3 "$WATCHDOG" --once --skip-source-check 2>&1 | tee -a "$OUT" || true
     sleep 0.5
     after="$(_count_jack_lsp)"
     _log "jack_lsp processes before=${before} after=${after}"

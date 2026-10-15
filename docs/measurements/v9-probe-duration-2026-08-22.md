@@ -2,7 +2,7 @@
 
 *Run: 2026-08-22 (America/Toronto)*  
 *Harness: `docs/v8-patch-capacity` @ `091d63b`*  
-*Artifacts: Pi `/home/mitch/plan-v9a-20260822-030357`, `/home/mitch/plan-v9b-20260822-031604`*
+*Artifacts: Pi `~/plan-v9a-20260822-030357`, `~/plan-v9b-20260822-031604`*
 
 ## TL;DR
 

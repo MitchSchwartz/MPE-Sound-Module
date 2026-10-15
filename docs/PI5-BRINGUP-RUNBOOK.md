@@ -79,7 +79,7 @@ here" — a genuine finding for ~30 minutes, and it de-risks the migration.
 **Configure the Pi 5 as close to the Pi 4 as the hardware permits.** Resist every improvement
 until Suite 1 has run.
 
-1. Flash Lite 64-bit. Hostname distinct from `raspberrypi2` (e.g. `raspberrypi5`) — two boards
+1. Flash Lite 64-bit. Hostname distinct from `raspberrypi2` (e.g. `<pi5-host>`) — two boards
    on one network with one name is a genuinely dangerous ambiguity.
 2. Install the appliance per `BUILD-FROM-ZERO.md`.
 3. Build Surge with `build-surge.sh --arch a76` at **the same source revision the Pi 4 runs.**

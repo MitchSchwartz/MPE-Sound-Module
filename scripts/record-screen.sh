@@ -11,7 +11,7 @@
 #
 # Operate the touch screen normally. Ctrl+C stops recording.
 # Pull the file with scp (quote the remote glob for zsh):
-#   scp 'mitch@raspberrypi.local:~/mpe-demo-*.mkv' .
+#   scp '<pi-user>@raspberrypi.local:~/mpe-demo-*.mkv' .
 
 set -euo pipefail
 

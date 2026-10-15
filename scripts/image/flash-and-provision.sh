@@ -2,7 +2,7 @@
 # Wait for SSH on a freshly flashed Pi, run first-boot, optionally apply external state.
 #
 #   ./scripts/image/flash-and-provision.sh \\
-#     --host newpi.local --user mitch \\
+#     --host newpi.local --user <pi-user> \\
 #     [--state state/raspberrypi2-2026-08-23] \\
 #     [--hostname mpe-bench] \\
 #     [--skip-state]

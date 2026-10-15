@@ -238,7 +238,7 @@ a calibration.
 same session — see the refuted remedy above. `STEP_UP=1` is the substantive fix: it restores
 recovery at all, which is what made a single xrun pin the limit until patch reload.
 
-Backup of the pre-session values: `/etc/mpe/mpe.env.bak-20260825-160932` on `raspberrypi5`.
+Backup of the pre-session values: `/etc/mpe/mpe.env.bak-20260825-160932` on `<pi5-host>`.
 
 ### Open questions
 

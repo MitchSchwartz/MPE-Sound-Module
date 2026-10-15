@@ -1,7 +1,7 @@
 # V8 patch capacity survey + playable 1024×2
 
 *Measured: 2026-08-21 / 2026-08-22 (America/Toronto)*  
-*Pi artifacts: `/home/mitch/plan-v8-20260821-225953`*  
+*Pi artifacts: `~/plan-v8-20260821-225953`*  
 *Harness: `docs/v8-patch-capacity` @ `47166e8`*
 
 **Review (2026-08-22):** Do not use ceiling table for governor tuning until V9 — see [`V8-REVIEW-ceiling-is-optimistic.md`](V8-REVIEW-ceiling-is-optimistic.md).
@@ -139,17 +139,17 @@ Prior pass cited summed `unison_voices` (Crystals 14, Cloud Horn 16) from a pars
 
 ## Artifacts
 
-- `/home/mitch/plan-v8-20260821-225953/v8a-survey.log`
-- `/home/mitch/plan-v8-20260821-225953/v8b-1024x2-redo.log`
-- `/home/mitch/plan-v8-20260821-225953/v8b-1024x3-redo.log`
-- `/home/mitch/plan-v8-20260821-225953/plan-v8.log`
+- `~/plan-v8-20260821-225953/v8a-survey.log`
+- `~/plan-v8-20260821-225953/v8b-1024x2-redo.log`
+- `~/plan-v8-20260821-225953/v8b-1024x3-redo.log`
+- `~/plan-v8-20260821-225953/plan-v8.log`
 
 ## Harness
 
 ```bash
 sudo ./scripts/measure-plan-v8.sh
 sudo ./scripts/measure-v8b-playable.sh --patch-name "Cloud Horn" --voices 7 \
-  --artifact-dir /home/mitch/plan-v8-YYYYMMDD-HHMMSS
+  --artifact-dir ~/plan-v8-YYYYMMDD-HHMMSS
 ```
 
 Branch: `docs/v8-patch-capacity` → merge to `dev` when ready.

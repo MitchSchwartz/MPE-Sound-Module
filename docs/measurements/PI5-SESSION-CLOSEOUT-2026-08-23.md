@@ -6,7 +6,7 @@
 (cross-architecture replication). This session brought the board from fresh clone to a **playable
 daily instrument**; measurement Suite 1 remains **blocked** on hardware.
 
-**Host:** `raspberrypi5` · user `pi` · **192.168.1.106** (SSH `HostName` pinned; `.local` flaky)
+**Host:** `<pi5-host>` · user `pi` · **<pi-ip>** (SSH `HostName` pinned; `.local` flaky)
 
 Canon: [`PI5-PLAYER-SETUP-LOG.md`](../PI5-PLAYER-SETUP-LOG.md) · [`PI5-TRANSITION-PLAN.md`](../PI5-TRANSITION-PLAN.md) ·
 [`pi5-predictions-2026-08-23.md`](pi5-predictions-2026-08-23.md) · [`SRED-EVIDENCE-2026.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md) §U10

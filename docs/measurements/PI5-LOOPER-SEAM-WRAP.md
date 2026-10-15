@@ -182,7 +182,7 @@ diagnostics taken as ground truth before the orphan was found.
 |-------------|------------|
 | Commit on `yolo/pi5-looper-seam-wrap` | Edit files under `~/MPE-Module` on Pi |
 | `git push origin yolo/pi5-looper-seam-wrap` | `scp` one-off patches (drifts from git) |
-| `PI_HOST=192.168.1.106 mpe looper deploy yolo/pi5-looper-seam-wrap` | Hand-fix bench/footswitch on Pi and forget to commit |
+| `PI_HOST=<pi-ip> mpe looper deploy yolo/pi5-looper-seam-wrap` | Hand-fix bench/footswitch on Pi and forget to commit |
 | `mpe looper sl-restart` / `sl-bench restart` after deploy | Debug by editing live Python on the appliance |
 
 Partial deploy (e.g. footswitch without bench) **will crash the bench** — see 2026-08-23
@@ -213,8 +213,8 @@ Partial deploy (e.g. footswitch without bench) **will crash the bench** — see 
 **Deploy (canonical):**
 
 ```bash
-PI_HOST=192.168.1.106 mpe looper deploy yolo/pi5-looper-seam-wrap
-PI_HOST=192.168.1.106 mpe looper sl-bench restart
+PI_HOST=<pi-ip> mpe looper deploy yolo/pi5-looper-seam-wrap
+PI_HOST=<pi-ip> mpe looper sl-bench restart
 ```
 
 **Next:** Mitch ear — defining take close with release through wrap; log must show

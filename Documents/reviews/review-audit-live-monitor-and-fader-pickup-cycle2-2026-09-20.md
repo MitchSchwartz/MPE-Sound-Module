@@ -1,7 +1,7 @@
 # Review audit — live monitor & fader pickup (cycle 2 of 5)
 
 **2026-09-20.** Auditing `Documents/reviews/grumpy-review-live-monitor-and-fader-pickup-cycle2-2026-09-20.md`
-against the actual uncommitted working tree at `/home/mitch/Documents/GitHub/MPE-Module`
+against the actual uncommitted working tree at `~/Documents/GitHub/MPE-Module`
 (branch `dev`, unchanged since the review was written). Cross-checked against the
 cycle-1 audit (`review-audit-live-monitor-and-fader-pickup-cycle1-2026-09-20.md`) for
 continuity of the finding ledger.

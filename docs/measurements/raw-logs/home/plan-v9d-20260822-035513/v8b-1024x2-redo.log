@@ -202,7 +202,7 @@ XRUN_COUNT 0
 PROBE_END
 === restore buffer 512 periods 3 ===
 skip restore (--no-restore-buffer)
-done commit=37819a9 log=/home/mitch/plan-v9d-20260822-035513/v8b-1024x2-redo.log
+done commit=37819a9 log=~/plan-v9d-20260822-035513/v8b-1024x2-redo.log
 SENTINEL harness-end
 
 

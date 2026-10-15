@@ -1164,7 +1164,7 @@ XRUN_COUNT 0
 PROBE_END
 === restore buffer 1024 ===
 skip restore (--no-restore-buffer)
-done commit=4067b45 log=/home/mitch/t4c-1024-finish.log
+done commit=4067b45 log=~/t4c-1024-finish.log
 SENTINEL harness-end
 
 === block buf1024-loops16 2026-08-21T02:35:16+01:00 ===
@@ -2330,7 +2330,7 @@ XRUN_COUNT 1
 PROBE_END
 === restore buffer 1024 ===
 skip restore (--no-restore-buffer)
-done commit=4067b45 log=/home/mitch/t4c-1024-finish.log
+done commit=4067b45 log=~/t4c-1024-finish.log
 SENTINEL harness-end
 
 SENTINEL curve-1024-complete

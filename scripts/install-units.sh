@@ -127,11 +127,9 @@ fi
 # Template substitutions, matching configure-pi-paths.sh:_install_service so both
 # installers produce identical files. MPE_MODULE_REPO defaults to the repo this
 # script is running from, which is the only answer that cannot be wrong.
-APPLIANCE_USER="${MPE_PI_USER:-mitch}"
-if [ -z "${MPE_PI_USER:-}" ] && [ -f /etc/mpe/mpe.env ]; then
-    _u="$(grep -E '^MPE_PI_USER=' /etc/mpe/mpe.env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"'' || true)"
-    [ -n "$_u" ] && APPLIANCE_USER="$_u"
-fi
+# shellcheck source=lib/appliance-user.sh
+source "$ROOT/scripts/lib/appliance-user.sh"
+APPLIANCE_USER="$(mpe_appliance_user)" || exit 1
 MODULE_REPO="${MPE_MODULE_REPO:-$ROOT}"
 SCRIPTS_DIR="${MPE_SCRIPTS_DIR:-$MODULE_REPO/scripts}"
 

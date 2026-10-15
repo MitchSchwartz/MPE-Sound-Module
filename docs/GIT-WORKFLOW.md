@@ -110,7 +110,7 @@ From the laptop, remote configure still works — pass the branch explicitly:
 
 ```bash
 # from PC — test dev on Pi without merging to main
-ssh mitch@<pi-host> 'cd ~/MPE-Module && git fetch origin && git checkout dev && git pull origin dev && ./scripts/configure-pi-paths.sh --local --force'
+ssh <pi-user>@<pi-host> 'cd ~/MPE-Module && git fetch origin && git checkout dev && git pull origin dev && ./scripts/configure-pi-paths.sh --local --force'
 ```
 
 Deploy scripts that run `git pull` without a branch name follow **whatever branch is currently checked out** on the Pi. Prefer explicit checkout in agent runbooks.
