@@ -30,6 +30,7 @@ import argparse
 import datetime as _dt
 import json
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -592,6 +593,17 @@ def default_scan_roots() -> list[Path]:
     return [resources / "patches_factory", resources / "patches_3rdparty", docs / "Patches"]
 
 
+# Where each store keeps its per-patch keys: top level, or one dict down.
+_KEY_CONTAINERS: dict[str, str] = {"metadata": "patches", "favorites": "entries"}
+
+
+def _key_container(raw: dict, label: str) -> dict:
+    sub = _KEY_CONTAINERS.get(label)
+    if sub is None:
+        return raw
+    return raw.get(sub) if isinstance(raw.get(sub), dict) else {}
+
+
 def _store_keys(path: Path, label: str) -> set[str]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -599,9 +611,7 @@ def _store_keys(path: Path, label: str) -> set[str]:
         return set()
     if not isinstance(raw, dict):
         return set()
-    if label == "metadata":
-        raw = raw.get("patches") if isinstance(raw.get("patches"), dict) else {}
-    return {k for k in raw if not k.startswith("_")}
+    return {k for k in _key_container(raw, label) if not k.startswith("_")}
 
 
 def store_hit_snapshot(roots: list[Path], store_paths: dict[str, Path]) -> dict:
@@ -636,6 +646,18 @@ def store_hit_snapshot(roots: list[Path], store_paths: dict[str, Path]) -> dict:
     return {"patches_per_root": per_root, "total_patches": sum(per_root.values()), "store_hits": hits}
 
 
+def snapshot_increases(before: dict, after: dict) -> list[str]:
+    """Store hits that went UP (e.g. orphaned keys that land again); informational."""
+    out: list[str] = []
+    for label, b in before["store_hits"].items():
+        a = after["store_hits"].get(label, {})
+        for field_name in ("stable_hits", "legacy_stem_hits"):
+            if a.get(field_name, 0) > b[field_name]:
+                n, m = b[field_name], a[field_name]
+                out.append(f"{label}: {field_name} {n} -> {m} (+{m - n})")
+    return out
+
+
 def compare_snapshots(before: dict, after: dict) -> list[str]:
     """Differences that mean a setting or patch went missing; empty list is a pass."""
     problems: list[str] = []
@@ -663,7 +685,98 @@ def default_store_paths() -> dict[str, Path]:
     for label, file_name in STORE_FILES.items():
         override = os.environ.get(env.get(label, ""), "").strip() if label in env else ""
         out[label] = Path(override).expanduser() if override else home / f".{file_name}"
+    fav = os.environ.get("MPE_FAVORITES_INDEX_FILE", "").strip()
+    out["favorites"] = Path(fav).expanduser() if fav else home / f".{FAVORITES_SETTINGS_FILE}"
     return out
+
+
+# ------------------------------------------------------------- third-party re-key
+
+NESTED_THIRDPARTY_PREFIX = "thirdparty:patches_3rdparty/"
+REKEY_BACKUP_INFIX = ".pre-rekey."
+
+
+def rekey_thirdparty(store_paths: dict[str, Path], *, now=None) -> Result:
+    """Rewrite ``thirdparty:patches_3rdparty/X`` to ``thirdparty:X`` in every store.
+
+    For the move from the nested third-party layout (patches_3rdparty/patches_3rdparty/
+    <author>) to one level deep. Run with the browser stopped: it holds its stores in
+    memory and would write the old keys back. Every store is checked before any is
+    written: a patch holding both forms in one store, or an unreadable store, refuses
+    and nothing changes. Each store that changes is first copied to
+    ``<store>.pre-rekey.<UTC stamp>``. A second run finds nothing to do.
+    """
+    from patch_browser.json_store import atomic_write_json
+
+    result = Result("rekey-thirdparty")
+    plan: list[tuple[str, Path, dict, dict, int]] = []
+    conflicts: list[str] = []
+    for label, path in sorted(store_paths.items()):
+        if not path.exists():
+            continue
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise LibraryError(f"cannot read {path} ({exc}); nothing was re-keyed")
+        if not isinstance(raw, dict):
+            raise LibraryError(f"{path} is not a JSON object; nothing was re-keyed")
+        container = _key_container(raw, label)
+        nested = [k for k in container if k.startswith(NESTED_THIRDPARTY_PREFIX) and len(k) > len(NESTED_THIRDPARTY_PREFIX)]
+        if not nested:
+            continue
+        for k in nested:
+            flat = "thirdparty:" + k[len(NESTED_THIRDPARTY_PREFIX):]
+            if flat in container:
+                conflicts.append(f"{label}: both {k!r} and {flat!r}")
+        plan.append((label, path, raw, container, len(nested)))
+    if conflicts:
+        raise LibraryError(
+            "both key forms exist for the same patch; merge them by hand first. Nothing was re-keyed:\n  "
+            + "\n  ".join(conflicts)
+        )
+    if not plan:
+        result.say("nothing to re-key: no thirdparty:patches_3rdparty/ keys in any store")
+        return result
+    stamp = _utc_stamp(now)
+    for _label, path, _raw, _c, _n in plan:
+        backup = path.with_name(path.name + REKEY_BACKUP_INFIX + stamp)
+        if backup.exists():
+            raise LibraryError(f"{backup} already exists; nothing was re-keyed")
+    for label, path, raw, container, n in plan:
+        backup = path.with_name(path.name + REKEY_BACKUP_INFIX + stamp)
+        shutil.copy2(path, backup)
+        renamed = {
+            ("thirdparty:" + k[len(NESTED_THIRDPARTY_PREFIX):]
+             if k.startswith(NESTED_THIRDPARTY_PREFIX) and len(k) > len(NESTED_THIRDPARTY_PREFIX) else k): v
+            for k, v in container.items()
+        }
+        sub = _KEY_CONTAINERS.get(label)
+        if sub is None:
+            raw = renamed
+        else:
+            raw[sub] = renamed
+        atomic_write_json(path, raw)
+        result.say(f"{label}: re-keyed {n} key(s) in {path} (backup {backup.name})")
+    result.say(f"undo: mpe-library rekey-thirdparty --undo {stamp}")
+    return result
+
+
+def undo_rekey(store_paths: dict[str, Path], stamp: str) -> Result:
+    """Put back every store's ``.pre-rekey.<stamp>`` copy. Browser stopped, as above."""
+    result = Result("rekey-thirdparty --undo")
+    found = False
+    for label, path in sorted(store_paths.items()):
+        backup = path.with_name(path.name + REKEY_BACKUP_INFIX + stamp)
+        if not backup.exists():
+            continue
+        found = True
+        tmp = path.with_name(f".{path.name}.undo-rekey.tmp")
+        shutil.copy2(backup, tmp)
+        os.replace(tmp, path)
+        result.say(f"{label}: restored {path} from {backup.name}")
+    if not found:
+        raise LibraryError(f"no store has a {REKEY_BACKUP_INFIX}{stamp} backup; nothing restored")
+    return result
 
 
 # --------------------------------------------------------------------------- CLI
@@ -713,6 +826,11 @@ def build_parser() -> argparse.ArgumentParser:
     su.add_argument("--force", action="store_true")
     sa = sub.add_parser("absorb", help="merge -s ours a one-off template commit (the strip commit)")
     sa.add_argument("commit")
+    sr = sub.add_parser(
+        "rekey-thirdparty",
+        help="rewrite thirdparty:patches_3rdparty/X keys to thirdparty:X in the live stores (browser stopped)",
+    )
+    sr.add_argument("--undo", metavar="STAMP", help="restore the stores' .pre-rekey.STAMP backups")
     sv = sub.add_parser("verify", help="count patches and settings hits; save or compare a snapshot")
     g = sv.add_mutually_exclusive_group()
     g.add_argument("--save", metavar="FILE")
@@ -730,6 +848,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         before = json.loads(Path(args.compare).read_text(encoding="utf-8"))
         problems = compare_snapshots(before, snap)
         print(json.dumps(snap, indent=2, sort_keys=True))
+        for line in snapshot_increases(before, snap):
+            print(f"verify: more hits than before: {line}")
         if problems:
             print("MISMATCH:\n  " + "\n  ".join(problems), file=sys.stderr)
             return 1
@@ -744,6 +864,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.cmd == "verify":
             return _cmd_verify(args)
+        if args.cmd == "rekey-thirdparty":
+            stores = default_store_paths()
+            result = undo_rekey(stores, args.undo) if args.undo else rekey_thirdparty(stores)
+            for note in result.notes:
+                print(note)
+            return 0
         cfg = _config_from_args(args)
         if args.cmd in ("restore-patch", "factory-reset") and cfg.live_home is None and not args.no_live_snapshot:
             raise LibraryError(

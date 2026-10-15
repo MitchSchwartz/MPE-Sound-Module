@@ -25,10 +25,19 @@ class DeployGuardTests(unittest.TestCase):
             'case "$*" in\n'
             f'  *"bash -s"*) echo "ssh bash-s" >> {self.log}; payload="$(cat)"\n'
             '     case "$payload" in *"Refuse a tarball patch deploy"*) printf "%s\\n" "$payload" | bash -s; exit $? ;; esac ;;\n'
+            # the third-party extraction runs here for real, against the copy scp kept
+            f'  *"tar xzf /tmp/patches_3rdparty.tar.gz"*) echo "ssh $*" >> {self.log}\n'
+            f'     cmd="${{@: -1}}"; bash -c "${{cmd//\\/tmp\\/patches_3rdparty.tar.gz/{self.root}/sent/patches_3rdparty.tar.gz}}" ;;\n'
             f'  *) echo "ssh $*" >> {self.log} ;;\n'
             'esac\n'
         )
-        (bindir / "scp").write_text(f'#!/usr/bin/env bash\necho "scp $*" >> {self.log}\n')
+        # scp: logs, and keeps a copy of any tarball it was asked to send
+        self.sent = self.root / "sent"
+        self.sent.mkdir()
+        (bindir / "scp").write_text(
+            f'#!/usr/bin/env bash\necho "scp $*" >> {self.log}\n'
+            f'for a in "$@"; do case "$a" in /tmp/*.tar.gz) cp "$a" {self.sent}/ ;; esac; done\n'
+        )
         for f in bindir.iterdir():
             f.chmod(0o755)
         self.bin = bindir
@@ -38,7 +47,8 @@ class DeployGuardTests(unittest.TestCase):
         self.docs = self.root / "docs"
         (self.lib / "assets/user-data/Patches").mkdir(parents=True)
         (self.lib / "assets/patches/patches_factory").mkdir(parents=True)
-        (self.lib / "assets/patches/third-party").mkdir(parents=True)
+        (self.lib / "assets/patches/third-party/patches_3rdparty/Emu").mkdir(parents=True)
+        (self.lib / "assets/patches/third-party/patches_3rdparty/Emu/Synths.fxp").write_bytes(b"emu")
         self.res.mkdir(parents=True)
         self.docs.mkdir()
 
@@ -73,7 +83,7 @@ class DeployGuardTests(unittest.TestCase):
 
     def test_deploy_all_on_a_linked_device_skips_patches_but_deploys_code(self) -> None:
         (self.docs / "Patches").symlink_to(self.lib / "assets/user-data/Patches")
-        (self.res / "patches_3rdparty").symlink_to(self.lib / "assets/patches/third-party")
+        (self.res / "patches_3rdparty").symlink_to(self.lib / "assets/patches/third-party/patches_3rdparty")
         proc = self.run_deploy("deploy-all.sh")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         calls = self.calls()
@@ -99,6 +109,34 @@ class DeployGuardTests(unittest.TestCase):
         # extraction goes through the configured resources variable, not a hardcoded path
         self.assertIn("MPE_SURGE_RESOURCES", calls)
         self.assertNotIn("cd ~/surge/resources/data && tar", calls)
+
+    def test_deploy_all_puts_third_party_authors_one_level_deep(self) -> None:
+        (self.docs / "Patches").mkdir()
+        proc = self.run_deploy("deploy-all.sh")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual((self.res / "patches_3rdparty/Emu/Synths.fxp").read_bytes(), b"emu")
+        self.assertFalse((self.res / "patches_3rdparty/patches_3rdparty").exists())
+        self.assertFalse((self.res / "third-party").exists())
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores directory permissions")
+    def test_a_failed_third_party_extract_fails_the_deploy(self) -> None:
+        (self.docs / "Patches").mkdir()
+        os.chmod(self.res, 0o555)  # nothing can be extracted into it
+        self.addCleanup(os.chmod, self.res, 0o755)
+        proc = self.run_deploy("deploy-all.sh")
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertNotIn("Third-party patches deployed", proc.stdout)
+
+    def test_deploy_all_leaves_a_nested_device_alone(self) -> None:
+        (self.docs / "Patches").mkdir()
+        nested = self.res / "patches_3rdparty/patches_3rdparty/Emu"
+        nested.mkdir(parents=True)
+        (nested / "Synths.fxp").write_bytes(b"old")
+        proc = self.run_deploy("deploy-all.sh")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("nested third-party layout", proc.stdout)
+        self.assertEqual((nested / "Synths.fxp").read_bytes(), b"old")
+        self.assertFalse((self.res / "patches_3rdparty/Emu").exists())
 
     def test_guard_fails_closed_when_the_roots_are_unknown(self) -> None:
         guard = REPO / "scripts/lib/refuse-linked-roots.sh"
