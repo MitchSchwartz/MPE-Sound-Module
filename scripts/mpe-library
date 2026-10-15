@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+"""mpe-library: restore-patch | restore-stock | factory-reset | update | absorb | verify.
+
+Thin entry point for patch_browser/library_ops.py (run it with --help). Needs a
+git checkout of the personal library: --repo PATH or $MPE_PERSONAL_REPO.
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from patch_browser.library_ops import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -78,6 +78,16 @@ SURGE_PATCH_DIRS = [
 ]
 
 
+# Folders that are never patch roots. ``appliance-state`` holds device captures,
+# whose favorites backups contain hundreds of .fxp copies; ``state`` is where the
+# personal repo keeps them now. Neither is ever a library of patches.
+NON_PATCH_ASSET_DIRS = frozenset(
+    {"patches", "user-data", "binaries", "appliance-state", "state"}
+)
+# Directory names pruned wherever the scan meets them, in any patch root.
+NON_PATCH_DIR_NAMES = frozenset({"appliance-state"})
+
+
 def resolve_personal_repo(module_repo: Path | None = None) -> Path | None:
     """Sibling MPE-Library / MPE-Personal assets repo, or ``MPE_PERSONAL_REPO`` env."""
     override = os.environ.get("MPE_PERSONAL_REPO", "").strip()
@@ -118,7 +128,7 @@ def resolve_library_patch_dirs(module_repo: Path | None = None) -> list[Path]:
         if candidate.is_dir():
             dirs.append(candidate)
 
-    skip = {"patches", "user-data", "binaries"}
+    skip = set(NON_PATCH_ASSET_DIRS)
     for child in sorted(assets.iterdir()):
         if not child.is_dir() or child.name in skip:
             continue
@@ -192,6 +202,7 @@ class PatchScanner:
             root_label = patch_root_label(patch_dir)
 
             for root, _dirs, files in os.walk(patch_dir):
+                _dirs[:] = [d for d in _dirs if d not in NON_PATCH_DIR_NAMES]
                 folder_rel = Path(root).relative_to(patch_dir)
                 category, _inner = category_and_inner_segments(folder_rel)
                 if favorites_folder_matches(category):
@@ -320,6 +331,8 @@ class PatchScanner:
             category_name = favorites_display_name(category_name)
 
         for fxp_file in sorted(category_path.rglob("*.fxp")):
+            if NON_PATCH_DIR_NAMES.intersection(fxp_file.relative_to(category_path).parts):
+                continue
             patch_name = fxp_file.stem
             if patch_dir is not None:
                 entry = make_patch_entry(
