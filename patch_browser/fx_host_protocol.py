@@ -70,13 +70,18 @@ EFFECT_IDS: tuple[int, ...] = (
 )
 EFFECT_NAMES: dict[int, str] = {
     EFFECT_CHORUS: "Chorus",
-    EFFECT_TUBE_DRIVE: "Drive",
+    EFFECT_TUBE_DRIVE: "Tube drive",
     EFFECT_PHASER: "Phaser",
     EFFECT_TREMOLO: "Tremolo",
     EFFECT_FLANGER: "Flanger",
     EFFECT_ROTARY: "Rotary",
     EFFECT_AUTO_WAH: "Auto-wah",
 }
+
+#: What the Effect fader and the mod-knob switch call an effect where room is
+#: tight (their pixel budget): the name itself unless listed here. The picker
+#: rows, which have the room, use `EFFECT_NAMES`.
+EFFECT_SHORT_NAMES: dict[int, str] = {EFFECT_TUBE_DRIVE: "Tube"}
 
 #: The order the enabled effects run in, first to last. A property of the DSP,
 #: not of the wire: the mask's bit order is the id order above, never this.

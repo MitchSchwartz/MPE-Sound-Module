@@ -608,7 +608,7 @@ class EffectPickerTests(_BrowserCase):
         # Changed without a relayout: the next frame names the new chain.
         self.policy.set_mask(D | C)
         texts = self._rendered_texts(browser)
-        self.assertIn("Drive+Chorus", texts)
+        self.assertIn("Tube+Chorus", texts)
         self.assertNotIn("No FX", texts)
         self.assertNotIn("Effect", texts)
 
@@ -641,16 +641,16 @@ class EffectPickerTests(_BrowserCase):
         self._measure(browser)
         column = self._effect_channel(browser).column_rect
         m = browser.main_rect
-        # The edge exactly where Drive's caret ends: Drive fits with no pixel
+        # The edge exactly where Tube's caret ends: Tube fits with no pixel
         # to spare, and one pixel less turns it into the count. The caret
         # counts: the text alone would still fit.
-        drive = FADER_LABEL_PX_18["Drive"]
+        drive = FADER_LABEL_PX_18["Tube"]
         caret_right = column.x + (column.w - drive) // 2 + drive + EFFECT_CARET_GAP_PX + EFFECT_CARET_W
         browser.main_rect = Rect(m.x, m.y, caret_right - m.x, m.h)
         self.policy.set_mask(T)
         self.assertEqual(self._effect_label(browser), "1 FX")
         self.policy.set_mask(D)
-        self.assertEqual(self._effect_label(browser), "Drive")
+        self.assertEqual(self._effect_label(browser), "Tube")
         browser.main_rect = Rect(m.x, m.y, caret_right - 1 - m.x, m.h)
         self.assertEqual(self._effect_label(browser), "1 FX")
 
@@ -659,7 +659,7 @@ class EffectPickerTests(_BrowserCase):
         short ones with it collapsed."""
         cases = {
             False: {0: "No FX", T: "Tremolo", C | D: "2 FX", C | D | P | T: "4 FX"},
-            True: {T: "Tremolo", C | D: "Drive+Chorus", D | P: "Drive+Phaser", C | T: "2 FX", C | D | P: "3 FX"},
+            True: {T: "Tremolo", C | D: "Tube+Chorus", D | P: "Tube+Phaser", C | T: "2 FX", C | D | P: "3 FX"},
         }
         for collapsed, table in cases.items():
             browser = self._browser(collapsed=collapsed)
@@ -840,7 +840,7 @@ class EffectPickerTests(_BrowserCase):
         with mock.patch.object(browser.font_md, "get_height", return_value=26):
             panel, options, done = browser._fx_effect_modal_layout()
         names = [fx_host_protocol.EFFECT_NAMES[eid] for _r, eid in options]
-        self.assertEqual(names, ["Drive", "Auto-wah", "Phaser", "Flanger", "Chorus", "Rotary", "Tremolo"])
+        self.assertEqual(names, ["Tube drive", "Auto-wah", "Phaser", "Flanger", "Chorus", "Rotary", "Tremolo"])
         self.assertTrue(_inside(panel, Rect(0, 0, SCREEN_W, SCREEN_H)), panel)
         self.assertGreaterEqual(panel.y, 16)
         self.assertLessEqual(panel.bottom, SCREEN_H - 16)
@@ -863,7 +863,7 @@ class EffectPickerTests(_BrowserCase):
 #: Effect names in DejaVu Sans 22 (font_md) and the slider's widest value in
 #: DejaVu Sans 18 (font_sm), measured with pygame-ce 2.5.8 on 2026-10-13
 #: (`pygame.font.match_font("dejavusans")`, as the app loads it).
-EFFECT_NAME_PX_22 = {"Drive": 53, "Phaser": 68, "Flanger": 76, "Chorus": 70, "Tremolo": 82, "Rotary": 66,
+EFFECT_NAME_PX_22 = {"Tube drive": 108, "Phaser": 68, "Flanger": 76, "Chorus": 70, "Tremolo": 82, "Rotary": 66,
                      "Auto-wah": 95}
 LEVEL_VALUE_PX_18 = {"100%": 45}
 
@@ -1587,8 +1587,8 @@ class EffectCaretTests(_BrowserCase):
                     for channel in browser.mixer_channels:
                         if channel is not effect:
                             self.assertFalse(_overlaps(target, channel.column_rect), channel.channel_id)
-            # The widest label each nav shows: Tremolo open, Drive+Flanger collapsed.
-            self.assertEqual(widest, FADER_LABEL_PX_18["Tremolo" if not collapsed else "Drive+Flanger"])
+            # The widest label each nav shows: Tremolo open, Tube+Flanger collapsed.
+            self.assertEqual(widest, FADER_LABEL_PX_18["Tremolo" if not collapsed else "Tube+Flanger"])
 
     def test_no_caret_without_the_fx_host(self) -> None:
         browser = self._make_browser(fx_enabled=False)

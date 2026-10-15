@@ -4,7 +4,7 @@ A tap on the Effect fader's label opens it. A small up caret drawn right of the
 label's text (`_effect_caret_rect`, inside the tap target) says it can be tapped. Each effect is a checkbox row,
 listed in the order the chain runs them (`fx_host_protocol.CHAIN_ORDER`). A
 tap on a row's checkbox or name switches that effect on or off and the panel stays open, so
-several can be set in one visit; Done or a tap on the backdrop closes it, as
+several can be set in one visit; the check button or a tap on the backdrop closes it, as
 the other modals close.
 
 Seven rows at 800x480 (2026-10-13, the rotary and the auto-wah): one column,
@@ -76,10 +76,10 @@ EFFECT_CARET_H = 5
 #: The checkbox square in each picker row, and the space either side of it.
 FX_EFFECT_CHECK_PX = 24
 FX_EFFECT_CHECK_PAD = 12
-#: The effect names' column, right of the checkbox: the longest name (the
-#: auto-wah's, 95 px in DejaVu Sans 22 with pygame-ce 2.5.8; the tremolo's 82)
-#: and some air.
-FX_EFFECT_NAME_W = 104
+#: The effect names' column, right of the checkbox: the longest name (Tube
+#: drive's, 108 px in DejaVu Sans 22 with pygame-ce 2.5.8; the auto-wah's 95,
+#: the tremolo's 82) and some air.
+FX_EFFECT_NAME_W = 116
 #: The toggle's width: pad, checkbox, pad, name column.
 FX_EFFECT_CHOICE_W = FX_EFFECT_CHECK_PAD * 2 + FX_EFFECT_CHECK_PX + FX_EFFECT_NAME_W
 #: Panel width. 420 held a checkbox list; the level sliders need room for a
@@ -92,17 +92,19 @@ FX_EFFECT_MODAL_PAD = 24
 FX_EFFECT_MODAL_PAD_V = 16
 FX_EFFECT_OPTION_H = 44
 FX_EFFECT_ROW_GAP = 6
-#: The header row: the title at the left, Done at the right, one row tall,
+#: The header row: the title at the left, the close check button at the right, one row tall,
 #: and the space between it and the first effect.
 FX_EFFECT_HEADER_H = 44
 FX_EFFECT_HEADER_GAP = 10
-FX_EFFECT_DONE_W = 120
+FX_EFFECT_DONE_W = 72
 #: The level slider: the space between the toggle and the slider, the value
 #: text's column at the slider's right end ("100%", 45 px in DejaVu Sans 18),
 #: the handle, and the drawn track's thickness. The track is inset by half a
 #: handle at each end so the handle never leaves the slider.
 FX_LEVEL_GAP = 8
 FX_LEVEL_VALUE_W = 56
+#: Air between the percent text and the row box's right edge.
+FX_LEVEL_VALUE_PAD = 8
 FX_LEVEL_HANDLE_W = 20
 FX_LEVEL_HANDLE_H = 32
 #: Taller while held, so the finger's slider shows it has it.
@@ -343,6 +345,15 @@ class TouchBrowserFxEffectModalMixin:
             (box.right + FX_EFFECT_CHECK_PAD, rect.y + (rect.h - self.font_md.get_height()) // 2),
         )
 
+    def _draw_fx_effect_done(self, rect: Rect, *, pressed: bool = False) -> None:
+        """The close control: the modals' primary button with a check icon in
+        place of the word. Drawn with primitives, so it does not depend on the font."""
+        self._draw_button(rect, "", accent=True, pressed=pressed)
+        cx, cy = rect.x + rect.w // 2, rect.y + rect.h // 2
+        color = self.theme.accent if pressed else self.theme.bg
+        points = [(cx - 10, cy), (cx - 3, cy + 7), (cx + 10, cy - 8)]
+        pygame.draw.lines(self.screen, color, False, points, 4)
+
     def _draw_fx_effect_modal(self) -> None:
         self._draw_modal_backdrop(legacy_alpha=150)
         panel, options, done = self._fx_effect_modal_layout()
@@ -372,7 +383,7 @@ class TouchBrowserFxEffectModalMixin:
                 enabled=checked,
                 dragging=dragging == effect_id,
             )
-        self._draw_button(done, "Done", pressed=self._pressed("done"))
+        self._draw_fx_effect_done(done, pressed=self._pressed("done"))
 
     def _draw_fx_effect_level(
         self, level: Rect, track: Rect, value: float, *, enabled: bool, dragging: bool = False
@@ -405,7 +416,7 @@ class TouchBrowserFxEffectModalMixin:
         text = self.font_sm.render(level_percent(value), True, theme.text if enabled else theme.muted)
         self.screen.blit(
             text,
-            (level.right - text.get_width(), level.y + (level.h - self.font_sm.get_height()) // 2),
+            (level.right - FX_LEVEL_VALUE_PAD - text.get_width(), level.y + (level.h - self.font_sm.get_height()) // 2),
         )
 
     def _fx_effect_modal_hit_at(self, pos: tuple[int, int]) -> str | None:
