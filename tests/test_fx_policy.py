@@ -408,7 +408,7 @@ W = 1 << fx_host_protocol.EFFECT_AUTO_WAH
 
 #: The run order as (bit, name), written out here rather than read from the
 #: protocol, so the generated rows below check it instead of restating it.
-_RUN = ((D, "Drive"), (W, "Auto-wah"), (P, "Phaser"), (F, "Flanger"), (C, "Chorus"), (R, "Rotary"), (T, "Tremolo"))
+_RUN = ((D, "Tube"), (W, "Auto-wah"), (P, "Phaser"), (F, "Flanger"), (C, "Chorus"), (R, "Rotary"), (T, "Tremolo"))
 
 
 def _expected(mask: int) -> tuple[str, str]:
@@ -422,49 +422,49 @@ class ChainLabelTests(unittest.TestCase):
     #: Every mask -> (names, count).
     TRUTH = {
         0: ("No FX", "No FX"),
-        D: ("Drive", "1 FX"),
+        D: ("Tube", "1 FX"),
         P: ("Phaser", "1 FX"),
         F: ("Flanger", "1 FX"),
         C: ("Chorus", "1 FX"),
         T: ("Tremolo", "1 FX"),
-        D | P: ("Drive+Phaser", "2 FX"),
-        D | F: ("Drive+Flanger", "2 FX"),
-        D | C: ("Drive+Chorus", "2 FX"),
-        D | T: ("Drive+Tremolo", "2 FX"),
+        D | P: ("Tube+Phaser", "2 FX"),
+        D | F: ("Tube+Flanger", "2 FX"),
+        D | C: ("Tube+Chorus", "2 FX"),
+        D | T: ("Tube+Tremolo", "2 FX"),
         P | F: ("Phaser+Flanger", "2 FX"),
         P | C: ("Phaser+Chorus", "2 FX"),
         P | T: ("Phaser+Tremolo", "2 FX"),
         F | C: ("Flanger+Chorus", "2 FX"),
         F | T: ("Flanger+Tremolo", "2 FX"),
         C | T: ("Chorus+Tremolo", "2 FX"),
-        D | P | F: ("Drive+Phaser+Flanger", "3 FX"),
-        D | P | C: ("Drive+Phaser+Chorus", "3 FX"),
-        D | P | T: ("Drive+Phaser+Tremolo", "3 FX"),
-        D | F | C: ("Drive+Flanger+Chorus", "3 FX"),
-        D | F | T: ("Drive+Flanger+Tremolo", "3 FX"),
-        D | C | T: ("Drive+Chorus+Tremolo", "3 FX"),
+        D | P | F: ("Tube+Phaser+Flanger", "3 FX"),
+        D | P | C: ("Tube+Phaser+Chorus", "3 FX"),
+        D | P | T: ("Tube+Phaser+Tremolo", "3 FX"),
+        D | F | C: ("Tube+Flanger+Chorus", "3 FX"),
+        D | F | T: ("Tube+Flanger+Tremolo", "3 FX"),
+        D | C | T: ("Tube+Chorus+Tremolo", "3 FX"),
         P | F | C: ("Phaser+Flanger+Chorus", "3 FX"),
         P | F | T: ("Phaser+Flanger+Tremolo", "3 FX"),
         P | C | T: ("Phaser+Chorus+Tremolo", "3 FX"),
         F | C | T: ("Flanger+Chorus+Tremolo", "3 FX"),
-        D | P | F | C: ("Drive+Phaser+Flanger+Chorus", "4 FX"),
-        D | P | F | T: ("Drive+Phaser+Flanger+Tremolo", "4 FX"),
-        D | P | C | T: ("Drive+Phaser+Chorus+Tremolo", "4 FX"),
-        D | F | C | T: ("Drive+Flanger+Chorus+Tremolo", "4 FX"),
+        D | P | F | C: ("Tube+Phaser+Flanger+Chorus", "4 FX"),
+        D | P | F | T: ("Tube+Phaser+Flanger+Tremolo", "4 FX"),
+        D | P | C | T: ("Tube+Phaser+Chorus+Tremolo", "4 FX"),
+        D | F | C | T: ("Tube+Flanger+Chorus+Tremolo", "4 FX"),
         P | F | C | T: ("Phaser+Flanger+Chorus+Tremolo", "4 FX"),
-        D | P | F | C | T: ("Drive+Phaser+Flanger+Chorus+Tremolo", "5 FX"),
+        D | P | F | C | T: ("Tube+Phaser+Flanger+Chorus+Tremolo", "5 FX"),
     }
     #: The masks with the rotary or the auto-wah (2026-10-13): a few written
     #: out, the other 90 generated from `_RUN` (`full_truth`).
     TRUTH_NEW = {
         R: ("Rotary", "1 FX"),
         W: ("Auto-wah", "1 FX"),
-        D | W: ("Drive+Auto-wah", "2 FX"),
+        D | W: ("Tube+Auto-wah", "2 FX"),
         C | R: ("Chorus+Rotary", "2 FX"),
         R | T: ("Rotary+Tremolo", "2 FX"),
         W | R: ("Auto-wah+Rotary", "2 FX"),
         W | P | C | R: ("Auto-wah+Phaser+Chorus+Rotary", "4 FX"),
-        D | W | P | F | C | R | T: ("Drive+Auto-wah+Phaser+Flanger+Chorus+Rotary+Tremolo", "7 FX"),
+        D | W | P | F | C | R | T: ("Tube+Auto-wah+Phaser+Flanger+Chorus+Rotary+Tremolo", "7 FX"),
     }
 
     @classmethod
@@ -492,14 +492,14 @@ class ChainLabelTests(unittest.TestCase):
     def test_fit_is_judged_on_the_names(self) -> None:
         seen: list[str] = []
         fx_policy.chain_label(C | D, lambda text: seen.append(text) or len(text) <= 12)
-        self.assertEqual(seen, ["Drive+Chorus"])
-        self.assertEqual(fx_policy.chain_label(C | D, lambda text: len(text) <= 12), "Drive+Chorus")
+        self.assertEqual(seen, ["Tube+Chorus"])
+        self.assertEqual(fx_policy.chain_label(C | D, lambda text: len(text) <= 12), "Tube+Chorus")
         self.assertEqual(fx_policy.chain_label(C | P, lambda text: len(text) <= 12), "2 FX")
 
     def test_switch_label_judges_the_whole_label(self) -> None:
         seen: list[str] = []
         label = fx_policy.mod_knob_label(CC1_TO_FX, C | D, lambda text: seen.append(text) or False)
-        self.assertEqual(seen, ["Mod knob \u2192 Drive+Chorus"])
+        self.assertEqual(seen, ["Mod knob \u2192 Tube+Chorus"])
         self.assertEqual(label, "Mod knob \u2192 2 FX")
         self.assertEqual(fx_policy.mod_knob_label(CC1_TO_FX, 0), "Mod knob \u2192 No FX")
         self.assertEqual(fx_policy.mod_knob_label(CC1_TO_SURGE, C | D, lambda _t: False), "Mod knob \u2192 Patch mod")
@@ -514,7 +514,7 @@ class ChainLabelTests(unittest.TestCase):
 
     def test_names_come_from_the_protocol_table(self) -> None:
         with mock.patch.dict(fx_host_protocol.EFFECT_NAMES, {fx_host_protocol.EFFECT_PHASER: "Swirl"}):
-            self.assertEqual(fx_policy.chain_label(D | P), "Drive+Swirl")
+            self.assertEqual(fx_policy.chain_label(D | P), "Tube+Swirl")
 
     def test_no_module_restates_an_effect_name(self) -> None:
         """Names live in fx_host_protocol.EFFECT_NAMES; anything else reads them."""
@@ -664,9 +664,9 @@ class ChainSelectionTests(unittest.TestCase):
     def test_knob_label_names_the_chain(self) -> None:
         policy = self._policy(global_target=MOD_WHEEL_EFFECT)
         policy.set_mask(D)
-        self.assertEqual(policy.knob_label(), "Mod knob \u2192 Drive")
+        self.assertEqual(policy.knob_label(), "Mod knob \u2192 Tube")
         policy.set_mask(D | T)
-        self.assertEqual(policy.knob_label(), "Mod knob \u2192 Drive+Tremolo")
+        self.assertEqual(policy.knob_label(), "Mod knob \u2192 Tube+Tremolo")
         self.assertEqual(policy.knob_label(lambda _t: False), "Mod knob \u2192 2 FX")
         policy.set_mask(0)
         self.assertEqual(policy.knob_label(), "Mod knob \u2192 No FX")

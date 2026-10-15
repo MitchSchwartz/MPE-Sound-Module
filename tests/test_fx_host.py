@@ -385,7 +385,9 @@ class WireFormat(unittest.TestCase):
         self.assertEqual(sorted(proto.EFFECT_NAMES), list(proto.EFFECT_IDS))
         for effect_id in proto.EFFECT_IDS:
             with self.subTest(effect=effect_id):
-                self.assertEqual(proto.EFFECT_NAMES[effect_id].lower(), names[effect_id])
+                # The C table's name is the DSP's own; the screen says "Tube drive".
+                display = {"drive": "tube drive"}.get(names[effect_id], names[effect_id])
+                self.assertEqual(proto.EFFECT_NAMES[effect_id].lower(), display)
         # Pinned numbers: ids are on the wire and in every stored patch, so
         # the first five keep theirs and the two added 2026-10-13 append.
         self.assertEqual(
