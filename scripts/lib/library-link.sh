@@ -6,6 +6,14 @@
 # name of the directory Surge scans (patches_factory -> factory,
 # patches_3rdparty -> thirdparty, anything else -> user). Never rename a link.
 #
+# The key's path part is relative to the link, so each target must hold the same
+# tree the live directory holds. deploy-all.sh unpacks the library's whole
+# `third-party/` dir and renames it to patches_3rdparty, so on a device the authors
+# sit one level down (patches_3rdparty/patches_3rdparty/<author>/...) and every
+# thirdparty key carries that `patches_3rdparty/` segment. The link therefore points
+# at `third-party`, not at `third-party/patches_3rdparty`: the inner one would drop
+# the segment and orphan every third-party setting.
+#
 # Needs from the caller: MPE_SURGE_RESOURCES, MPE_SURGE_DOCS, ASSETS (the
 # library's assets/ dir). Everything here is idempotent: a link already pointing
 # at its target is left alone, and nothing is moved unless every root passed its
@@ -15,15 +23,32 @@
 library_link_plan() {
     printf '%s|%s\n' \
         "patches/patches_factory" "$MPE_SURGE_RESOURCES/patches_factory" \
-        "patches/third-party/patches_3rdparty" "$MPE_SURGE_RESOURCES/patches_3rdparty" \
+        "patches/third-party" "$MPE_SURGE_RESOURCES/patches_3rdparty" \
         "user-data/Patches" "$MPE_SURGE_DOCS/Patches"
 }
 
 _ll_realpath() { readlink -f -- "$1" 2>/dev/null || echo "$1"; }
 
+# Every non-directory under LIVE that TARGET lacks or holds different bytes for, one
+# line each. Directories are not compared: one with no files below it holds nothing
+# to lose (and git cannot carry it), so it never blocks a link; it stays in the backup.
+# Not parsed from `diff -rq`: diffutils 3.11+ quotes names with spaces ("Surge XT"),
+# which made a grep on its output miss files.
+_ll_unsafe_files() {
+    local live="$1" target="$2" f
+    while IFS= read -r -d '' f; do
+        f="${f#./}"
+        if [ ! -e "$target/$f" ] && [ ! -L "$target/$f" ]; then
+            echo "only on the device: $f"
+        elif ! cmp -s -- "$live/$f" "$target/$f"; then
+            echo "differs: $f"
+        fi
+    done < <(cd -- "$live" && find . ! -type d -print0)
+}
+
 # Print one verdict per root: "ok", "link", or "refuse: <why>". Returns 1 if any refuse.
 library_link_check() {
-    local rc=0 rel link target diffout
+    local rc=0 rel link target unsafe
     while IFS='|' read -r rel link; do
         target="$ASSETS/$rel"
         if [ ! -d "$target" ]; then
@@ -34,11 +59,15 @@ library_link_check() {
         fi
         if [ -d "$link" ]; then
             # A real directory, or a link to somewhere else: the target must already
-            # hold everything in it (diff follows the link's contents).
-            diffout="$(diff -rq -- "$link" "$target" 2>&1 || true)"
-            if printf '%s\n' "$diffout" | grep -qE "^Only in ${link//\//\\/}|^Files .* differ$"; then
-                echo "refuse: $link has files the library lacks or holds different versions of:"
-                printf '%s\n' "$diffout" | grep -E "^Only in ${link//\//\\/}|^Files .* differ$" | head -10 | sed 's/^/    /'
+            # hold every file in it (cd follows the link to its contents).
+            if [ -n "$(find "$link/" ! -readable -print -quit 2>&1)" ]; then
+                echo "refuse: $link has entries this user cannot read; cannot check it"
+                rc=1; continue
+            fi
+            unsafe="$(_ll_unsafe_files "$link" "$target")"
+            if [ -n "$unsafe" ]; then
+                echo "refuse: $link has $(printf '%s\n' "$unsafe" | wc -l) file(s) the library lacks or holds different versions of:"
+                printf '%s\n' "$unsafe" | head -10 | sed 's/^/    /'
                 echo "    merge them into $target (and commit) first"
                 rc=1; continue
             fi
