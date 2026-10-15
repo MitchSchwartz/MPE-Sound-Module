@@ -11,11 +11,11 @@ Steps marked **laptop** need no device access. Steps marked **device write** cha
 
 ## On the device
 
-All device commands are `scripts/library-migrate-device.sh <step>`, run on the device. Environment (not committed): `MPE_LIBRARY_PERSONAL_URL`, `MPE_LIBRARY_UPSTREAM_URL`.
+All device commands are `scripts/library-migrate-device.sh <step>`, run on the device. Environment (not committed): `MPE_LIBRARY_PERSONAL_URL` (the URL step 3 prints), `MPE_LIBRARY_UPSTREAM_URL`.
 
 | # | Step | Command | Reverse | Needs |
 |---|------|---------|---------|-------|
-| 3 | Credential for the personal repo on the device | arranged by the owner (read/write deploy key, force-push and deletion blocked on `main`) | remove the key | **device write**, human |
+| 3 | Credential for the personal repo on the device | laptop: `scripts/library-pair-device.sh --repo OWNER/NAME` (see below) | `--unpair` (add `--purge-key` to delete the device key) | **device write** (`~/.ssh`), `gh` admin on the repo |
 | 3 | Clone beside the old copy; add `upstream` | `clone --dir <new-dir>` | delete `<new-dir>` | **device write** (disk, ~450 MB) |
 | 4a | Record patch counts and settings hits | `snapshot` | delete `~/.mpe-library-migration/before.json` | **device write** (one small file) |
 | 4b | Dry run: checks only | `link --dir <new-dir> --dry-run` | nothing to undo | read-only |
@@ -24,6 +24,15 @@ All device commands are `scripts/library-migrate-device.sh <step>`, run on the d
 | 4e | Restart Surge and the browser so they read through the links | by hand, when the player is not mid-song | n/a | **device write**, interrupts sound |
 | 5 | Soak | | `rollback`, restart again | |
 | 6 | Delete the old copy and the `*.backup.<ts>` dirs | `cleanup --old-copy <old-dir>` lists; add `--yes` to delete (refused unless the library checkout has nothing uncommitted under `assets/` and no commits missing from `origin/main`) | **not reversible** (the library repo is the archive) | **device write** |
+
+Step 3 detail. Run on the laptop with the device target in the environment (`MPE_PI_SSH`, plus `MPE_PI_USER` if that has no user; or `PI_USER` and `PI_HOST`) and `gh` logged in with admin rights on the repo. Fully non-interactive, every step rerunnable:
+
+```
+scripts/library-pair-device.sh --repo OWNER/NAME [--device-id ID] [--dry-run] [--replace]
+scripts/library-pair-device.sh --repo OWNER/NAME [--device-id ID] --unpair [--purge-key]
+```
+
+It creates `~/.ssh/mpe_library_ed25519` on the device if missing (the private key never leaves it), checks github.com's ed25519 host key against GitHub's published fingerprint before trusting it (a mismatch refuses, and nothing is granted), adds the public key to the repo as deploy key `mpe-device:<device-id>` with write access, adds or replaces only the `Host github-library` block in the device's `~/.ssh/config` (timestamped backup first), and checks `git ls-remote` works. It prints the remote URL to use, `git@github-library:OWNER/NAME.git`. The device id defaults to the device's hostname. A deploy key with the same title but a different key is an error unless `--replace`. Blocking force-push and deletion on `main` is a branch rule on the repo, set separately. `--dry-run` reads but changes nothing.
 
 What `link` does, in order: runs `setup-pi-symlinks.sh --local --dry-run` (a refusal stops everything, nothing changed), rewrites only `MPE_PERSONAL_REPO` in `/etc/mpe/mpe.env` (old file kept as `mpe.env.pre-library.<ts>`), makes the three links keeping their names (`patches_factory`, `patches_3rdparty`, `Patches`; the existing directories become `*.backup.<ts>`), then runs `verify`; if verify fails, `link` rolls itself back and exits non-zero. `link` records exactly what it changed (the backups it created and the env copy) in `~/.mpe-library-migration/link-manifest`. `rollback` undoes exactly those records, newest first, and restores the original `MPE_PERSONAL_REPO` value from the oldest env backup. Re-running either is harmless.
 
