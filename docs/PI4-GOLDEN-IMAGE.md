@@ -31,7 +31,7 @@ Companion: [`STORAGE-ROBUSTNESS.md`](STORAGE-ROBUSTNESS.md) Phase 1 (future `/st
 
 | Category | Items | Mechanism |
 |---|---|---|
-| **External state** (capture/apply) | `/etc/mpe/mpe.env`, `~/.patch_browser_*`, `.patch_browser_*_backups`, looper HUD JSON (`.mpe_sl_*`, `.mpe_midi_clock_state.json`, `.mpe_looper_timing.json`), `~/surge-cli-calibration.log`, `~/.local/share/Surge XT/` | [`external-state-paths.list`](../config/platform/external-state-paths.list) |
+| **External state** (capture/apply) | `/etc/mpe/mpe.env`, `~/.patch_browser_*`, `.patch_browser_*_backups`, looper HUD JSON (`.mpe_sl_*`, `.mpe_midi_clock_state.json`, `.mpe_looper_timing.json`), looper songs and clips (`~/.mpe/looper-songs`, `~/.mpe/looper-clips`), `~/surge-cli-calibration.log`, `~/.local/share/Surge XT/` | [`external-state-paths.list`](../config/platform/external-state-paths.list) |
 | **Built on each unit** | Pi OS Lite, apt/JACK/pygame, Surge binary + patches, MPE-Module @ ref, systemd units, cmdline hygiene, **`apply-dsi-config.sh`** (DSI overlay), **`install-jack-audio-limits.sh`**, native meters, touch setup | [`build-appliance.sh`](../scripts/image/build-appliance.sh) |
 | **External state extras** | systemd drop-ins (`mpe-*`, `surge-*`, `sl-*`, `touch-*`), boot DSI snippet (audit), `platform.json` kernel stamp | capture/apply provision scripts |
 | **Per-unit manual** (not captured) | **SSH `authorized_keys`** (your choice per device), **Tailscale** (`sudo tailscale up` — node creds never in image), WiFi (`NetworkManager` profiles contain PSKs), hostname (unless `--hostname`) | You configure after build |
