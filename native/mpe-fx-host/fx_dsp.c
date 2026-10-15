@@ -221,7 +221,11 @@ static inline float limiter_need(float need, float y, float ceil)
  *   - Pre: a first-order low shelf, -6 dB below ~180 Hz, so the bass does not
  *     dominate the clipping (tighter, less mud) — the overdrive-pedal habit.
  *   - Drive G = 0.5 (1 + 15 a^2) for knob a: 0.5 (clean) .. 8 (+24 dB over
- *     that; +18 dB over unity). Was .. 16: the top is 6 dB lower.
+ *     that; +18 dB over unity). Was .. 16: the top is 6 dB lower. Round 5
+ *     (2026-10-15, per-effect levels made the top "not aggressive enough"):
+ *     over the top third G below ~2 kHz is multiplied by up to 4, to 32 at
+ *     full (+30 dB over unity), the treble much less, so it does not alias;
+ *     below a = 2/3 nothing changes (DRIVE_TOP_*).
  *   - Shaper: f(u) = a(u + 0.2) - a(0.2), a(v) = v / sqrt(1 + v^2). The
  *     algebraic sigmoid has no corner anywhere (the old cubic went flat at
  *     |v| = 1 with a jump in curvature, which is what turns a hard-driven
@@ -273,7 +277,7 @@ static inline float limiter_need(float need, float y, float ceil)
  *   makeup and limiter 4                                             ~= 220
  *   shared: drive law 5 (one divide), detectors 10, peak window 7,
  *   makeup law 13 (one divide, one sqrt), limiter gain 4              ~=  39
- *   => ~480 ops per stereo frame (was ~460), ~75% of it the four half-band
+ *   => ~490 ops per stereo frame (was ~480 before the top third), ~75% of it the four half-band
  *   filters. It runs while bypassed too (see above). Laptop: the same
  *   ~120-135 ns/frame as before (fx-selftest --bench, interleaved with the
  *   old build); the Pi figure is the separate measurement.
@@ -301,7 +305,20 @@ static const float HB_B[DRIVE_HB_B_K] = {
 #define DRIVE_BIAS 0.2f
 #define DRIVE_F_BIAS 0.1961161351f   /* a(0.2) = 0.2 / sqrt(1.04) */
 #define DRIVE_SAT (1.0f + DRIVE_F_BIAS)
-#define DRIVE_MAX 8.0f               /* G at the top of the knob */
+#define DRIVE_MAX 8.0f               /* G at the top of the base law */
+/* The top third (2026-10-15, "not aggressive enough at the top"). With
+ * t = (a - DRIVE_TOP_FROM) / (1 - DRIVE_TOP_FROM), 0..1 over the knob's top
+ * third, and e = (DRIVE_TOP_BOOST - 1) t^2, 0..3, the shaper is fed
+ *   G_base (pre + e LP(pre)),   LP a one-pole at DRIVE_TOP_LP_HZ,
+ * and its output divided by G_base (1 + e). Below 2 kHz that is G_base x 4 =
+ * 32 at full (+12 dB of drive over the old top); at 10 kHz the low-pass gives
+ * only about +3 dB, so the top end that would alias gets little of it (the
+ * plain x4 measured -26 dB on the aliasing check, limit -35; this -40).
+ * Below a = 2/3, e = 0: the old law exactly. t^2 matches value and slope at
+ * 2/3, no kink. One more one-pole per channel. */
+#define DRIVE_TOP_FROM (2.0f / 3.0f)
+#define DRIVE_TOP_BOOST 4.0f
+#define DRIVE_TOP_LP_HZ 2000.0f
 #define DRIVE_PRES_DB 4.0
 #define DRIVE_PRES_HZ 1800.0f
 #define DRIVE_LP_HZ 6500.0f
@@ -396,6 +413,7 @@ static inline float drive_shape_old(float u)
 typedef struct {
     hb_hist up_a, up_b, dn_b_even, dn_b_odd, dn_a_even, dn_a_odd;
     float shelf;        /* low-pass memory for the shelf */
+    float top_lp;       /* low-pass memory for the top third's extra gain */
     float dc_x, dc_y;   /* DC blocker */
     float pres;         /* low-pass memory for the presence shelf */
     float lp;           /* post low-pass */
@@ -403,7 +421,7 @@ typedef struct {
 
 typedef struct {
     drive_chan ch[FX_CHANNELS];
-    float a_shelf, a_pres, k_pres, a_lp, dc_p, dc_k, a_detect, a_makeup;
+    float a_shelf, a_top, a_pres, k_pres, a_lp, dc_p, dc_k, a_detect, a_makeup;
     float ms_in, ms_out, makeup, a_release, limit;
     float peak_blocks[DRIVE_PEAK_BLOCKS - 1];
     float peak_now;
@@ -422,6 +440,7 @@ static int drive_init(void *state, float rate)
         return -1;
     }
     s->a_shelf = pole_alpha(DRIVE_SHELF_HZ, rate);
+    s->a_top = pole_alpha(DRIVE_TOP_LP_HZ, rate);
     s->a_pres = pole_alpha(DRIVE_PRES_HZ, rate);
     s->k_pres = (float)(pow(10.0, DRIVE_PRES_DB / 20.0) - 1.0);
 
@@ -476,7 +495,16 @@ static inline void drive_run(drive_state *s, const float *const in[FX_CHANNELS],
 {
     for (uint32_t i = 0; i < n; i++) {
         const float a = amount[i];
-        const float drive = 0.5f * (1.0f + (2.0f * DRIVE_MAX - 1.0f) * a * a);   /* 0.5 .. 8 */
+        float t = (a - DRIVE_TOP_FROM) * (1.0f / (1.0f - DRIVE_TOP_FROM));
+        t = t > 0.0f ? (t < 1.0f ? t : 1.0f) : 0.0f;
+#ifdef FX_SELFTEST
+        if (fx_test_no_top) {
+            t = 0.0f;
+        }
+#endif
+        const float base = 0.5f * (1.0f + (2.0f * DRIVE_MAX - 1.0f) * a * a);   /* 0.5 .. 8 */
+        const float extra = (DRIVE_TOP_BOOST - 1.0f) * t * t;                     /* 0 .. 3 */
+        const float drive = base * (1.0f + extra);
         const float inv_drive = 1.0f / drive;
         float x[FX_CHANNELS], y[FX_CHANNELS];
         float sq_in = 0.0f, sq_out = 0.0f;
@@ -488,7 +516,9 @@ static inline void drive_run(drive_state *s, const float *const in[FX_CHANNELS],
             s->peak_now = p > s->peak_now ? p : s->peak_now;
 
             c->shelf += s->a_shelf * (x[ch] - c->shelf);
-            float v = drive_core(c, (x[ch] - 0.5f * c->shelf) * drive, mode) * inv_drive;
+            const float pre = x[ch] - 0.5f * c->shelf;
+            c->top_lp += s->a_top * (pre - c->top_lp);
+            float v = drive_core(c, (pre + extra * c->top_lp) * base, mode) * inv_drive;
             float dc = s->dc_k * (v - c->dc_x) + s->dc_p * c->dc_y;
             c->dc_x = v;
             c->dc_y = dc;
@@ -497,6 +527,7 @@ static inline void drive_run(drive_state *s, const float *const in[FX_CHANNELS],
             c->lp += s->a_lp * (bright - c->lp);
             if (!(mode & DRIVE_NO_FLUSH)) {
                 c->shelf = flush(c->shelf);
+                c->top_lp = flush(c->top_lp);
                 c->dc_y = flush(c->dc_y);
                 c->pres = flush(c->pres);
                 c->lp = flush(c->lp);
@@ -1235,6 +1266,21 @@ static void rotary_feed(void *state, const float *const in[FX_CHANNELS], uint32_
  *     and below 1 everywhere else, so no tone is ever lifted. The coefficient
  *     g = tan(pi f / rate) is tabulated over u (WAH_TABLE points) and
  *     interpolated; a1 = 1 / (1 + g (g + k)) is one divide per frame.
+ *   - The top third (round 2, 2026-10-15: "deeper and wider sweep, more
+ *     resonance" at the top): from depth 2/3 to full, by t^2 (t 0..1 over
+ *     that third, so the value and the slope match at 2/3), the range
+ *     widens from 280 Hz..2.4 kHz to 200 Hz..3 kHz (3.9 octaves, was 3.1)
+ *     and Q follows the band: at full, 2 closed to 4 fully open (k 0.50 ->
+ *     0.25, linear in the band's log position; was 2.2 everywhere), so the
+ *     resonance is strongest where the sweep peaks and a quiet note low in
+ *     the range rings no longer than before (a ring lasts ~Q / f; Q 4 at
+ *     200 Hz would ring nearly as long as the Q 12 whistle at 530 Hz). The output is still k x band-pass, peak
+ *     gain 1. Below 2/3 it is the old wah: the table spans
+ *     180 Hz..3 kHz and the old ends sit at WAH_POS_LO / WAH_POS_HI. Why not
+ *     further up: the level curve lifts keys ~9 dB at full, so a tone at the
+ *     band's centre reads about that over its input, and a top of 4 kHz put
+ *     the level check's 3 kHz tone there (+8.3 dB, ceiling +3). With 3 kHz
+ *     and the extra width going down, the worst signal reads +1.9 dB.
  *   - Mix: wet_max 0.65 at full depth, rising with the knob (mix_full_at 1):
  *     away from the centre the output is 0.35 of the input (-9 dB), at the
  *     centre all of it. Depth sets both the range and the mix.
@@ -1246,9 +1292,10 @@ static void rotary_feed(void *state, const float *const in[FX_CHANNELS], uint32_
  * Level. The band-pass's gain is at most 1 at every frequency, and the mix is
  * a weighted average of the input and it, so before the level curve the wah
  * only takes energy away, and its whole sound is how much it takes from
- * outside its band: keys -2.8 dB at 50 % and -8.3 dB at full. The level curve
- * gives that back on keys (up to +8.3 dB), so what sits in the band comes out
- * over its input: the 3 kHz tone +2.0 dB at full, white noise +0.6 dB.
+ * outside its band: keys -2.8 dB at 50 % and -8.7 dB at full. The level curve
+ * gives that back on keys (up to +8.7 dB), so what sits in the band comes out
+ * over its input: the 3 kHz tone +1.9 dB at full. A sine at the band's centre
+ * reads about the whole lift: the any-signal bound is a sample of tones.
  * fx_selftest.c checks the band opens within 25 ms of a loud note.
  *
  * Stability: for any g > 0 and k > 0 the TPT SVF is stable, and the table
@@ -1259,12 +1306,23 @@ static void rotary_feed(void *state, const float *const in[FX_CHANNELS], uint32_
  * coming back in matches an instance that never stopped.
  *
  * Per stereo frame, active: detector 4, follower 3, knee 3 (one divide),
- * range 1, table lerp 6, a1..a3 6 (one divide); per channel: SVF 10, flushes
- * 2, scale 1 => ~26; total ~75 ops. No trig. Runs while bypassed too.
+ * range 1, table lerp 6, a1..a3 6 (one divide), top third 10; per channel:
+ * SVF 10, flushes 2, scale 1 => ~26; total ~85 ops. No trig. Runs while
+ * bypassed too.
  */
 #define WAH_LO_HZ 280.0
-#define WAH_HI_HZ 2400.0
+#define WAH_HI_HZ 2400.0         /* fully open, below the top third */
+#define WAH_TOP_HZ 3000.0        /* fully open, at full depth */
+#define WAH_BOTTOM_HZ 200.0      /* closed, at full depth */
 #define WAH_K 0.45f              /* 1 / Q */
+#define WAH_K_OPEN 0.25f         /* 1 / Q at full depth, fully open: Q 4 */
+#define WAH_K_CLOSED 0.50f       /* 1 / Q at full depth, closed: Q 2 */
+#define WAH_TOP_FROM (2.0f / 3.0f)
+/* The table spans WAH_BOTTOM_HZ..WAH_TOP_HZ (log); the old range's ends sit
+ * at these positions in it. */
+#define WAH_SPAN (log(WAH_TOP_HZ / WAH_BOTTOM_HZ))
+#define WAH_POS_LO ((float)(log(WAH_LO_HZ / WAH_BOTTOM_HZ) / WAH_SPAN))
+#define WAH_POS_HI ((float)(log(WAH_HI_HZ / WAH_BOTTOM_HZ) / WAH_SPAN))
 #define WAH_ATTACK_MS 4.0f
 #define WAH_RELEASE_MS 120.0f
 #define WAH_SENS 0.05f
@@ -1287,7 +1345,7 @@ static int wah_init(void *state, float rate)
         return -1;
     }
     for (int j = 0; j <= WAH_TABLE; j++) {
-        double hz = WAH_LO_HZ * pow(WAH_HI_HZ / WAH_LO_HZ, (double)j / WAH_TABLE);
+        double hz = WAH_BOTTOM_HZ * pow(WAH_TOP_HZ / WAH_BOTTOM_HZ, (double)j / WAH_TABLE);
         s->g[j] = (float)tan(M_PI * hz / (double)rate);
     }
     s->a_attack = (float)(1.0 - exp(-1.0 / (WAH_ATTACK_MS * 0.001 * (double)rate)));
@@ -1300,8 +1358,8 @@ static inline void wah_run(wah_state *s, const float *const in[FX_CHANNELS],
                            float *const wet[FX_CHANNELS], const float *amount, uint32_t n,
                            int mode)
 {
-    const float k = (mode & WAH_RUNAWAY) ? -0.05f : (mode & WAH_WHISTLE) ? (1.0f / 12.0f) : WAH_K;
-    const float out_k = (mode & WAH_WHISTLE) ? 1.0f : k;
+    const int fixed_k = mode & (WAH_RUNAWAY | WAH_WHISTLE);
+    const float k_fixed = (mode & WAH_RUNAWAY) ? -0.05f : (1.0f / 12.0f);
     /* 4 ms -> ~400 ms: the one-pole's coefficient is ~1 / (ms x rate). */
     const float a_attack = (mode & WAH_SLOW_ATTACK) ? 0.01f * s->a_attack : s->a_attack;
     for (uint32_t i = 0; i < n; i++) {
@@ -1312,13 +1370,32 @@ static inline void wah_run(wah_state *s, const float *const in[FX_CHANNELS],
         if (!(mode & WAH_NO_FLUSH)) {
             s->env = flush(s->env);
         }
+        /* The top third: t^2 from 0 at 2/3 to 1 at full, as the drive's. */
+        const float d = amount[i];
+        float t = (d - WAH_TOP_FROM) * (1.0f / (1.0f - WAH_TOP_FROM));
+        t = t > 0.0f ? (t < 1.0f ? t : 1.0f) : 0.0f;   /* NaN -> 0 */
+#ifdef FX_SELFTEST
+        if (fx_test_no_top) {
+            t = 0.0f;
+        }
+#endif
+        const float t2 = t * t;
         float open = s->env / (s->env + WAH_SENS);
         if (mode & WAH_NO_SWEEP) {
             open = 0.5f;
         }
-        float u = open * amount[i];
+        float u = open * d;
         u = u > 0.0f ? (u < 1.0f ? u : 1.0f) : 0.0f;   /* NaN -> 0 */
-        float pos = u * (float)WAH_TABLE;
+        /* 280 Hz..2.4 kHz below the top third, 200 Hz..3 kHz at full. */
+        const float lo = WAH_POS_LO - t2 * WAH_POS_LO;
+        const float hi = WAH_POS_HI + t2 * (1.0f - WAH_POS_HI);
+        const float p = lo + u * (hi - lo);
+        /* Q follows the band up at the top: a ring lasts ~Q / f, so low in
+         * the range it must stay low. */
+        const float k_top = WAH_K_CLOSED + p * (WAH_K_OPEN - WAH_K_CLOSED);
+        const float k = fixed_k ? k_fixed : WAH_K + t2 * (k_top - WAH_K);
+        const float out_k = (mode & WAH_WHISTLE) ? 1.0f : k;
+        float pos = p * (float)WAH_TABLE;
         uint32_t j = (uint32_t)pos;
         if (j >= WAH_TABLE) {
             j = WAH_TABLE - 1;
@@ -1366,21 +1443,22 @@ static void wah_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n
  * each effect's raw loss at 32 knob positions, plus 12 inside the drive's and
  * the rotary's fade-ins (`fx-selftest --unity-raw K DEPTH`, level curve and
  * makeup off, 4.8 s of keys); the fit's worst residual is 0.10 dB (the
- * auto-wah and the rotary), 0.05 the drive, 0.001 the rest. The self-test
+ * auto-wah and the rotary), 0.06 the drive, 0.001 the rest (the drive and the
+ * auto-wah refitted 2026-10-15 for their stronger top thirds). The self-test
  * holds every effect to +-0.3 dB of the input on keys. Re-run the report and
  * refit when an effect's voicing changes: the unity check fails first. What
  * the raw loss was, keys at full depth: chorus -3.0, drive +0.06, phaser
- * -0.88, tremolo -3.36, flanger -2.09, rotary -0.47, auto-wah -8.34 dB.
+ * -0.88, tremolo -3.36, flanger -2.09, rotary -0.47, auto-wah -8.71 dB.
  * Other signals keep their own difference from keys (`fx-selftest --unity
  * MASK DEPTH`): one effect alone at any depth, -6.6..+2.5 dB (the chorus's
  * 80 Hz tone at full; the rotary's 80 Hz tone in its fade-in). */
 #define CHORUS_LEVEL { 0.2381f, 0.3811f, 0.0030f, 0.1900f }
-#define DRIVE_LEVEL { 0.9524f, 0.0736f, 0.4631f, -0.1642f }
+#define DRIVE_LEVEL { 0.9530f, 0.0756f, 0.4637f, -0.2056f }
 #define PHASER_LEVEL { 0.5039f, 0.6722f, 0.1522f, 0.3351f }
 #define TREMOLO_LEVEL { 0.2555f, 0.2044f, 0.6255f, 0.1021f }
 #define FLANGER_LEVEL { 0.4161f, 0.5551f, -0.0499f, 0.2770f }
 #define ROTARY_LEVEL { 0.8985f, 0.0007f, 0.0830f, 0.2065f }
-#define WAH_LEVEL { -0.0346f, 0.1771f, 0.3864f, -0.4606f }
+#define WAH_LEVEL { -0.0519f, 0.1251f, 0.3731f, -0.4100f }
 
 /* The bass bypass's level correction (fx_dsp.h, "Bass bypass"): at each
  * grid crossover, the level change (dB, negative a loss) whose negative,
@@ -1391,12 +1469,12 @@ static void wah_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n
 const float FX_BASS_GRID_HZ[FX_BASS_GRID] = { 20.0f, 80.0f, 100.0f, 120.0f, 150.0f, 200.0f,
                                               250.0f, 300.0f };
 static const float CHORUS_BASS[FX_BASS_GRID] = { 0, -0.048f, -0.056f, -0.062f, -0.104f, -0.281f, -0.524f, -0.769f };
-static const float DRIVE_BASS[FX_BASS_GRID] = { 0, -0.096f, -0.144f, -0.174f, -0.220f, -0.424f, -0.835f, -1.386f };
+static const float DRIVE_BASS[FX_BASS_GRID] = { 0, -0.128f, -0.207f, -0.270f, -0.352f, -0.604f, -1.056f, -1.629f };
 static const float PHASER_BASS[FX_BASS_GRID] = { 0, -0.118f, -0.186f, -0.256f, -0.402f, -0.838f, -1.480f, -2.208f };
 static const float TREMOLO_BASS[FX_BASS_GRID] = { 0, -0.027f, -0.040f, -0.052f, -0.076f, -0.146f, -0.244f, -0.354f };
 static const float FLANGER_BASS[FX_BASS_GRID] = { 0, -0.148f, -0.222f, -0.294f, -0.440f, -0.860f, -1.417f, -1.956f };
 static const float ROTARY_BASS[FX_BASS_GRID] = { 0, -0.111f, -0.205f, -0.330f, -0.607f, -1.362f, -2.411f, -3.593f };
-static const float WAH_BASS[FX_BASS_GRID] = { 0, 0.056f, 0.097f, 0.142f, 0.217f, 0.373f, 0.616f, 0.964f };
+static const float WAH_BASS[FX_BASS_GRID] = { 0, 0.042f, 0.068f, 0.100f, 0.154f, 0.272f, 0.470f, 0.785f };
 
 /* The wire's effect ids. Append only: an id is a number the policy module
  * sends, and renumbering would silently change what an old sender selects.
@@ -1710,6 +1788,7 @@ static float one_pole_alpha(double ms, float rate)
 
 #ifdef FX_SELFTEST
 int fx_test_no_level;
+int fx_test_no_top;
 int fx_test_level_hot;
 int fx_test_level_cold;
 int fx_test_level_wobble;

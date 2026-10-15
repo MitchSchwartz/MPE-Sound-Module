@@ -499,6 +499,7 @@ static const char *const FX_LABEL[N_FX] = { "chorus", "drive", "phaser", "tremol
 #define FX_I_FLANGER 4
 #define FX_I_ROTARY 5
 #define FX_I_WAH 6
+#define FX_I_DRIVE 1
 
 /* Every effect has a static level curve (fx_dsp.h, 2026-10-13). This picks
  * the ones whose curve at half depth is far enough from 0 dB (0.4 dB and up)
@@ -2072,10 +2073,14 @@ static void unity_line(uint32_t mask, float depth)
  * tone at 0.5, the odd harmonics fall off fast. Shipped: h5 -19.3, h7 -25.8
  * dB re the fundamental. The round-2 voicing measured h5 -14.6, h7 -18.2.
  * Limits h5 <= -17, h7 <= -22. Control: the round-2 cubic shaper on the new
- * drive law must fail them. */
+ * drive law must fail them. Measured with the top third off (G 8 at full, the
+ * law these numbers belong to): this checks the shaper's shape; the top
+ * third's extra drive is test_drive_top's. */
 static int drive_smooth(const fx_effect_desc *table, double h[7])
 {
+    fx_test_no_top = 1;   /* the shaper at the law it was voiced on: G 8 at full */
     harmonic_profile(table, 1, 0.5f, 1.0f, h);
+    fx_test_no_top = 0;
     return h[4] <= -17.0 && h[6] <= -22.0;
 }
 
@@ -2096,12 +2101,17 @@ static void test_drive_smoothness(void)
 
 /* The asymmetry (round 4: bias 0.2, back from round 3's 0.1), as its even
  * harmonic: on a 250 Hz tone at 0.2 (moderate playing), full drive, h2 is
- * -21.7 dB re the fundamental; the round-3 bias measured -27.7. Limit -24. */
+ * -21.7 dB re the fundamental; the round-3 bias measured -27.7. Limit -24.
+ * Top third off, as above: harder drive squares the wave toward symmetry
+ * whatever the bias (at the new top the shipped bias reads ~-29, the control
+ * ~-35), so this is where the bias is visible. */
 static void test_drive_asymmetry(void)
 {
     double h[7], c[7];
+    fx_test_no_top = 1;   /* as the smoothness check: the bias, at G 8 */
     harmonic_profile(FX_EFFECTS, 1, 0.2f, 1.0f, h);
     harmonic_profile(table_with(1, &FX_TEST_MUTANTS[FX_MUT_DRIVE_ROUND3_BIAS]), 1, 0.2f, 1.0f, c);
+    fx_test_no_top = 0;
     if (g_verbose) {
         printf("  drive    asymmetry, 250 Hz 0.2 at full: h2 %+.1f dB; control (bias 0.1) "
                "%+.1f dB; limit -24\n", h[1], c[1]);
@@ -2583,13 +2593,13 @@ static void test_wah_sweeps(void)
  * Limit 15 ms. Control: Q 12 (the whistle mutant). */
 #define WAH_RING_MAX_MS 15.0
 
-static double wah_ring_ms(const fx_effect_desc *d)
+static double wah_ring_ms_at(const fx_effect_desc *d, float depth, float burst_amp)
 {
     void *st = calloc(1, d->state_bytes);
     CHECK(st != NULL && d->init(st, RATE) == 0, "init");
     float l[FX_CHUNK], r[FX_CHUNK], wl[FX_CHUNK], wr[FX_CHUNK], amt[FX_CHUNK];
     for (uint32_t i = 0; i < FX_CHUNK; i++) {
-        amt[i] = 0.3f;
+        amt[i] = depth;
     }
     const float *const in[FX_CHANNELS] = { l, r };
     float *const wet[FX_CHANNELS] = { wl, wr };
@@ -2598,7 +2608,7 @@ static double wah_ring_ms(const fx_effect_desc *d)
     long last_loud = burst;
     for (long t = 0; t < total; t += FX_CHUNK) {
         for (uint32_t i = 0; i < FX_CHUNK; i++) {
-            l[i] = t + (long)i < burst ? 0.5f * noise() : 0.0f;
+            l[i] = t + (long)i < burst ? burst_amp * noise() : 0.0f;
             r[i] = l[i];
         }
         d->process(st, in, wet, amt, FX_CHUNK);
@@ -2615,6 +2625,11 @@ static double wah_ring_ms(const fx_effect_desc *d)
     return 1000.0 * (double)(last_loud - burst) / RATE;
 }
 
+static double wah_ring_ms(const fx_effect_desc *d)
+{
+    return wah_ring_ms_at(d, 0.3f, 0.5f);
+}
+
 static void test_wah_never_whistles(void)
 {
     double m = wah_ring_ms(&FX_EFFECTS[FX_I_WAH]);
@@ -2625,6 +2640,150 @@ static void test_wah_never_whistles(void)
     }
     CHECK(m <= WAH_RING_MAX_MS, "auto-wah: rings %.1f ms after the input stops", m);
     CHECK(c > WAH_RING_MAX_MS, "auto-wah: control (Q 12) rang only %.1f ms", c);
+}
+
+/* --- the top thirds (2026-10-15) -------------------------------------------- */
+
+/* Below depth 2/3 the drive and the auto-wah play exactly what they did
+ * before their top thirds were made stronger: keys through each alone, at
+ * nine depths up to 2/3, with the top third on and off, bit for bit. Control:
+ * the same at full depth must differ (the comparison can see a change). */
+static long top_diff(int k, float depth)
+{
+    float out[2][PERIOD * 40];
+    for (int pass = 0; pass < 2; pass++) {
+        fx_test_no_top = pass;
+        fx_engine e;
+        CHECK(fx_engine_init(&e, FX_EFFECTS, N_FX, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+        signal_gen g = { SIG_KEYS, 0.5f, 0.0f, 0.0 };
+        float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+        for (int p = 0; p < 40; p++) {
+            sig_fill(&g, l, r, PERIOD);
+            run_period(&e, l, r, ol, or_, PERIOD, BIT(k), depth);
+            memcpy(out[pass] + p * PERIOD, ol, sizeof(ol));
+        }
+        fx_engine_free(&e);
+    }
+    fx_test_no_top = 0;
+    long n = 0;
+    for (uint32_t i = 0; i < PERIOD * 40; i++) {
+        n += memcmp(&out[0][i], &out[1][i], sizeof(float)) != 0;
+    }
+    return n;
+}
+
+static void test_top_third_below(void)
+{
+    static const int ks[2] = { FX_I_DRIVE, FX_I_WAH };
+    for (int q = 0; q < 2; q++) {
+        long worst = 0;
+        for (int j = 1; j <= 9; j++) {
+            long n = top_diff(ks[q], (2.0f / 3.0f) * (float)j / 9.0f);
+            worst = n > worst ? n : worst;
+        }
+        long c = top_diff(ks[q], 1.0f);
+        if (g_verbose) {
+            printf("  %-8s top third off vs on, 9 depths to 2/3: %ld samples differ; control "
+                   "(full) %ld\n", FX_LABEL[ks[q]], worst, c);
+        }
+        CHECK(worst == 0, "%s: the top third reaches below 2/3 (%ld samples)", FX_LABEL[ks[q]],
+              worst);
+        CHECK(c > 0, "%s: control (full depth) the same with the top third off",
+              FX_LABEL[ks[q]]);
+    }
+}
+
+/* The drive's top is much stronger: on the smoothness check's tone (250 Hz at
+ * 0.5, full), h5 and h7 rise by at least DRIVE_TOP_RISE_DB over the top third
+ * off (round 4: h5 -19.5, h7 -26.3; shipped -13.6 / -16.8). Control: the top
+ * third off, a rise of 0. The aliasing check holds the new top to -35 dB. */
+#define DRIVE_TOP_RISE_DB 4.0
+
+static void test_drive_top(void)
+{
+    double h[7], c[7];
+    harmonic_profile(FX_EFFECTS, FX_I_DRIVE, 0.5f, 1.0f, h);
+    fx_test_no_top = 1;
+    harmonic_profile(FX_EFFECTS, FX_I_DRIVE, 0.5f, 1.0f, c);
+    fx_test_no_top = 0;
+    const double r5 = h[4] - c[4], r7 = h[6] - c[6];
+    if (g_verbose) {
+        printf("  drive    top: h3 %+.1f h5 %+.1f h7 %+.1f dB at full; top third off h3 %+.1f h5 "
+               "%+.1f h7 %+.1f; rise h5 %+.1f h7 %+.1f, limit %+.0f\n", h[2], h[4], h[6], c[2],
+               c[4], c[6], r5, r7, DRIVE_TOP_RISE_DB);
+    }
+    CHECK(r5 >= DRIVE_TOP_RISE_DB && r7 >= DRIVE_TOP_RISE_DB, "drive: the top third adds only "
+          "h5 %+.1f / h7 %+.1f dB", r5, r7);
+}
+
+/* The band-pass's gain on a sine at full depth, wet over input RMS over the
+ * last 0.1 s of 0.3 s: near 1 when the tone opens the band onto itself. */
+static double wah_tone_gain(const fx_effect_desc *d, float hz, float amp)
+{
+    void *st = calloc(1, d->state_bytes);
+    CHECK(st != NULL && d->init(st, RATE) == 0, "init");
+    float l[FX_CHUNK], r[FX_CHUNK], wl[FX_CHUNK], wr[FX_CHUNK], full[FX_CHUNK];
+    for (uint32_t i = 0; i < FX_CHUNK; i++) {
+        full[i] = 1.0f;
+    }
+    const float *const in[FX_CHANNELS] = { l, r };
+    float *const wet[FX_CHANNELS] = { wl, wr };
+    signal_gen g = { SIG_SINE, amp, hz, 0.0 };
+    double so = 0.0, si = 0.0;
+    for (long t = 0; t < (long)(0.3 * RATE); t += FX_CHUNK) {
+        sig_fill(&g, l, r, FX_CHUNK);
+        d->process(st, in, wet, full, FX_CHUNK);
+        for (uint32_t i = 0; i < FX_CHUNK && t >= (long)(0.2 * RATE); i++) {
+            so += (double)wl[i] * wl[i];
+            si += (double)l[i] * l[i];
+        }
+    }
+    free(st);
+    return sqrt(so / si);
+}
+
+/* The auto-wah's top is deeper, wider and more resonant. At full depth:
+ *   - wider: a loud 2.5 kHz tone (0.9, which opens it 95 %) has the band on
+ *     itself, gain at least WAH_TOP_OPEN_MIN (the old range put it at
+ *     2.1 kHz, below the tone);
+ *   - deeper: a quiet 200 Hz tone (0.001) sits in the band near its new
+ *     bottom, gain at least WAH_TOP_OPEN_MIN (the old 280 Hz bottom, lower);
+ *   - more resonant: a loud burst (the band high, Q 4) rings longer than
+ *     with the top third off;
+ *   - no whistle: a quiet burst (0.01, the band near the bottom, where a
+ *     resonance rings longest) still dies within WAH_RING_MAX_MS.
+ * Controls: the top third off must miss both gains; Q 12 must exceed the
+ * ring limit on the quiet burst. */
+#define WAH_TOP_OPEN_MIN 0.9
+
+static void test_wah_top(void)
+{
+    const fx_effect_desc *d = &FX_EFFECTS[FX_I_WAH];
+    double hi = wah_tone_gain(d, 2500.0f, 0.9f);
+    double lo = wah_tone_gain(d, 200.0f, 0.001f);
+    double ring = wah_ring_ms_at(d, 1.0f, 0.5f);
+    double quiet = wah_ring_ms_at(d, 1.0f, 0.01f);
+    fx_test_no_top = 1;
+    double chi = wah_tone_gain(d, 2500.0f, 0.9f);
+    double clo = wah_tone_gain(d, 200.0f, 0.001f);
+    double cring = wah_ring_ms_at(d, 1.0f, 0.5f);
+    double cquiet = wah_ring_ms_at(d, 1.0f, 0.01f);
+    fx_test_no_top = 0;
+    double wring = wah_ring_ms_at(&FX_TEST_MUTANTS[FX_MUT_WAH_WHISTLE], 1.0f, 0.01f);
+    if (g_verbose) {
+        printf("  auto-wah top: band gain at full, 2.5 kHz loud %.3f (off %.3f), 200 Hz quiet %.3f "
+               "(off %.3f), limit %.2f; ring, loud burst %.1f ms (off %.1f), quiet %.1f ms (off "
+               "%.1f), control (Q 12, quiet) %.1f, limit %.0f\n", hi, chi, lo, clo,
+               WAH_TOP_OPEN_MIN, ring, cring, quiet, cquiet, wring, WAH_RING_MAX_MS);
+    }
+    CHECK(hi >= WAH_TOP_OPEN_MIN, "auto-wah: at full the band does not reach 2.5 kHz (%.3f)", hi);
+    CHECK(lo >= WAH_TOP_OPEN_MIN, "auto-wah: at full the band does not reach 200 Hz (%.3f)", lo);
+    CHECK(chi < WAH_TOP_OPEN_MIN && clo < WAH_TOP_OPEN_MIN, "auto-wah: control (top third off) "
+          "reached both ends too: %.3f / %.3f", chi, clo);
+    CHECK(ring > cring, "auto-wah: no more resonance at the top (ring %.1f vs %.1f ms)", ring,
+          cring);
+    CHECK(quiet <= WAH_RING_MAX_MS, "auto-wah: a quiet note rings %.1f ms at full", quiet);
+    CHECK(wring > WAH_RING_MAX_MS, "auto-wah: control (Q 12) rang only %.1f ms at full", wring);
 }
 
 /* ========================================================================= */
@@ -4049,11 +4208,12 @@ static void test_bass_level(int xi)
  * CHAIN_HI_DB). At 300 Hz the correction cannot hold every chain there (it is
  * one static gain for what is a decorrelation): measured -1.01..+1.96 dB, so
  * the bounds there are BASS_300_LO_DB..BASS_300_HI_DB. All seven, every
- * signal, at most BASS_300_CEIL_DB at 300 Hz (+3.8 measured: the 3 kHz tone)
- * and CEIL_DB below. */
+ * signal, at most BASS_300_CEIL_DB at 300 Hz and CEIL_DB below. At 300 Hz it
+ * measured +3.8 (the 3 kHz tone); since the auto-wah's stronger top
+ * (2026-10-15) +4.2, loud noise, which opens the wah onto its Q 4 top. */
 #define BASS_300_LO_DB (-1.2)
 #define BASS_300_HI_DB 2.15
-#define BASS_300_CEIL_DB 4.0
+#define BASS_300_CEIL_DB 4.5
 #define BASS_CHAIN_XOVERS 3
 static const float BASS_CHAIN_XOVER[BASS_CHAIN_XOVERS] = { 120.0f, 200.0f, 300.0f };
 typedef struct {
@@ -4083,7 +4243,11 @@ static void bass_chain_part(int m, void *slot)
         g_bass_hz = 0.0f;
     }
     if (m == (int)FX_ALL) {
-        /* The ceiling, all seven at full, every signal. */
+        /* The ceiling, all seven at full, every signal, in the normal windows:
+         * one mask, so they cost little, and the short ones read up to 2 dB
+         * high here (a 2.5 s window catches part of the flanger's 5 s sweep;
+         * 120 Hz read +3.65 short, +1.64 over whole sweeps). */
+        g_short_windows = 0;
         float worst[BASS_CHAIN_XOVERS];
         for (int x = 0; x < BASS_CHAIN_XOVERS; x++) {
             worst[x] = -1e9f;
@@ -4331,6 +4495,9 @@ CASE0(test_wah_onset)
 CASE0(test_wah_peak_gain)
 CASE0(test_wah_sweeps)
 CASE0(test_wah_never_whistles)
+CASE0(test_top_third_below)
+CASE0(test_drive_top)
+CASE0(test_wah_top)
 CASE0(test_static_level)
 CASE0(test_chain_order)
 CASE0(test_chain_bypass)
@@ -4440,6 +4607,9 @@ static void build_cases(void)
     add_case("feedback auto-wah", FX_I_WAH, case_test_feedback_stability, NULL, 3);
     add_case("auto-wah sweep", 0, case_test_wah_sweeps, NULL, 1);
     add_case("auto-wah whistle", 0, case_test_wah_never_whistles, NULL, 1);
+    add_case("top thirds below 2/3", 0, case_test_top_third_below, NULL, 1);
+    add_case("drive top third", 0, case_test_drive_top, NULL, 1);
+    add_case("auto-wah top third", 0, case_test_wah_top, NULL, 1);
 
     /* The chain. */
     add_case("chain static level", 0, case_test_static_level, NULL, 1);

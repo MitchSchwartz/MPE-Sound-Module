@@ -398,6 +398,11 @@ extern int fx_test_no_clamp;
  * as the round-3 makeup did with the phaser's sweep (the static-gain check
  * must). */
 extern int fx_test_no_level;
+/* The drive's and the auto-wah's top thirds off (2026-10-15): both play their
+ * round-before law at every depth, so the shaper and band-pass checks keep
+ * measuring the voicing they were calibrated on, and the top-third checks
+ * have a control. */
+extern int fx_test_no_top;
 extern int fx_test_level_hot;
 extern int fx_test_level_cold;
 extern int fx_test_level_wobble;
