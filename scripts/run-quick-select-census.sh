@@ -5,7 +5,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
-QS="${1:-$SCRIPT_DIR/../../MPE-Library/assets/user-data/quick-select/latest/Quick Select}"
+# shellcheck source=lib/paths.sh
+source "$SCRIPT_DIR/lib/paths.sh"
+QS="${1:-${MPE_PERSONAL_REPO:-$SCRIPT_DIR/../../MPE-Library}/state/quick-select-snapshots/latest/Quick Select}"
 OUT="${2:-/tmp/qs-census.jsonl}"
 PARSER="$SCRIPT_DIR/parse-fxp-metadata.py"
 

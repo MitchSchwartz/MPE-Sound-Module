@@ -4,6 +4,14 @@
 #   ./scripts/provision/capture-external-state.sh [OUTPUT_DIR]
 #   ./scripts/provision/capture-external-state.sh --check [OUTPUT_DIR]
 #   ./scripts/provision/capture-external-state.sh --local [OUTPUT_DIR]
+#   ./scripts/provision/capture-external-state.sh --local --stdout   (tar of the capture on stdout)
+#
+# READ-ONLY ON THE DEVICE. Laptop mode never changes the appliance: no git stash,
+# checkout, fetch or reset in its checkout, no scratch files left behind. It asks
+# the device to build the capture in RAM (--local --stdout), streams it back as a
+# tar, and the scratch directory is removed on exit. If the device's checkout is too
+# old to do that, the script refuses and says so; updating the checkout is the
+# owner's act, never a side effect of taking a backup.
 #
 # Default OUTPUT_DIR (laptop): state/<host-label>-YYYY-MM-DD beside repo
 # Default OUTPUT_DIR (--local on Pi): state/local-YYYY-MM-DD beside repo
@@ -22,12 +30,14 @@ CAPTURE_SCHEMA_VERSION=2
 
 CHECK=false
 LOCAL=false
+STDOUT=false
 OUTPUT=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) CHECK=true; shift ;;
         --local) LOCAL=true; shift ;;
+        --stdout) STDOUT=true; shift ;;
         -*) echo "Unknown option: $1" >&2; exit 2 ;;
         *)
             if [ -n "$OUTPUT" ]; then
@@ -239,13 +249,30 @@ _capture_on_appliance() {
     find "$dest" -type f | sed "s|^|  |"
 }
 
+if [ "$STDOUT" = true ] && [ "$LOCAL" != true ]; then
+    echo "ERROR: --stdout needs --local." >&2
+    exit 2
+fi
+
 if [ "$LOCAL" = true ]; then
-    if [ -z "$OUTPUT" ]; then
-        OUTPUT="$REPO_ROOT/state/local-$(date +%Y-%m-%d)"
-    fi
     if [ "$CHECK" = true ]; then
         echo "ERROR: --check is only supported from the laptop." >&2
         exit 2
+    fi
+    if [ "$STDOUT" = true ]; then
+        # Progress goes to stderr; fd 3 carries the tar. The capture is built in
+        # RAM (runtime dir, /dev/shm) and removed on exit: nothing persists.
+        exec 3>&1 1>&2
+        _scratch_base="${XDG_RUNTIME_DIR:-/dev/shm}"
+        [ -d "$_scratch_base" ] && [ -w "$_scratch_base" ] || _scratch_base="${TMPDIR:-/tmp}"
+        _scratch="$(mktemp -d "$_scratch_base/mpe-capture.XXXXXX")"
+        trap 'rm -rf "$_scratch"' EXIT
+        _capture_on_appliance "$_scratch/capture"
+        tar -C "$_scratch/capture" -cf - . >&3
+        exit 0
+    fi
+    if [ -z "$OUTPUT" ]; then
+        OUTPUT="$REPO_ROOT/state/local-$(date +%Y-%m-%d)"
     fi
     _capture_on_appliance "$OUTPUT"
     exit 0
@@ -269,29 +296,38 @@ if ! mpe_pi_ssh "echo ok" >/dev/null 2>&1; then
     exit 1
 fi
 
-remote_tmp="/tmp/mpe-external-state-$$"
 repo_path="$(mpe_pi_repo_path)"
 restore_label="state/$(basename "$OUTPUT")"
 laptop_rev="$(cd "$REPO_ROOT" && git rev-parse HEAD 2>/dev/null || echo unknown)"
 
-_ensure_pi_repo_for_capture() {
-    local git_ref="${MPE_CAPTURE_GIT_REF:-dev}"
-    echo "Ensuring Pi repo is current for capture schema v${CAPTURE_SCHEMA_VERSION} (ref: $git_ref) ..."
-    if ! mpe_pi_ssh "cd '$repo_path' && git stash push -u -m 'capture-pre-checkout' 2>/dev/null || true && \
-        git fetch origin '$git_ref' 2>/dev/null || git fetch origin && \
-        git checkout '$git_ref' && git reset --hard 'origin/$git_ref'"; then
-        echo "ERROR: git sync failed on $PI_USER@$PI_HOST — capture would run stale scripts." >&2
+# Read-only: looks at the device's checkout, never changes it.
+_check_pi_repo_for_capture() {
+    local script="scripts/provision/capture-external-state.sh" schema streams pi_rev
+    schema="$(mpe_pi_ssh "cd \"$repo_path\" && grep -m1 '^CAPTURE_SCHEMA_VERSION=' $script" 2>/dev/null | cut -d= -f2 || true)"
+    streams="$(mpe_pi_ssh "cd \"$repo_path\" && grep -c -e '--stdout' $script" 2>/dev/null || true)"
+    if [ "$schema" != "$CAPTURE_SCHEMA_VERSION" ] || [ "${streams:-0}" -lt 1 ] 2>/dev/null; then
+        echo "ERROR: the device's MPE-Module checkout cannot take a read-only capture" >&2
+        echo "  (capture schema there: '${schema:-unknown}', need v${CAPTURE_SCHEMA_VERSION} with --stdout)." >&2
+        echo "  This script does not touch the device's checkout. Update it the usual way" >&2
+        echo "  (deploy the branch), then run this again." >&2
         exit 1
     fi
-    local pi_rev
-    pi_rev="$(mpe_pi_ssh "cd '$repo_path' && git rev-parse HEAD" 2>/dev/null || echo unknown)"
+    pi_rev="$(mpe_pi_ssh "cd \"$repo_path\" && git rev-parse HEAD" 2>/dev/null || echo unknown)"
     if [ "$pi_rev" != "$laptop_rev" ] && [ "$laptop_rev" != unknown ]; then
-        echo "WARNING: Pi at $pi_rev, laptop at $laptop_rev — push laptop dev if Pi is behind." >&2
+        echo "WARNING: device at $pi_rev, laptop at $laptop_rev (informational; nothing was changed)." >&2
     fi
-    echo "  Pi MPE-Module: $pi_rev"
+    echo "  device MPE-Module: $pi_rev"
 }
 
-_ensure_pi_repo_for_capture
+# Stream the capture from the device into DIR. Nothing is written on the device.
+_pull_capture() {
+    local dest="$1"
+    mkdir -p "$dest"
+    mpe_pi_ssh "cd \"$repo_path\" && MPE_STATE_RESTORE_LABEL='$restore_label' \
+        ./scripts/provision/capture-external-state.sh --local --stdout" </dev/null | tar -xf - -C "$dest"
+}
+
+_check_pi_repo_for_capture
 
 if [ "$CHECK" = true ]; then
     if [ ! -d "$OUTPUT" ]; then
@@ -300,11 +336,7 @@ if [ "$CHECK" = true ]; then
     fi
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
-    mpe_pi_ssh "rm -rf '$remote_tmp' && mkdir -p '$remote_tmp' && \
-        cd '$repo_path' && MPE_STATE_RESTORE_LABEL='$restore_label' \
-        ./scripts/provision/capture-external-state.sh --local '$remote_tmp'"
-    scp -qr -i "$SSH_KEY" "$PI_USER@$PI_HOST:$remote_tmp/." "$tmp/"
-    mpe_pi_ssh "rm -rf '$remote_tmp'"
+    _pull_capture "$tmp"
     _verify_capture_artifacts "$tmp"
     if diff -rq "$OUTPUT" "$tmp" >/dev/null 2>&1; then
         echo "  no drift — $OUTPUT matches the appliance"
@@ -316,16 +348,14 @@ if [ "$CHECK" = true ]; then
     exit 1
 fi
 
-mpe_pi_ssh "rm -rf '$remote_tmp' && mkdir -p '$remote_tmp' && \
-    cd '$repo_path' && MPE_STATE_RESTORE_LABEL='$restore_label' \
-    ./scripts/provision/capture-external-state.sh --local '$remote_tmp'"
-
+# Pull into a staging dir first so a failed transfer cannot wipe a good capture.
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
+_pull_capture "$stage"
+_verify_capture_artifacts "$stage"
+_credential_scan "$stage"
 mkdir -p "$OUTPUT"
 rm -rf "${OUTPUT:?}"/*
-scp -qr -i "$SSH_KEY" "$PI_USER@$PI_HOST:$remote_tmp/." "$OUTPUT/"
-mpe_pi_ssh "rm -rf '$remote_tmp'"
-
-_verify_capture_artifacts "$OUTPUT"
-_credential_scan "$OUTPUT"
+cp -a "$stage"/. "$OUTPUT"/
 echo ""
 echo "Captured from $PI_USER@$PI_HOST into: $OUTPUT"
