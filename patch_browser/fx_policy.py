@@ -60,7 +60,7 @@ levels go the way the mask does: the UI writes them to the route file's
 datagram (`chainl`), so a restarted remapper re-asserts them with the depth.
 
 **Labels** (`chain_label`). The Effect fader and the mod-knob switch name the
-enabled effects in run order when the names fit ("Drive+Chorus"), otherwise a
+enabled effects in run order when the names fit, otherwise a
 count ("3 FX"), and "No FX" when none is on. Whether a label fits is the
 screen's call (a pixel budget it measures); this module only offers the long
 form first and the count after it.
@@ -220,7 +220,7 @@ def chain_names(mask: int) -> str:
     ids = fx_host_protocol.effects_in(mask)
     if not ids:
         return NO_FX_LABEL
-    return CHAIN_JOIN.join(fx_host_protocol.EFFECT_NAMES[i] for i in ids)
+    return CHAIN_JOIN.join(fx_host_protocol.EFFECT_SHORT_NAMES.get(i, fx_host_protocol.EFFECT_NAMES[i]) for i in ids)
 
 
 def chain_count(mask: int) -> str:
