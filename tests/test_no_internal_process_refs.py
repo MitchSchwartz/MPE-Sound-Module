@@ -23,6 +23,9 @@ TERMS = [
     r"cr" + r"a\b",
     "claim" + "ant",
     r"internal/" + "projects",
+    "om" + "-repo",
+    "appliance-cli" + "-pattern",
+    "measurement" + "-design",
 ]
 PATTERN = "|".join(TERMS)
 

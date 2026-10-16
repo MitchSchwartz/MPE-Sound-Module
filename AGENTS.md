@@ -173,7 +173,7 @@ judgment*, not by session number.
 packaging becomes a real problem (reproducible in CI and in the release
 image) and gets solved properly rather than by extending this exception.
 
-Pattern: [OM-Repo `Docs/appliance-cli-pattern.md`](https://github.com/opsMachine/OM-Repo/blob/main/Docs/appliance-cli-pattern.md) · [`COMMANDS.md`](COMMANDS.md)
+Commands: [`COMMANDS.md`](COMMANDS.md)
 
 ---
 
@@ -334,8 +334,7 @@ So two more checks, before an instrument informs any decision:
    ~1 s at 2776/min but ~4 hours at 0.13/min. When the shortest useful version comes out
    implausibly long, **the metric is wrong for the question**, not a reason to run a soak.
 
-**Before designing any measurement, invoke OM-Repo `measurement-design`**
-([`.claude/skills/measurement-design/SKILL.md`](../OM-Repo/.claude/skills/measurement-design/SKILL.md)). It carries the checklist, the audited
+**Before designing any measurement, read [`docs/measurements/MEASUREMENT-DISCIPLINE.md`](docs/measurements/MEASUREMENT-DISCIPLINE.md).** It carries the checklist, the audited
 instrument facts, and the rules for writing a measurement prompt for another agent — use it
 before opening a Pi window, before handing a prompt to an agent, and when interpreting
 results.
