@@ -1833,6 +1833,7 @@ int fx_test_bass_split_at_depth0;
 int fx_test_bass_lr2;
 int fx_test_bass_unsmoothed;
 int fx_test_bass_stereo;
+int fx_test_bass_no_park;
 int fx_test_bass_drive_outside;
 int fx_test_bass_no_corr;
 const float *fx_test_bass_fit[FX_MAX_EFFECTS];
@@ -2240,12 +2241,18 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
             /* The filters stay warm while an effect is ticked, so the knob
              * coming up from 0 finds them current; otherwise nothing runs. */
             if (bass_t > 0.0f && (mask & ((1u << e->count) - 1u)) != 0u) {
+                float park = FX_BASS_PARK_HZ;
+#ifdef FX_SELFTEST
+                if (fx_test_bass_no_park) {
+                    park = bass_t;
+                }
+#endif
                 if (!e->bass_warm) {
                     bass_reset(e);
-                    e->bass_hz = bass_t;
+                    e->bass_hz = park;
                     bass_coefs(e);
                 }
-                bass_glide(e, bass_t);
+                bass_glide(e, park);   /* the split comes in parked */
                 for (uint32_t i = 0; i < n; i++) {
                     float l = x_buf[0][i], r = x_buf[1][i], lo[FX_CHANNELS];
                     bass_frame(e, &l, &r, 1.0f, lo);
@@ -2286,23 +2293,36 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
             bass_hp_sum[i] = 0.0f;
         }
         if (bass_run && !e->bass_warm) {
-            /* Coming in cold: from rest, at the target, under the fade. */
+            /* Coming in cold: from rest, parked, under the fade. */
             bass_reset(e);
-            if (bass_t > 0.0f) {
+            e->bass_hz = FX_BASS_PARK_HZ;
+#ifdef FX_SELFTEST
+            if (fx_test_bass_no_park && bass_t > 0.0f) {
                 e->bass_hz = bass_t;
             }
+#endif
             bass_coefs(e);
         }
         e->bass_warm = bass_run;
         for (int s = 0; s <= e->count; s++) {
             if (bass_run && s == e->bass_split_at) {
-                bass_glide(e, bass_t);
+                /* b moves only with the corner parked; the corner leaves the
+                 * park only once b is 1 (fx_dsp.h, FX_BASS_PARK_HZ). */
                 float b = e->bass_mix;
+                float hz_goal = (bass_want > 0.0f && b >= 1.0f) ? bass_t : FX_BASS_PARK_HZ;
+                float b_goal = e->bass_hz <= FX_BASS_PARKED ? bass_want : b;
+#ifdef FX_SELFTEST
+                if (fx_test_bass_no_park) {
+                    hz_goal = bass_t;
+                    b_goal = bass_want;
+                }
+#endif
+                bass_glide(e, hz_goal);
                 for (uint32_t i = 0; i < n; i++) {
-                    if (b < bass_want) {
-                        b = fminf(bass_want, b + e->xfade_step);
-                    } else if (b > bass_want) {
-                        b = fmaxf(bass_want, b - e->xfade_step);
+                    if (b < b_goal) {
+                        b = fminf(b_goal, b + e->xfade_step);
+                    } else if (b > b_goal) {
+                        b = fmaxf(b_goal, b - e->xfade_step);
                     }
 #ifdef FX_SELFTEST
                     if (fx_test_bass_unsmoothed) {

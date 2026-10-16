@@ -3787,13 +3787,15 @@ static const float BASS_XOVERS[3] = { 80.0f, 120.0f, 300.0f };
 
 /* Split and recombined with the chain bypassed: depth 0 with the split forced
  * on (fx_test_bass_split_at_depth0), a mono sine at `hz`. Returns out/in RMS
- * in dB over a whole number of cycles after 0.3 s; `diff` is RMS(out - in) /
+ * in dB over a whole number of cycles after 1.2 s; `diff` is RMS(out - in) /
  * RMS(in), how far the waveform moved (the allpass's phase). */
 static double bass_flat_db(float xover, float hz, double *diff)
 {
     fx_engine e;
     CHECK(fx_engine_init(&e, &THRU, 1, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
-    const uint32_t settle = (uint32_t)(0.3f * RATE);
+    /* 1.2 s: the split fades in parked at 10 Hz and the corner then glides
+     * up (100 ms one-pole); flatness is a property of the corner at rest. */
+    const uint32_t settle = (uint32_t)(1.2f * RATE);
     const uint32_t cycles = (uint32_t)ceil(0.5 * hz) < 4u ? 4u : (uint32_t)ceil(0.5 * hz);
     const uint32_t measure = (uint32_t)lround((double)cycles * RATE / hz);
     float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
@@ -4088,6 +4090,77 @@ static void test_bass_lows_dry_and_mono(void)
           "passed too: side %+.1f dB, wander %.2f dB", c_side, c_wander);
     CHECK(m_side > BASS_SIDE_MAX_DB, "bass: control (lows per channel) passed the mono check: "
           "%+.1f dB", m_side);
+}
+
+/* The split fades in and out without a dip (review of #185). Before, b faded
+ * with the corner already at the target: mid-fade the dry lows and LR4's
+ * (half a turn behind at the corner) cancelled, -13 dB for ~30 ms. A mono
+ * tone at 0.7, 1 and 1.4 x the corner (120 and 300 Hz), the thru effect at
+ * full: Off 0.4 s, the corner set 0.8 s, Off 0.8 s. The envelope is the RMS
+ * over one tone period, every quarter period; its minimum after the first
+ * 0.3 s, against the settled level just before the split comes in, must be
+ * at least BASS_FADE_MIN_DB. Control: the pre-review fade (no parking). */
+#define BASS_FADE_MIN_DB (-1.0)
+static double bass_fade_min_db(float xover, float hz)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, &THRU, 1, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    const int seg[3] = { (int)(0.4f * RATE / PERIOD), (int)(0.8f * RATE / PERIOD),
+                         (int)(0.8f * RATE / PERIOD) };
+    const int total = seg[0] + seg[1] + seg[2];
+    float *out = malloc(sizeof(float) * (size_t)total * PERIOD);
+    CHECK(out != NULL, "alloc");
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    for (int p = 0; p < total; p++) {
+        g_bass_hz = (p >= seg[0] && p < seg[0] + seg[1]) ? xover : 0.0f;
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            l[i] = r[i] = 0.4f * (float)sin(2.0 * M_PI * hz * (double)(p * PERIOD + i) / RATE);
+        }
+        run_period(&e, l, r, ol, or_, PERIOD, BIT(0), 1.0f);
+        memcpy(out + (size_t)p * PERIOD, ol, sizeof(ol));
+    }
+    g_bass_hz = 0.0f;
+    fx_engine_free(&e);
+    const int win = (int)lround(RATE / hz), hop = win / 4 > 0 ? win / 4 : 1;
+    const int start = (int)(0.3f * RATE), split_at = seg[0] * (int)PERIOD;
+    double ref = 0.0, worst = 1e30;
+    for (int a = start; a + win <= total * (int)PERIOD; a += hop) {
+        double acc = 0.0;
+        for (int i = a; i < a + win; i++) {
+            acc += (double)out[i] * out[i];
+        }
+        if (a + win <= split_at) {
+            ref = acc;
+        } else {
+            worst = fmin(worst, acc);
+        }
+    }
+    free(out);
+    return 10.0 * log10(worst / ref + 1e-30);
+}
+
+static void test_bass_fade_no_dip(void)
+{
+    static const float xo[2] = { 120.0f, 300.0f };
+    static const float mul[3] = { 0.7f, 1.0f, 1.4f };
+    double worst = 0.0, cworst = 0.0;
+    for (int x = 0; x < 2; x++) {
+        for (int m = 0; m < 3; m++) {
+            double d = bass_fade_min_db(xo[x], xo[x] * mul[m]);
+            fx_test_bass_no_park = 1;
+            double c = bass_fade_min_db(xo[x], xo[x] * mul[m]);
+            fx_test_bass_no_park = 0;
+            if (g_verbose) {
+                printf("  bass fade in/out at %3.0f Hz, tone %5.1f Hz: envelope min %+.2f dB; "
+                       "control (no parking) %+.2f dB; limit %+.1f\n", (double)xo[x],
+                       (double)(xo[x] * mul[m]), d, c, BASS_FADE_MIN_DB);
+            }
+            worst = fmin(worst, d);
+            cworst = fmin(cworst, c);
+        }
+    }
+    CHECK(worst >= BASS_FADE_MIN_DB, "bass: the lows dip %+.2f dB while the split fades", worst);
+    CHECK(cworst < BASS_FADE_MIN_DB, "bass: control (no parking) dipped only %+.2f dB", cworst);
 }
 
 /* The drive is inside the bypass (FX_BASS_DRIVE_INSIDE): a 60 Hz tone at
@@ -4514,6 +4587,7 @@ CASE0(test_bass_flat_sum)
 CASE0(test_bass_bit_identity)
 CASE0(test_bass_no_click)
 CASE0(test_bass_lows_dry_and_mono)
+CASE0(test_bass_fade_no_dip)
 CASE0(test_bass_drive_inside)
 CASEK(test_bass_level)
 CASE0(test_bass_clean)
@@ -4652,6 +4726,7 @@ static void build_cases(void)
     add_case("bass bit identity", 0, case_test_bass_bit_identity, NULL, 1);
     add_case("bass no click", 0, case_test_bass_no_click, NULL, 1);
     add_case("bass lows dry and mono", 0, case_test_bass_lows_dry_and_mono, NULL, 3);
+    add_case("bass fade no dip", 0, case_test_bass_fade_no_dip, NULL, 1);
     add_case("bass drive inside", 0, case_test_bass_drive_inside, NULL, 1);
     for (int x = 0; x < 3; x++) {
         snprintf(name, sizeof(name), "bass level %.0f", (double)BASS_LEVEL_XOVERS[x]);

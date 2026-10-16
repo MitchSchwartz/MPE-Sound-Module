@@ -208,7 +208,8 @@ typedef struct {
  * chain goes live with the crossover set, or the crossover is set while it is
  * live) and back when it goes, so neither is a step. The crossover glides
  * (one-pole, FX_BASS_GLIDE_MS, coefficients once per FX_CHUNK) rather than
- * jumping. b = 0 is the chain exactly as before: Off, and the whole bypass
+ * jumping, and b only moves with the corner parked at FX_BASS_PARK_HZ (in:
+ * fade, then glide up; out: glide down, then fade: ~0.25 s). b = 0 is the chain exactly as before: Off, and the whole bypass
  * (depth 0 or no effect on) still return the input bit for bit, because the
  * split only runs while the chain is live, or while b fades out after it.
  * The makeup applies to the sum, so the level on keys stays G(m) x the input.
@@ -250,8 +251,21 @@ extern const float FX_BASS_GRID_HZ[FX_BASS_GRID];
  * Off and 80-300 Hz (patch_browser/fx_host_protocol.py). */
 #define FX_BASS_MIN_HZ 20.0f
 #define FX_BASS_MAX_HZ 1000.0f
-/* How fast a moved crossover glides to its new value. */
-#define FX_BASS_GLIDE_MS 50.0
+/* How fast a moved crossover glides to its new value. 100 ms, was 50: a
+ * corner moving under a tone near it modulates the band sum while it moves
+ * (the bands sum to an allpass only at rest); gliding up from the park past
+ * an 84 Hz tone, 50 ms dipped it 1.6 dB, 100 ms 0.9 (fx_selftest.c, the fade
+ * check). */
+#define FX_BASS_GLIDE_MS 100.0
+/* Where the corner parks while the split fades in or out (review of #185):
+ * mid-fade the dry lows and the band-split lows are mixed, and near the
+ * corner LR4's allpass has them half a turn apart, so at the corner they
+ * cancelled (the low band dipped up to -13 dB for ~30 ms). The split now
+ * fades in with the corner here, below the keyboard, then glides up to the
+ * target; going out it glides down here first, then fades. Parked counts as
+ * within FX_BASS_PARKED of it. */
+#define FX_BASS_PARK_HZ 10.0f
+#define FX_BASS_PARKED (1.2f * FX_BASS_PARK_HZ)
 
 typedef struct {
     float ic1, ic2;
@@ -419,6 +433,7 @@ extern int fx_test_bass_split_at_depth0;
 extern int fx_test_bass_lr2;
 extern int fx_test_bass_unsmoothed;
 extern int fx_test_bass_stereo;
+extern int fx_test_bass_no_park;     /* mutant: fade at the target corner (pre-review) */
 extern int fx_test_bass_drive_outside;
 /* The level correction off (the bass level check's control), and a table to
  * use in place of an effect's own (fx-selftest --fit-bass). */
