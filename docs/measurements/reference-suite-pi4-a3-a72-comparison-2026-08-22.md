@@ -81,8 +81,6 @@ Stock `dsp_med` rises across buffer configs on the **same** binary (A2 pass 1), 
 
 V1 fitted **a = 0.13 ms** fixed per-callback cost. That is **0.61%** of the period deadline at 1024 and **2.44%** at 256 — a predicted rise of **~1.83 pp** in the fixed-cost fraction as buffer shrinks. Observed `dsp_med` rise is **2.1–2.5 pp** across three unrelated patches. Cross-validates the V1 model via loaded cells on the reference suite, without relying on the silence test.
 
-See also **U2** in OM-Repo [`SRED-EVIDENCE-2026.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md).
-
 ## Decision (pre-registered closeout §A3)
 
 **NULL RESULT.** All cells `<3%` by pre-registered rule — **no-effect**, not “within noise” (noise unmeasured). Osc patches show no win; Duduk shows a possible filter-path regression unresolvable until A4.
@@ -92,7 +90,7 @@ See also **U2** in OM-Repo [`SRED-EVIDENCE-2026.md`](../../../OM-Repo/internal/p
 - **a72 artifact:** kept at `~/surge-src/build-a72/...` for reference; not installed
 - **Backup:** `~/surge-xt-cli.pre-a72` retained
 
-Well-executed null result — closes the `-mcpu=cortex-a72` lever for U7.
+Well-executed null result — closes the `-mcpu=cortex-a72` lever for the compute-bound question.
 
 ## Next
 

@@ -164,7 +164,7 @@ Then play it. Automated checks do not cover the thing that matters.
 
 ## Platform notes (Pi 4 ↔ Pi 5 comparisons)
 
-Both boards ran **kernel 6.18.34** at capture (Pi 4: `rpi-v8`; Pi 5: `rpi-2712`) — kernel is not a confound for U10-style A/B.
+Both boards ran **kernel 6.18.34** at capture (Pi 4: `rpi-v8`; Pi 5: `rpi-2712`) — kernel is not a confound for cross-platform A/B.
 
 **Firmware (`vcgencmd version`) differed at capture:**
 

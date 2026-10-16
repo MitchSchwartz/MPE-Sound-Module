@@ -39,8 +39,8 @@ DEFAULT_CLOCK = os.environ.get("MPE_SL_GRID_CLOCK", "internal").strip().lower()
 #
 # This replaced an offline pipeline (parallel scratch capture + merge + buffer
 # reload) that could not work: measured 65-139 ms of OSC arm latency after the
-# wrap, and +4.05 dB of summed level across the loop head. See SR&ED evidence
-# §3 U11. Kill switch, falls back to a plain stop: MPE_SL_RING_OUT=0.
+# wrap, and +4.05 dB of summed level across the loop head.
+# Kill switch, falls back to a plain stop: MPE_SL_RING_OUT=0.
 RING_OUT_ENABLED = os.environ.get("MPE_SL_RING_OUT", "1").strip().lower() not in (
     "0",
     "off",

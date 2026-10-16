@@ -5,7 +5,7 @@
 **Status:** **EAR TEST — pre-engaged cap** (`yolo/pre-engaged-cap` @ `bae4f5e` on Pi 5).
 
 **Platform:** Pi 5 · 128×2 @ 48 kHz · Cloud Horn / Crystals / Piano Fictions  
-**Uncertainty:** U10 (Pi 5 replication) + V7 (patch-aware capacity / audible degradation)  
+**Uncertainty:** Pi 5 replication + V7 (patch-aware capacity / audible degradation)  
 **Spec:** [`Documents/specs/poly-governor-v2-progressive-spec.md`](../../Documents/specs/poly-governor-v2-progressive-spec.md)  
 **Code:** `yolo/pre-engaged-cap` @ `bae4f5e` (`MPE_POLY_REST_CAP`)
 
@@ -98,7 +98,7 @@ MPE_POLY_RISE_MIN_RATE=20
 
 **Instrumentation:** `meter.state` (`dsp_percent`, xruns), governor journal / trace, optional `poly-governor.trace`. **Driver:** extend `scripts/midi-load.py` or soak harness with timed note-density envelopes per profile. **Pass/fail:** pre-register xrun delta + whether limit stepped before xrun burst (per gesture class).
 
-**Blocked same as Suite 1:** run on Pi 5 after cooler + 27 W PSU so results are comparable to U10 replication arm.
+**Blocked same as Suite 1:** run on Pi 5 after cooler + 27 W PSU so results are comparable to the Pi 5 replication arm.
 
 ---
 
@@ -135,12 +135,12 @@ MPE_POLY_RISE_MIN_RATE=20
 | `801771b` | always_on mode |
 | `e66260e` | Linear jack baseline |
 | `07cb32d` | Ramp apply |
-| `db64943` | Pause + SR&ED + gesture plan |
+| `db64943` | Pause + gesture plan |
 
 PR #106 · [`poly-governor-instrumentation-2026-08-21.md`](poly-governor-instrumentation-2026-08-21.md) Task C (steal on note-on)
 
 ---
 
-## SR&ED note
+## Notes
 
-Eligible: cross-meter falsification (jack vs proc); always_on + baseline as loosening lever; ramp apply as actuation-timing fix; **gesture-class dependence** (progressive vs step attack) as new falsifier for “governor tuned” claims. Pause is hardware-gated replication discipline, not abandonment.
+Contributions: cross-meter falsification (jack vs proc); always_on + baseline as loosening lever; ramp apply as actuation-timing fix; **gesture-class dependence** (progressive vs step attack) as new falsifier for “governor tuned” claims. Pause is hardware-gated replication discipline, not abandonment.

@@ -2,7 +2,6 @@
 
 > **Correction (2026-08-23):** Reference Pi 4 is **4 GB RAM**. The **7.6 GiB** conditions row was a logging error.
 
-Plan: OM-Repo `internal/projects/mpe-synth-launch/research/looper-vetting.md` §7.
 Decisions this feeds: `Documents/DECISIONS.md` 2026-08-14 entries.
 
 **Verdict:** Session A **continue** · Session B **PASS** (updated 2026-08-15 23:20 BST). B2/B9 pass (ear + APC bench). **B8 corrected to PASS** and **B7 now PASSES** on a full 600 s 16-loop soak — 0 xruns, 22.2% DSP load. **Nothing outstanding could disqualify SooperLooper.** Grid mode shipped; see `Documents/specs/looper-transport-clock-spec.md` §K–§M. Full log: this file.
