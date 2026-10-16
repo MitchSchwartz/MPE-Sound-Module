@@ -246,7 +246,7 @@ Steps that **`setup-touch-pi.sh` / `deploy-all.sh` do not yet cover** — add he
 | PSU / cooling | **3 A, no cooler** — throttle expected under soak; cooler ordered |
 | Blocked | Reference suite, Suite 1, 64-voice census until cooler + 27 W PSU |
 
-**SR&ED:** U10 platform replication — instrument live, predictions unscored. See
+**Platform replication:** instrument live, predictions unscored. See
 [`PI5-SESSION-CLOSEOUT-2026-08-23.md`](measurements/PI5-SESSION-CLOSEOUT-2026-08-23.md).
 
 ---

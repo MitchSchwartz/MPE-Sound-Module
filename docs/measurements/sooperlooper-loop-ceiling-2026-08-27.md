@@ -1,7 +1,7 @@
 # SooperLooper 1.7.9 loop ceiling — 15 usable, indices 0–14
 
 **Date:** 2026-08-27 · **Platform:** Pi 5, arm64 SooperLooper 1.7.9, JACK 128×2 @ 48 kHz
-**Status:** Resolved. Hard platform constraint. SR&ED U12.
+**Status:** Resolved. Hard platform constraint.
 
 ## Question
 

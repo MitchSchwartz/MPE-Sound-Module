@@ -248,11 +248,10 @@ MPE_SL_SCRATCH_LOOP=14
 
 ---
 
-## SR&ED note
+## Scope note
 
-Extends Phase 2 looper investigation onto **second platform** (U10) — seam geometry is
+Extends Phase 2 looper investigation onto the **second platform** — seam geometry is
 stack-specific; Pi 4 ear failures may or may not reproduce on RP1 USB + 128×2 JACK graph.
-Log labour via OM-Repo [`sred-daily-capture`](../../../OM-Repo/.claude/skills/sred-daily-capture/SKILL.md) after bench sessions.
 
 ---
 

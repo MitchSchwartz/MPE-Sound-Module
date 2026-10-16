@@ -1,7 +1,6 @@
 # SooperLooper evaluation — YYYY-MM-DD
 
-Copy to `sooperlooper-eval-YYYY-MM-DD.md` and fill in. Plan: OM-Repo
-`internal/projects/mpe-synth-launch/research/looper-vetting.md` §7.
+Copy to `sooperlooper-eval-YYYY-MM-DD.md` and fill in.
 Decisions this feeds: `Documents/DECISIONS.md` 2026-08-14 entries.
 
 **Verdict:** *(adopt / build our own / inconclusive — fill in last)*

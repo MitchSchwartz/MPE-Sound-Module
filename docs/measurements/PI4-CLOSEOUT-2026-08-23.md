@@ -74,7 +74,7 @@ a run rather than to answer a question is how it happens. Recorded as a hypothes
 cheap test: **re-run the baseline arm alone with the floor assertion in place; if it lands
 near 56.9%, H6 closes on one ~15-minute cell.**
 
-**H6 remains open for U7/Pi 5 forecast, not for §1.** The evening baseline re-run landed loaded Cloud Horn ~34% p99 and Crystals ~37% — the morning instrument failure is superseded for baseline numbers. A valid A/B still needs a paired OC phase in the same harness generation; reported DSP still *rises* with clock in the one-sided comparison (baseline ~34% vs prior OC ~53%), opposite naive compute-bound headroom. Clock is neither established nor eliminated as a lever.
+**H6 remains open for the Pi 5 forecast, not for §1.** The evening baseline re-run landed loaded Cloud Horn ~34% p99 and Crystals ~37% — the morning instrument failure is superseded for baseline numbers. A valid A/B still needs a paired OC phase in the same harness generation; reported DSP still *rises* with clock in the one-sided comparison (baseline ~34% vs prior OC ~53%), opposite naive compute-bound headroom. Clock is neither established nor eliminated as a lever.
 
 **Independent cross-validation of V1.** Stock `dsp_median` rises +2.34 / +2.11 / +2.48 pp
 across 1024→512→256 for Crystals / Duduk / Cloud Horn. The V1 fit predicts ~1.83 pp from
@@ -305,5 +305,4 @@ investigation.
 ---
 
 *Companion documents: [`MEASUREMENT-DISCIPLINE.md`](MEASUREMENT-DISCIPLINE.md) (Rules −1, 0.5, 0–7) ·
-[`../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md) (U1–U10) ·
 [`pi5-predictions-2026-08-23.md`](pi5-predictions-2026-08-23.md) (pre-registered, do not edit retroactively).*

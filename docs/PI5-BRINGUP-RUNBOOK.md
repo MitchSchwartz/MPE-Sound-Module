@@ -204,12 +204,11 @@ hot enough that this is a real constraint, not a formality.
 
 ---
 
-## 6. SR&ED capture, in-line
+## 6. Record-keeping, in-line
 
-- State **U8 (cross-platform portability of the cost model)** as an uncertainty *before* the
+- State the open question (**cross-platform portability of the cost model**) *before* the
   work, not after. The predictions table is that statement.
-- Add the "prior art checked" paragraph to each suite: **Pi 5 specifications are published and
+- Add a "prior art checked" paragraph to each suite: **Pi 5 specifications are published and
   must be cited, not measured.** What is not published is how this audio graph behaves on it.
-- Mark board assembly, OS install, and cabling as **routine** (gap G5). Measurement, prediction,
-  and re-derivation are not.
-- Log hours as you go. Do not reconstruct twice.
+- Treat board assembly, OS install, and cabling as routine setup. Measurement, prediction,
+  and re-derivation are the investigation.

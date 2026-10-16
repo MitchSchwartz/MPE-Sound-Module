@@ -2,14 +2,14 @@
 
 *Last updated: 2026-08-23 (America/Toronto)*
 
-**Purpose:** Progress continuity for the Pi 5 player track and SR&ED evidence under **U10**
-(cross-architecture replication). This session brought the board from fresh clone to a **playable
+**Purpose:** Progress continuity for the Pi 5 player track and cross-architecture
+replication. This session brought the board from fresh clone to a **playable
 daily instrument**; measurement Suite 1 remains **blocked** on hardware.
 
 **Host:** `<pi5-host>` · user `pi` · **<pi-ip>** (SSH `HostName` pinned; `.local` flaky)
 
 Canon: [`PI5-PLAYER-SETUP-LOG.md`](../PI5-PLAYER-SETUP-LOG.md) · [`PI5-TRANSITION-PLAN.md`](../PI5-TRANSITION-PLAN.md) ·
-[`pi5-predictions-2026-08-23.md`](pi5-predictions-2026-08-23.md) · [`SRED-EVIDENCE-2026.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md) §U10
+[`pi5-predictions-2026-08-23.md`](pi5-predictions-2026-08-23.md)
 
 ---
 
@@ -66,9 +66,9 @@ Canon: [`PI5-PLAYER-SETUP-LOG.md`](../PI5-PLAYER-SETUP-LOG.md) · [`PI5-TRANSITI
 
 ---
 
-## Key findings (SR&ED-relevant)
+## Key findings
 
-### F1 — Pi 4 IRQ map is only partially portable (U10 / platform)
+### F1 — Pi 4 IRQ map is only partially portable (platform)
 
 On BCM2712 + RP1, Sound Blaster sits on **RP1 usb1 IRQ 131**; touch **i2c IRQ 111**; Wi‑Fi **mmc1 IRQ 162**.
 All sampled lines are **CPU0-pinned and not writable** via `/proc/irq/*/smp_affinity_list`.
@@ -158,21 +158,18 @@ Docs: [`poly-governor-v2-always-on-pi5-2026-08-23.md`](poly-governor-v2-always-o
 
 ---
 
-## SR&ED framing
+## Replication framing
 
-**Uncertainty (U10):** Do Pi 4 findings (`a`, filter-over-osc cost, xrun class, buffer floors)
+**Open question:** Do Pi 4 findings (`a`, filter-over-osc cost, xrun class, buffer floors)
 hold on Cortex-A76 @ 2400 MHz with RP1 USB/IRQ topology?
 
-**Advancement this session:** Second platform **instrumented and partially characterized** before
+**Progress this session:** Second platform **instrumented and partially characterized** before
 any optimisation — IRQ census shows **different binding surface** (RP1, non-movable IRQs) than
 Pi 4 (xhci on CPU0, partial levers). Player path proves the **software stack runs**; replication
 measurements not yet run (correct per transition plan: *replication before optimisation*).
 
-**Eligible labour categories:** platform bringup (meas), IRQ/hygiene investigation docs (review),
-loaded census instrument run (meas), RT verification (meas).
-
-**Not yet eligible as results:** Suite 1 predictions — no scored cells.
+**Not yet results:** Suite 1 predictions — no scored cells.
 
 ---
 
-*Hands-on: ~3 h (Mitch, 2026-08-23) — OM-Repo [`SRED-DAILY-LOG.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-DAILY-LOG.md).*
+*Hands-on: ~3 h (Mitch, 2026-08-23).*

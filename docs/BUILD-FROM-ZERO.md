@@ -132,7 +132,7 @@ Building Surge also gives you the **3,192 bundled factory + third-party patches*
 ./scripts/build-surge.sh --arch a72
 ./scripts/install-surge-from-build.sh --arch a72
 
-# Pi 5 player / U10 replication
+# Pi 5 player / platform replication
 ./scripts/build-surge.sh --arch a76
 ./scripts/install-surge-from-build.sh --arch a76
 ```

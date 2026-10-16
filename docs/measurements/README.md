@@ -52,12 +52,6 @@ Queued prompts: [`PROMPT-P7`](PROMPT-P7-overclock-diagnostic.md),
 [`PROMPT-P8`](PROMPT-P8-mcpu-cortex-a72.md),
 [`HANDOVER-census-unison-fix`](HANDOVER-census-unison-fix.md).
 
-Evidence-record tasks (offline, not measurements): OM-Repo [`PROMPT-G1`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/PROMPT-G1-effort-reconstruction.md)
-effort reconstruction (historical — see [`SRED-EFFORT-LOG.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EFFORT-LOG.md)),
-[`PROMPT-G3`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/PROMPT-G3-archive-raw-logs.md) raw-log archival, and ongoing
-[`SRED-DAILY-LOG.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-DAILY-LOG.md) via OM-Repo skills `measurement-design` (before runs) and `sred-daily-capture` (labour after) — all from
-[`SRED-EVIDENCE-2026.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md).
-
 ## Archive
 
 **53 files** moved to [`archive/`](archive/) on 2026-08-22 — refuted lines (600 µs hunt,

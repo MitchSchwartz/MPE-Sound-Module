@@ -44,7 +44,6 @@ re-litigate without a dated DECISIONS row.
 > slot WAVs. The final bank is ragged again — offset 7 shows tracks 7–14 — and that
 > is a property of the hardware, not a modelling choice. Full record:
 > [`sooperlooper-loop-ceiling-2026-08-27.md`](../../docs/measurements/sooperlooper-loop-ceiling-2026-08-27.md).
-> SR&ED U12.
 >
 > **Rev 3 (2026-08-26) — the scratch loop no longer exists.** `a99cf63` deleted the
 > offline seam-weld pipeline; takes now close into a one-pass SooperLooper overdub.

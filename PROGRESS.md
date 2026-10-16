@@ -75,7 +75,7 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 | ~~**A3**~~ | ~~**Settle a72**~~ — **DONE NULL** 2026-08-22; stock control kept | closeout §A3 | ~60 min |
 | ~~**A4**~~ | ~~**Reference pass 2**~~ — **DONE** 2026-08-23; max spread **1.70%** | closeout §A4 | ~30 min |
 | ~~**A5**~~ | ~~**State capture**~~ — **DONE** 2026-08-23 (calibration + `pi4-control-2026-08-23/`) | closeout §A5 | ~10 min |
-| ~~**A6**~~ | ~~**Log archive refresh**~~ — **DONE** soak log re-pulled (512 lines) | OM-Repo `sred/PROMPT-G3-archive-raw-logs.md` | ~30 min |
+| ~~**A6**~~ | ~~**Log archive refresh**~~ — **DONE** soak log re-pulled (512 lines) | — | ~30 min |
 | ~~**A7**~~ | ~~**`build-surge.sh --arch`**~~ — **DONE** (`scripts/build-surge.sh`) | closeout §A7 | ~30 min |
 | ~~**A8**~~ | ~~**Platform stamps**~~ — **DONE** on B2 + predictions docs | closeout §A8 | ~20 min |
 | ~~**A9**~~ | ~~**Predictions table**~~ — **DONE** `pi5-predictions-2026-08-23.md` | transition plan §5 | ~20 min |
@@ -213,7 +213,6 @@ Full log paths and harness notes: [`docs/measurements/G2-RESULT-2026-08-23.md`](
 | `docs/PI5-TRANSITION-PLAN.md` | **Why the transition is structured this way.** What survives, what is void |
 | `docs/PI5-BRINGUP-RUNBOOK.md` | Pi 5 setup + overnight suites with gates |
 | `docs/measurements/PROMPT-PI4-CLOSEOUT.md` | Ordered Pi 4 closeout, Track A/B |
-| OM-Repo [`sred/SRED-EVIDENCE-2026.md`](../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md) | Uncertainties, chronology, prior-art position, gaps G1–G5 |
 
 **History:** superseded and refuted runs live in [`docs/measurements/archive/`](docs/measurements/archive/)
 (53 files, 2026-08-22 compaction). Keep for provenance — not decision inputs.

@@ -47,7 +47,6 @@ opinion, in the test suite and at import.
 [`Documents/DECISIONS.md`](Documents/DECISIONS.md) are history: read them for
 *why* something was decided and what was measured, never for what is true now.
 Everything in `Documents/specs/` is stamped HISTORY for the same reason.
-Phase 2 direction also in OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md).
 
 **Before adding any polling loop, watchdog tick, or timer:** CPU is the scarcest resource
 on this appliance — a `python3` fork is ~400 ms on the Pi, so once every 5 s is **9% of a
@@ -346,22 +345,3 @@ results.
 before the run), claim classes and minimum n, and the requirement that the harness stamp
 **actual** state into every result rather than intended state. Read it before designing a
 measurement.
-
----
-
-## SR&ED daily labour capture (mandatory going forward)
-
-**Canon lives in OM-Repo**, not this repo: [`internal/projects/mpe-synth-launch/sred/`](../OM-Repo/internal/projects/mpe-synth-launch/sred/README.md)
-
-Historical labour through 2026-08-22 lives in [`SRED-EFFORT-LOG.md`](../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EFFORT-LOG.md) (G1 reconstruction). **Do not backfill that way again.**
-
-| when | do |
-|---|---|
-| End of investigation / measurement / instrument session | Invoke OM-Repo **`sred-daily-capture`** ([`.claude/skills/sred-daily-capture/SKILL.md`](../OM-Repo/.claude/skills/sred-daily-capture/SKILL.md)) |
-| Append row | [`SRED-DAILY-LOG.md`](../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-DAILY-LOG.md) via [`sred/scripts/sred-log-append.sh`](../OM-Repo/internal/projects/mpe-synth-launch/sred/scripts/sred-log-append.sh) |
-| Phase names | [`SRED-EVIDENCE-2026.md`](../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md) §4 only |
-| Hours | Mitch's ranges only — never invent; use `?` if session ends without answer |
-
-**Log instrumentation work explicitly** (build / discover wrong / derive rule — see effort log §Instrumentation). Unattended soaks are normal; note monitoring fraction and mechanism references in the daily row.
-
-**Pair with OM-Repo `measurement-design`:** conditions before the Pi run; **`sred-daily-capture`** after the session — both skills live in OM-Repo, not this repo.

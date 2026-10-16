@@ -10,7 +10,6 @@
 > readers here first.
 
 **Locked decisions:** [`DECISIONS.md`](DECISIONS.md)  
-**Deep canon (branch audit, open questions):** OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md)  
 **SooperLooper bench log:** [`docs/measurements/sooperlooper-eval-2026-08-14.md`](../docs/measurements/sooperlooper-eval-2026-08-14.md)
 
 ---
@@ -29,7 +28,6 @@ paths**, not the plan.
 
 ## SooperLooper Pi test — status (2026-08-14)
 
-Plan: [`looper-vetting.md` §7](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/research/looper-vetting.md).  
 **Evidence:** [`docs/measurements/sooperlooper-eval-2026-08-14.md`](../docs/measurements/sooperlooper-eval-2026-08-14.md) on branch `docs/sooperlooper-eval`.
 
 | Session | Verdict | Headline |
