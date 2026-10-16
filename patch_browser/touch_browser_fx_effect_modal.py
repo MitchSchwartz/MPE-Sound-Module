@@ -28,7 +28,7 @@ keeps its value, and takes no touch.
 
 The header holds one more slider, between the title and Done: the bass
 bypass (#173), labelled "Dry bass". Below its crossover the lows skip the
-effects and stay dry and mono. Its positions are Off at the left, then
+effects and stay dry. Its positions are Off at the left, then
 `fx_host_protocol.BASS_STEPS_HZ` (80-300 Hz) evenly spaced, and the value
 shows in Hz ("Off", "120 Hz"). It looks and drags as the level sliders do
 (`FxPolicy.set_bass`, live, throttled), and is greyed out with no effect

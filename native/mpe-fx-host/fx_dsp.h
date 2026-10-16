@@ -198,11 +198,11 @@ typedef struct {
 /* Bass bypass (#173). Below a crossover the signal skips the chain: a
  * Linkwitz-Riley 4th-order split (two cascaded Butterworth sections per band,
  * TPT state-variable filters, so a moving corner stays stable) sends the low
- * band, summed to mono, straight to the output, and the high band through the
- * chain. LR4's two bands sum to an allpass: flat in level, so with the chain
+ * band (dry, per channel or summed to mono: FX_BASS_LOW_MONO) straight to the
+ * output, and the high band through the chain. LR4's two bands sum to an allpass: flat in level, so with the chain
  * transparent the split changes the phase of the lows and nothing else.
  *
- *   out = G(m) * ( b * lo_mono + chain( x + b * (hi - x) ) )
+ *   out = G(m) * ( b * lo + chain( x + b * (hi - x) ) )
  *
  * b runs 0 -> 1 over the enable crossfade time when the split comes in (the
  * chain goes live with the crossover set, or the crossover is set while it is
@@ -243,9 +243,9 @@ typedef struct {
 extern const float FX_BASS_GRID_HZ[FX_BASS_GRID];
 
 /* 1: the drive is inside the bypass: the split comes before it, so the lows
- * stay clean as well as dry and mono. 0: the drive runs on the whole signal
- * and the split comes after it (the lows are driven, then kept mono and out
- * of the modulation effects). The one place this is decided. */
+ * stay clean as well as dry. 0: the drive runs on the whole signal
+ * and the split comes after it (the lows are driven, then kept dry of
+ * the modulation effects). The one place this is decided. */
 #define FX_BASS_DRIVE_INSIDE 1
 /* The crossover range the client accepts; 0 (or below) is Off. The UI offers
  * Off and 80-300 Hz (patch_browser/fx_host_protocol.py). */
@@ -266,6 +266,14 @@ extern const float FX_BASS_GRID_HZ[FX_BASS_GRID];
  * within FX_BASS_PARKED of it. */
 #define FX_BASS_PARK_HZ 10.0f
 #define FX_BASS_PARKED (1.2f * FX_BASS_PARK_HZ)
+/* 1: the low band is summed to mono (both channels get (L + R) / 2 below the
+ * corner). 0: each channel keeps its own low band, dry. Mono loses the bass
+ * of a stereo patch: -3 dB where L and R are uncorrelated, and it cancels
+ * where they are opposed (review of #185); per channel keeps every low as it
+ * was. Pending Mitch's choice; 0 until then. */
+#ifndef FX_BASS_LOW_MONO
+#define FX_BASS_LOW_MONO 0
+#endif
 
 typedef struct {
     float ic1, ic2;
@@ -432,7 +440,8 @@ extern int fx_test_reverse_order;
 extern int fx_test_bass_split_at_depth0;
 extern int fx_test_bass_lr2;
 extern int fx_test_bass_unsmoothed;
-extern int fx_test_bass_stereo;
+extern int fx_test_bass_stereo;      /* the other FX_BASS_LOW_MONO option */
+extern int fx_test_bass_low_left;    /* mutant: both channels' lows from L only */
 extern int fx_test_bass_no_park;     /* mutant: fade at the target corner (pre-review) */
 extern int fx_test_bass_drive_outside;
 /* The level correction off (the bass level check's control), and a table to

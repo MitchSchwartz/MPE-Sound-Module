@@ -4024,6 +4024,7 @@ static void test_bass_no_click(void)
  *         move it 15 dB. */
 #define BASS_SIDE_MAX_DB (-24.0)
 #define BASS_WANDER_MAX_DB 1.0
+#define BASS_SIDE_KEEP_DB 1.5
 static void bass_lows(float xover, double *side_db, double *wander_db)
 {
     const uint32_t mask = BIT(0) | BIT(2) | BIT(FX_I_FLANGER);
@@ -4074,22 +4075,117 @@ static void test_bass_lows_dry_and_mono(void)
     double side, wander, c_side, c_wander, m_side, m_wander;
     bass_lows(120.0f, &side, &wander);
     bass_lows(0.0f, &c_side, &c_wander);
-    fx_test_bass_stereo = 1;
+    fx_test_bass_stereo = 1;   /* the other FX_BASS_LOW_MONO option */
     bass_lows(120.0f, &m_side, &m_wander);
     fx_test_bass_stereo = 0;
     if (g_verbose) {
         printf("  bass 120 Hz, 50 Hz through chorus+phaser+flanger: side %+.1f dB re the "
-               "input's, level wander %.2f dB; Off: side %+.1f dB, wander %.2f dB; lows "
-               "per channel: side %+.1f dB\n", side, wander, c_side, c_wander, m_side);
+               "input's (lows %s), level wander %.2f dB; Off: side %+.1f dB, wander %.2f dB; "
+               "the other option: side %+.1f dB\n", side,
+               FX_BASS_LOW_MONO ? "mono" : "per channel", wander, c_side, c_wander, m_side);
     }
+#if FX_BASS_LOW_MONO
     CHECK(side <= BASS_SIDE_MAX_DB, "bass: the lows are not mono: side %+.1f dB, wanted <= "
           "%+.0f", side, BASS_SIDE_MAX_DB);
+    CHECK(m_side > BASS_SIDE_MAX_DB, "bass: control (lows per channel) passed the mono check: "
+          "%+.1f dB", m_side);
+#else
+    /* Per channel: the lows' stereo is the input's, untouched by the chorus. */
+    CHECK(fabs(side) <= BASS_SIDE_KEEP_DB, "bass: the lows' stereo moved: side %+.1f dB, "
+          "wanted within %.1f", side, BASS_SIDE_KEEP_DB);
+    CHECK(fabs(m_side) > BASS_SIDE_KEEP_DB, "bass: control (lows mono) kept the stereo: "
+          "%+.1f dB", m_side);
+#endif
     CHECK(wander <= BASS_WANDER_MAX_DB, "bass: the lows wander %.2f dB, wanted <= %.1f",
           wander, BASS_WANDER_MAX_DB);
     CHECK(c_side > BASS_SIDE_MAX_DB && c_wander > BASS_WANDER_MAX_DB, "bass: control (Off) "
           "passed too: side %+.1f dB, wander %.2f dB", c_side, c_wander);
-    CHECK(m_side > BASS_SIDE_MAX_DB, "bass: control (lows per channel) passed the mono check: "
-          "%+.1f dB", m_side);
+}
+
+/* The low band's level with stereo lows (review of #185). A 50 Hz tone, split
+ * at 120 Hz, the thru effect at full: L and R in quadrature (uncorrelated
+ * over a cycle), opposed, and R alone. Total output power over input's, and
+ * each channel's. Per channel (FX_BASS_LOW_MONO 0): every figure within
+ * BASS_LOW_TOL_DB of 0. Mono: the total -3 dB for quadrature and for one
+ * side alone (the sum halves it), opposed cancels (reported, not bounded:
+ * that is what mono means). Control: the lows of both channels taken from L
+ * alone; R alone then comes out silent, which both options catch. */
+#define BASS_LOW_TOL_DB 0.5
+#define BASS_LOW_CASES 3
+static void bass_low_levels(double tot[BASS_LOW_CASES], double ch[BASS_LOW_CASES][2])
+{
+    static const double r_phase[BASS_LOW_CASES] = { 0.5 * M_PI, M_PI, 0.0 };
+    for (int c = 0; c < BASS_LOW_CASES; c++) {
+        fx_engine e;
+        CHECK(fx_engine_init(&e, &THRU, 1, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+        float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+        const int settle = (int)(0.8f * RATE / PERIOD), measure = (int)(1.0f * RATE / PERIOD);
+        double il = 0, ir = 0, oL = 0, oR = 0;
+        g_bass_hz = 120.0f;
+        for (int p = 0; p < settle + measure; p++) {
+            for (uint32_t i = 0; i < PERIOD; i++) {
+                const double ph = 2.0 * M_PI * 50.0 * (double)(p * PERIOD + i) / RATE;
+                l[i] = c == 2 ? 0.0f : 0.4f * (float)sin(ph);
+                r[i] = 0.4f * (float)sin(ph + r_phase[c]);
+            }
+            run_period(&e, l, r, ol, or_, PERIOD, BIT(0), 1.0f);
+            for (uint32_t i = 0; p >= settle && i < PERIOD; i++) {
+                il += (double)l[i] * l[i];
+                ir += (double)r[i] * r[i];
+                oL += (double)ol[i] * ol[i];
+                oR += (double)or_[i] * or_[i];
+            }
+        }
+        g_bass_hz = 0.0f;
+        fx_engine_free(&e);
+        const double gm = (double)makeup_gain(1.0f);
+        const double g2 = gm * gm;
+        tot[c] = 10.0 * log10((oL + oR) / (g2 * (il + ir)) + 1e-30);
+        ch[c][0] = il > 0.0 ? 10.0 * log10(oL / (g2 * il) + 1e-30) : 0.0;
+        ch[c][1] = 10.0 * log10(oR / (g2 * ir) + 1e-30);
+    }
+}
+
+static int bass_low_ok(const double tot[BASS_LOW_CASES], const double ch[BASS_LOW_CASES][2],
+                       int mono)
+{
+    if (mono) {
+        return fabs(tot[0] + 3.01) <= BASS_LOW_TOL_DB && fabs(tot[2] + 3.01) <= BASS_LOW_TOL_DB;
+    }
+    for (int c = 0; c < BASS_LOW_CASES; c++) {
+        if (fabs(tot[c]) > BASS_LOW_TOL_DB || fabs(ch[c][1]) > BASS_LOW_TOL_DB ||
+            (c != 2 && fabs(ch[c][0]) > BASS_LOW_TOL_DB)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void test_bass_low_level(void)
+{
+    double t[BASS_LOW_CASES], ch[BASS_LOW_CASES][2];
+    double ot[BASS_LOW_CASES], och[BASS_LOW_CASES][2];
+    double mt[BASS_LOW_CASES], mch[BASS_LOW_CASES][2];
+    bass_low_levels(t, ch);
+    fx_test_bass_stereo = 1;
+    bass_low_levels(ot, och);
+    fx_test_bass_stereo = 0;
+    fx_test_bass_low_left = 1;
+    bass_low_levels(mt, mch);
+    fx_test_bass_low_left = 0;
+    if (g_verbose) {
+        static const char *const names[BASS_LOW_CASES] = { "uncorrelated", "opposed", "R only" };
+        for (int c = 0; c < BASS_LOW_CASES; c++) {
+            printf("  bass low band, 50 Hz %-12s total %+6.2f dB (L %+6.2f, R %+6.2f) %s; "
+                   "%s %+6.2f; control (lows from L) %+6.2f\n", names[c], t[c], ch[c][0],
+                   ch[c][1], FX_BASS_LOW_MONO ? "mono" : "per channel",
+                   FX_BASS_LOW_MONO ? "per channel" : "mono", ot[c], mt[c]);
+        }
+    }
+    CHECK(bass_low_ok(t, ch, FX_BASS_LOW_MONO), "bass: low band level off: uncorrelated %+.2f, "
+          "opposed %+.2f, R only %+.2f dB", t[0], t[1], t[2]);
+    CHECK(!bass_low_ok(mt, mch, FX_BASS_LOW_MONO), "bass: control (lows from L) passed too: "
+          "R only %+.2f dB", mt[2]);
 }
 
 /* The split fades in and out without a dip (review of #185). Before, b faded
@@ -4587,6 +4683,7 @@ CASE0(test_bass_flat_sum)
 CASE0(test_bass_bit_identity)
 CASE0(test_bass_no_click)
 CASE0(test_bass_lows_dry_and_mono)
+CASE0(test_bass_low_level)
 CASE0(test_bass_fade_no_dip)
 CASE0(test_bass_drive_inside)
 CASEK(test_bass_level)
@@ -4726,6 +4823,7 @@ static void build_cases(void)
     add_case("bass bit identity", 0, case_test_bass_bit_identity, NULL, 1);
     add_case("bass no click", 0, case_test_bass_no_click, NULL, 1);
     add_case("bass lows dry and mono", 0, case_test_bass_lows_dry_and_mono, NULL, 3);
+    add_case("bass low band level", 0, case_test_bass_low_level, NULL, 1);
     add_case("bass fade no dip", 0, case_test_bass_fade_no_dip, NULL, 1);
     add_case("bass drive inside", 0, case_test_bass_drive_inside, NULL, 1);
     for (int x = 0; x < 3; x++) {

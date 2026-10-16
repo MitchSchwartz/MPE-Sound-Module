@@ -39,7 +39,7 @@ The single-effect datagram of the first protocol, `fx <effect id> <depth>`, is
 still accepted and means exactly `chain <1 << id> <depth>`. `encode` writes it.
 
 **Bass bypass** (`bass <hz>`, `encode_bass`, #173). Below this crossover the
-signal skips the chain: the lows stay dry and mono, and only the highs go
+signal skips the chain: the lows stay dry (per channel), and only the highs go
 through the effects (`native/mpe-fx-host/fx_dsp.h`, "Bass bypass"). 0 is Off.
 A datagram of its own rather than a field on `chainl`, whose level count is
 open-ended: every older message keeps its meaning, a client that predates it

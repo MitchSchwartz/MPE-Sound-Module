@@ -1833,6 +1833,7 @@ int fx_test_bass_split_at_depth0;
 int fx_test_bass_lr2;
 int fx_test_bass_unsmoothed;
 int fx_test_bass_stereo;
+int fx_test_bass_low_left;
 int fx_test_bass_no_park;
 int fx_test_bass_drive_outside;
 int fx_test_bass_no_corr;
@@ -1941,7 +1942,20 @@ static inline void bass_frame(fx_engine *e, float *l, float *r, float b, float l
         *r += b * (hp_r - *r);
         return;
     }
-    if (fx_test_bass_stereo) {
+    if (fx_test_bass_low_left) {
+        /* Mutant: both channels' lows from L only. */
+        svf_tick(&e->bass_lo, e, lp_l, &low, &unused);
+        svf_tick(&e->bass_hi[0], e, hp_l, &unused, &hi_l);
+        svf_tick(&e->bass_hi[1], e, hp_r, &unused, &hi_r);
+        lo[0] = lo[1] = b * low;
+        *l += b * (hi_l - *l);
+        *r += b * (hi_r - *r);
+        return;
+    }
+    if (FX_BASS_LOW_MONO ? fx_test_bass_stereo : !fx_test_bass_stereo) {
+#else
+    if (!FX_BASS_LOW_MONO) {
+#endif
         /* Each channel keeps its own low band. */
         float low_r;
         svf_tick(&e->bass_lo, e, lp_l, &low, &unused);
@@ -1954,7 +1968,6 @@ static inline void bass_frame(fx_engine *e, float *l, float *r, float b, float l
         *r += b * (hi_r - *r);
         return;
     }
-#endif
     svf_tick(&e->bass_lo, e, 0.5f * (lp_l + lp_r), &low, &unused);
     svf_tick(&e->bass_hi[0], e, hp_l, &unused, &hi_l);
     svf_tick(&e->bass_hi[1], e, hp_r, &unused, &hi_r);

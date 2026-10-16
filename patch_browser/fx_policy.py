@@ -60,7 +60,7 @@ levels go the way the mask does: the UI writes them to the route file's
 datagram (`chainl`), so a restarted remapper re-asserts them with the depth.
 
 **Bass bypass** (`set_bass`, #173). Below a crossover the lows skip the
-effects and stay dry and mono. One slider in the effect picker's header sets
+effects and stay dry. One slider in the effect picker's header sets
 it for the loaded patch only: Off, or a step of
 `fx_host_protocol.BASS_STEPS_HZ` (80-300 Hz). A patch that never set one plays
 at `BASS_DEFAULT_HZ` (120 Hz), and its entry keeps it unset, so it follows the
