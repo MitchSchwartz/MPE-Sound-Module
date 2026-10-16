@@ -4,7 +4,7 @@ Copy everything below the line.
 
 ---
 
-**Invoke the `measurement-design` skill before designing or altering any cell.**
+**Follow `docs/measurements/MEASUREMENT-DISCIPLINE.md` before designing or altering any cell.**
 
 ## Where this stands
 

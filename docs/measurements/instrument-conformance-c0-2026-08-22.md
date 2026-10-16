@@ -19,7 +19,6 @@ mechanical gate so the pattern cannot recur without failing conformance first.
 | Location | Change |
 |---|---|
 | `docs/measurements/MEASUREMENT-DISCIPLINE.md` | Rule −1 + physics table |
-| OM-Repo `.claude/skills/measurement-design/SKILL.md` | Step 0 gate, Step 8 prompt opener, 6 anti-patterns |
 | `Documents/specs/low-latency-512-256-spec.md` | Conformance + Impossible if pre-registration |
 | `Documents/specs/rerun-order-2026-08-19.md` | Conformance + Impossible if pre-registration |
 | `AGENTS.md` | Doctrine block on self-test section |
