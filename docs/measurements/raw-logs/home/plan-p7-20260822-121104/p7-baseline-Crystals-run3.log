@@ -86,6 +86,6 @@ PROBE_END
 Applied buffer=1024 periods=2
 jackd period=1024 ok
 jackd periods=2 ok
-done commit=cb6f4af log=/home/<user>/plan-p7-20260822-121104/p7-baseline-Crystals-run3.log
+done commit=cb6f4af log=~/plan-p7-20260822-121104/p7-baseline-Crystals-run3.log
 SENTINEL harness-end
 

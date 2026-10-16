@@ -289,21 +289,21 @@ def write_failure_report(
         print(f"Warning: could not write {FAILURE_REPORT_PATH}: {exc}", file=sys.stderr)
 
 
-def favorites_folder_on_disk(parent: Path | None = None) -> Path:
-    base = parent or resolve_user_patches_dir()
-    return base / FAVORITES_NAME.lstrip("!")
-
-
 def collect_patch_paths(args: argparse.Namespace) -> list[Path]:
     scanner = PatchScanner(SURGE_PATCH_DIRS)
     scanner.scan_patches()
 
     paths: list[Path] = []
     if args.favorites_only:
-        fav_dir = favorites_folder_on_disk()
-        if fav_dir.is_dir():
-            # Include nested Quick Select folders (e.g. Dan Maurer/Dark Friday.fxp).
-            paths = sorted(fav_dir.rglob("*.fxp"))
+        # Favorites are pointers: calibrate the patches the index names, nested
+        # folders included. A missing source has no file to measure.
+        with scanner.scan_lock:
+            by_key = dict(scanner.patches_by_stable_key)
+        paths = sorted(
+            Path(by_key[key]["path"])
+            for key in scanner.favorites_index.entries
+            if key in by_key
+        )
     elif args.folder:
         folder_name = args.folder.lstrip("!")
         user_root = scanner.get_favorites_folder_path().parent
@@ -322,6 +322,8 @@ def collect_patch_paths(args: argparse.Namespace) -> list[Path]:
         with scanner.scan_lock:
             for patches in scanner.patches.values():
                 for patch in patches:
+                    if patch.get("favorite_view"):
+                        continue  # a view of a patch listed under its own category
                     paths.append(Path(patch["path"]))
 
     # Deduplicate by patch stem (favorites copies share calibration key)

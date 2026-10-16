@@ -19,7 +19,7 @@ class AudioProfilePersistTests(unittest.TestCase):
             tmp_path = Path(tmp)
             env_file = tmp_path / "mpe.env"
             env_file.write_text(
-                "MPE_PI_USER=<user>\nMPE_AUDIO_PROFILE=usb-host\nMPE_SURGE_BUFFER_SIZE=512\n",
+                "MPE_PI_USER=appuser\nMPE_AUDIO_PROFILE=usb-host\nMPE_SURGE_BUFFER_SIZE=512\n",
                 encoding="utf-8",
             )
             script = REPO_ROOT / "scripts" / "lib" / "mpe-services.sh"

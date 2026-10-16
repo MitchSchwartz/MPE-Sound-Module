@@ -269,6 +269,6 @@ XRUN_COUNT 16
 PROBE_END
 === restore buffer 192 periods 3 ===
 skip restore (--no-restore-buffer)
-done commit=bf559c2 log=/home/<user>/t12-streams-192-A-stream-04.log
+done commit=bf559c2 log=~/t12-streams-192-A-stream-04.log
 SENTINEL harness-end
 

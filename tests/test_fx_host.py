@@ -385,7 +385,9 @@ class WireFormat(unittest.TestCase):
         self.assertEqual(sorted(proto.EFFECT_NAMES), list(proto.EFFECT_IDS))
         for effect_id in proto.EFFECT_IDS:
             with self.subTest(effect=effect_id):
-                self.assertEqual(proto.EFFECT_NAMES[effect_id].lower(), names[effect_id])
+                # The C table's name is the DSP's own; the screen says "Tube drive".
+                display = {"drive": "tube drive"}.get(names[effect_id], names[effect_id])
+                self.assertEqual(proto.EFFECT_NAMES[effect_id].lower(), display)
         # Pinned numbers: ids are on the wire and in every stored patch, so
         # the first five keep theirs and the two added 2026-10-13 append.
         self.assertEqual(
@@ -562,6 +564,79 @@ class WireFormat(unittest.TestCase):
         for text, answer in zip(junk, got, strict=True):
             with self.subTest(junk=text):
                 self.assertEqual(answer, "reject")
+
+    def test_bass_encoding(self):
+        self.assertEqual(proto.encode_bass(120), b"bass 120.000000")
+        self.assertEqual(proto.encode_bass(proto.BASS_OFF), b"bass 0.000000")
+        # Above 0, clamped to the range this side offers.
+        self.assertEqual(proto.encode_bass(20.0), b"bass 80.000000")
+        self.assertEqual(proto.encode_bass(5000.0), b"bass 300.000000")
+        for bad in (float("nan"), float("inf"), -1.0, True, "120", None):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                proto.encode_bass(bad)
+
+    def test_bass_value(self):
+        for good in (0, 0.0, 80, 120.0, 300):
+            self.assertEqual(proto.bass_value(good), float(good))
+        for bad in (79.9, 300.5, -1, float("nan"), True, "120", None, [120]):
+            with self.subTest(bad=bad):
+                self.assertIsNone(proto.bass_value(bad))
+
+    def test_bass_steps(self):
+        steps = proto.BASS_STEPS_HZ
+        self.assertEqual(steps[0], proto.BASS_OFF)
+        self.assertEqual((steps[1], steps[-1]), (proto.BASS_MIN_HZ, proto.BASS_MAX_HZ))
+        self.assertEqual(list(steps), sorted(set(steps)))
+        self.assertIn(proto.BASS_DEFAULT_HZ, steps)
+        self.assertTrue(all(proto.bass_value(hz) == hz for hz in steps))
+
+    def test_the_bass_range_is_inside_the_clients(self):
+        """What this side sends, the client takes as sent (no clamp of its own
+        moves it)."""
+        text = (NATIVE / "fx_dsp.h").read_text()
+        lo = float(re.search(r"#define\s+FX_BASS_MIN_HZ\s+([\d.]+)f?", text).group(1))
+        hi = float(re.search(r"#define\s+FX_BASS_MAX_HZ\s+([\d.]+)f?", text).group(1))
+        self.assertLessEqual(lo, proto.BASS_MIN_HZ)
+        self.assertGreaterEqual(hi, proto.BASS_MAX_HZ)
+
+    def test_bass_round_trips_through_the_real_parser_and_old_messages_keep_their_meaning(self):
+        """`bass` is a datagram of its own: the client's parser reads it, and
+        every older message reads exactly as it did beside it."""
+        _need_compiler(self)
+        binary, build = _selftest_binary()
+        self.assertEqual(build.returncode, 0, build.stderr)
+        ones = " ".join(["1.000000"] * proto.MAX_LEVELS)
+        cases = [(proto.encode_bass(hz).decode("ascii"), f"bass {hz:.6f}") for hz in proto.BASS_STEPS_HZ]
+        cases += [
+            ("bass 1000", "bass 1000.000000"),   # out of the UI's range: parsed, the engine clamps
+            ("  bass\t75.5 ", "bass 75.500000"),
+            (proto.encode_chain(5, 0.5).decode("ascii"), f"ok 5 0.500000 {ones}"),
+            (proto.encode(1, 0.25).decode("ascii"), f"ok 2 0.250000 {ones}"),
+            ("chainl 5 0.5 0.25", "ok 5 0.500000 0.250000 " + " ".join(["1.000000"] * 7)),
+        ]
+        got = _parse_lines(binary, [c for c, _ in cases])
+        for (wire, want), answer in zip(cases, got, strict=True):
+            with self.subTest(wire=wire):
+                self.assertEqual(answer, want)
+
+    def test_bass_junk_changes_nothing(self):
+        _need_compiler(self)
+        binary, build = _selftest_binary()
+        self.assertEqual(build.returncode, 0, build.stderr)
+        junk = ["bass", "bass ", "bass -1", "bass nan", "bass inf", "bass 120 x", "bass 120 80",
+                "bassx 120", "bass120", "bass 0x10", "bass 1e40", "chainl 5 0.5 1 bass 120"]
+        got = _parse_lines(binary, junk)
+        for text, answer in zip(junk, got, strict=True):
+            with self.subTest(junk=text):
+                self.assertEqual(answer, "reject")
+
+    def test_the_client_reads_bass_and_starts_off(self):
+        """The client stores what `bass` says, and nothing else does: with no
+        `bass` it stays Off (0), the chain as it was before the bypass."""
+        text = C_CLIENT.read_text()
+        self.assertRegex(text, r"static _Atomic float g_target_bass = 0\.0f;")
+        self.assertIn("fx_parse_bass(buf, &bass)", text)
+        self.assertIn("fx_engine_set_bass(&g_engine", text)
 
     def test_the_level_slots_match_the_c(self):
         found = re.search(r"#define\s+FX_MAX_EFFECTS\s+(\d+)", (NATIVE / "fx_dsp.h").read_text())

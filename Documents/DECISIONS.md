@@ -9,9 +9,7 @@
 > `Documents/looper-audit-2026-09-07.md` maps which module answers which
 > question. Never change code to match a row here.
 
-Dated rows recording decisions as they were made. Full research lives in
-OM-Repo [`internal/projects/mpe-synth-launch/research/`](https://github.com/opsMachine/OM-Repo/tree/main/internal/projects/mpe-synth-launch/research).
-Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md).
+Dated rows recording decisions as they were made.
 
 ---
 
@@ -242,7 +240,7 @@ appliance (`/etc/systemd/system/mpe-crash-probe.*`, `mpe-netconsole.service`,
 `/usr/local/sbin/mpe-crash-probe.sh`); remove with `systemctl disable --now`
 when the investigation closes.
 
-**Lab cable.** `raspberrypi5.local` "timing out" was never the WiFi. The Pi's
+**Lab cable.** `<pi5-host>.local` "timing out" was never the WiFi. The Pi's
 Ethernet port is cabled to the laptop's USB-ethernet dongle (link-local on the
 laptop side), and the Pi's `Wired connection 1` profile was DHCP: MEASURED in
 NetworkManager's journal, the lease timed out every 45 s, the activation
@@ -945,8 +943,7 @@ interface attached.
 `pedal-to-osc.py`, calibration — everything that is *not* mixing audio every
 graph period.
 
-**Rationale:** [`recipe-answer-01.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/research/recipe-answer-01.md)
-— shipped audio products keep interpreted code off the audio thread; GIL contention
+**Rationale:** shipped audio products keep interpreted code off the audio thread; GIL contention
 with the touchscreen UI is the binding risk; pre-committed rule: **no outcome
 where Python-in-callback wins.** Mitch confirmed 2026-08-13.
 
@@ -974,8 +971,7 @@ SooperLooper Pi test and the audio-input question (see GROUNDING §6.3).
 ## 2026-08-13 — Phase 2 path: evaluate before building
 
 **Decision:** Do **not** start Phase 2 implementation code until the
-**SooperLooper Pi test** completes (Session A ~1.5 h, Session B ~3-4 h,
-[`looper-vetting.md` §7](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/research/looper-vetting.md)).
+**SooperLooper Pi test** completes (Session A ~1.5 h, Session B ~3-4 h).
 
 **During the test:** prove B1 (`dry=0`), B7 (xruns beside Surge), B10 (20-min play).
 Try mic/guitar on the interface for ~10 min — audio input in/out is decided by

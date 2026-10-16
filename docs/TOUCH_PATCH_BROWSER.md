@@ -122,7 +122,7 @@ Use the touch screen normally. **Ctrl+C** stops recording and restarts the brows
 Pull the file (quote the remote glob in zsh):
 
 ```bash
-scp '<user>@raspberrypi.local:~/mpe-demo-*.mkv' ~/Videos/
+scp '<pi-user>@raspberrypi.local:~/mpe-demo-*.mkv' ~/Videos/
 ```
 
 Convert to mp4 if needed: `ffmpeg -i in.mkv -c copy out.mp4`
@@ -242,7 +242,7 @@ Per-fader detail:
 - **Touch** — per-patch **MPE pressure floor** (light press vs full press). Fader shows **−50…+50**. **Handle position = cal anchor + user trim** (`touch_fader_value` in `patch_pressure.py`): calibration sets the anchor; drag applies trim (negative = less lift than cal). Stored as `cal_floor` + optional `user_touch_offset` in `~/.patch_browser_pressure.json`. Double-tap clears trim and restores the cal anchor. Live remapping: `mpe-pressure-remap.service`.
 - **Norm** — per-patch normalization gain (dB); visible only when **Norm.** is checked. Double-tap resets to calibrated default.
 - **Patch mod** — an on-screen mod wheel: sends CC 1 (0…127) to Surge over OSC `/cc`, whatever the switch says. With `MPE_FX_HOST` on, the handle also follows the hardware knob while the knob drives the patch; fader and knob are two inputs to the same value, and the last move wins. Not stored per patch: it is a performance value, kept across patch loads and resent to Surge on each load. Double-tap resets to 0. A patch with no mod-wheel routing (the one that hides the **Mod knob** switch) greys it out: it shows 0, ignores touches and sends Surge nothing, not even the resend; the kept value comes back on the next patch that routes the wheel.
-- **Effect** — the FX chain's one depth (0 = bypass); visible only with `MPE_FX_HOST` on. A request to the remapper, which is the only process that talks to the FX host; the handle follows the depth in force, so it moves when the hardware knob does. Its label names the enabled effects in the order they run (**Drive+Chorus**), or counts them when the names do not fit (**3 FX**), or says **No FX**. Tap the label (the small up caret after it marks it as a button) for the effect list: each row is a checkbox and name (a tap switches that effect on or off) beside a level slider, 0–100 % with the value shown, and the panel stays open until **Done** or a tap outside it. The effects run in series, Drive → Auto-wah → Phaser → Flanger → Chorus → Rotary → Tremolo, one row each in that order (seven 44 px rows, **Done** at the top right beside the title); each plays at the fader's depth times its own level, so the fader and the knob move them all and they keep their proportions (all at 100 % is one shared depth, as before). Dragging a level is heard as you drag. An unticked effect's slider is greyed out, takes no touch, and keeps its value for when it is switched back on. Switching one on or off moves no depth and no level. Each patch keeps its enabled effects, its depth and its levels (`~/.patch_browser_fx.json`, written about a second after the last move and before the next patch load). Effect state is entirely per patch: a patch never set, or one stored without a depth, plays the factory default (no effect, depth 0, every level 100 %), never what was used last; an entry stored before levels existed plays every level at 100 %, as it sounded, and one stored before the rotary and the auto-wah keeps its mask, depth and five levels, with those two off and at 100 %, and the picker writes no global default. With no effect ticked the fader is greyed out the way Patch mod is for a no-wheel patch: it shows 0 and ignores touches, and the knob routed to the effect moves nothing (it is still taken from Surge). Neither touches the patch's stored depth, so ticking an effect again brings that depth back; the label still opens the effect list. The test is `fx_policy.effect_inert`. Double-tap resets to 0.
+- **Effect** — the FX chain's one depth (0 = bypass); visible only with `MPE_FX_HOST` on. A request to the remapper, which is the only process that talks to the FX host; the handle follows the depth in force, so it moves when the hardware knob does. Its label names the enabled effects in the order they run (**Tube+Chorus**; the drive is **Tube** here to save room, **Tube drive** in the list), or counts them when the names do not fit (**3 FX**), or says **No FX**. Tap the label (the small up caret after it marks it as a button) for the effect list: each row is a checkbox and name (a tap switches that effect on or off) beside a level slider, 0–100 % with the value shown, and the panel stays open until the check button at the top right or a tap outside it. The effects run in series, Tube drive → Auto-wah → Phaser → Flanger → Chorus → Rotary → Tremolo, one row each in that order (seven 44 px rows, the close check button at the top right beside the title); each plays at the fader's depth times its own level, so the fader and the knob move them all and they keep their proportions (all at 100 % is one shared depth, as before). Dragging a level is heard as you drag. An unticked effect's slider is greyed out, takes no touch, and keeps its value for when it is switched back on. Switching one on or off moves no depth and no level. Each patch keeps its enabled effects, its depth and its levels (`~/.patch_browser_fx.json`, written about a second after the last move and before the next patch load). Effect state is entirely per patch: a patch never set, or one stored without a depth, plays the factory default (no effect, depth 0, every level 100 %), never what was used last; an entry stored before levels existed plays every level at 100 %, as it sounded, and one stored before the rotary and the auto-wah keeps its mask, depth and five levels, with those two off and at 100 %, and the picker writes no global default. With no effect ticked the fader is greyed out the way Patch mod is for a no-wheel patch: it shows 0 and ignores touches, and the knob routed to the effect moves nothing (it is still taken from Surge). Neither touches the patch's stored depth, so ticking an effect again brings that depth back; the label still opens the effect list. The test is `fx_policy.effect_inert`. Double-tap resets to 0.
 - **Mod knob** switch (same row as **Norm.**, only with `MPE_FX_HOST` on) — what the hardware mod wheel or knob (CC 1) drives for the loaded patch: off = patch first, on = effect. Its label is where the knob goes now, named after the fader it moves: **Mod knob → Patch mod**, or **Mod knob →** the Effect fader's label (the effect names, a count, or **No FX**). A patch with no mod-wheel routing sends the knob to the effect whatever the switch says, so the switch is not shown for it at all (no drawing, no hit area; **Norm.** and the heart stay where they are). The knob still drives the effect. Flipping it only changes where the knob goes: the effects keep their depth and Surge keeps its mod-wheel value. The patch keeps the switch's position; a patch never switched follows the **Mod wheel** default in System settings. The rule lives in `patch_browser/fx_policy.py`.
 - **Knob pickup** (with `MPE_FX_HOST` on) — scaling pickup, the law the APC column faders use (`patch_browser/fader_pickup.py`). After a patch load, a switch flip or a move of either fader on screen, the knob's first move changes the value in force at once, in the direction turned, by the share of the remaining knob travel it covered; it never jumps to the knob's position, and at either end of travel the value meets the knob (fully down is 0, fully up is full). Switching an effect on or off changes nothing for the knob, because the depth in force has not moved. The faders always show the value in force, not where the knob is.
 - Touch **down + drag** on a fader; release does not trigger nav taps underneath.
@@ -502,7 +502,7 @@ Hold a folder or patch row in the left nav for ~600ms (cancel if you scroll firs
 | Target | Actions |
 |--------|---------|
 | Library folder | Add all to Quick Select; Add all to folder… |
-| Patch | Add/remove Quick Access; Move to folder…; Set instrument… |
+| Patch | Add/remove Quick Access; Move to folder…; Set instrument… (a missing favorite: Remove only) |
 | Quick Access subfolder | New subfolder; Rename / Delete (top-level user folders only) |
 
 Folder and instrument pickers are sub-menus; instruments are listed A–Z, **Other** last. New/rename folder uses the on-screen keyboard (same layout as Wi‑Fi password entry).
@@ -519,19 +519,68 @@ and hit only on the browser screen.
 
 Tests: `tests/test_context_menu.py`, `tests/test_instrument_undo.py`
 
-## Favorites v2 (Phase 3)
+## Favorites (pointers, #181)
 
-Quick Access favorites use a **copy-based** layout plus a JSON index — not symlinks, never deleting source patches.
+A favorite is a **pointer** to the patch it names, not a copy of the file. The index
+holds stable keys plus a folder and an optional order; nothing is copied anywhere when a
+patch is hearted, and a favorite plays whatever file the library holds now.
 
 | Piece | Location |
 |-------|----------|
-| On-disk copies | `Quick Access/` root (hearts) or `Quick Access/<folder>/` for user subfolders |
-| Index | `~/.patch_browser_favorites.json` (override: `MPE_FAVORITES_INDEX_FILE`) |
+| Index | `~/.patch_browser_favorites.json` (override: `MPE_FAVORITES_INDEX_FILE`), version 2: `folders`, `entries` (`folder`, `order`, `added_at`), `imported` |
 | Identity | `stable_key` per patch (see Patch index above) |
+| Rows | views of the source patch: same `stable_key` and `path`, so load and every per-patch setting (loudness, hold, pressure, FX, instrument) use the source key |
 
-**Heart toggle** (patch detail): copies the patch into **Quick Select root** and writes an index entry keyed by `stable_key`. Unfavorite removes the copy and index row only. After a toggle, the scanner rescans the Quick Access subtree only — not the full library.
+**Heart, move, remove** edit only the index. Move changes `folder`; remove drops the entry;
+folders are names in the index (no directories). A favorite whose patch is missing from the
+library stays in the index and shows as a greyed row (**Missing - hold to remove**) that does
+not load; its only action is Remove. Nothing auto-deletes an entry. Bulk add backs up only the
+index file, into `.patch_browser_favorites_backups/` beside it.
 
-**User folders:** the index API supports create/rename/delete user subfolders under Quick Access. Long-press a folder for New subfolder / Rename / Delete. Legacy **`Liked/`** is migrated to root automatically on scan; it cannot be deleted from the UI.
+**The PC workflow stays.** A patch saved into the favorites folder (`MPE_FAVORITES_NAME`, under
+the user patch root) from Surge on a computer is a user patch with a `user:` key, and the next
+scan favorites it once (`imported` remembers it, so removing the favorite sticks). That folder
+is an ordinary category named without the `!`; the `!` label is the virtual favorites list.
+Until the migration below has run (index version 1), the scan does not import, because the
+folder still holds the old copies.
+
+**Migrate before the first start on this code.** The new code on a version-1 index keeps working
+(each favorite is shown through its copy, so it keeps its calibration and tuned sound, and hearts
+resolve to the right entry), but that is a bridge, not a state to live in: settings made in the
+window are filed under the copy's key and a favorite hearted from a copy is filed under the copy's
+key. The migration folds both into the pointer, so nothing is orphaned, but run it first.
+
+### Migrating an existing device from copies to pointers
+
+`scripts/migrate-favorites-pointers.py` (browser stopped; paths come from the same
+environment the browser reads, plus `MPE_PERSONAL_REPO` for the library checkout):
+
+```bash
+python3 scripts/migrate-favorites-pointers.py dry-run      # full plan; writes nothing
+python3 scripts/migrate-favorites-pointers.py run          # back up, git-move, commit, re-key
+python3 scripts/migrate-favorites-pointers.py verify       # before snapshot vs stores now
+python3 scripts/migrate-favorites-pointers.py undo STAMP   # restore stores+index, reverse the git moves
+```
+
+`run` and `undo` refuse while the touch browser is running (the `touch-patch-browser` unit, or a
+process running `touch_patch_browser.py`; `MPE_TOUCH_UNIT` and `MPE_TOUCH_SCRIPT` rename them).
+A run that began and did not finish (a crash, a failed commit) blocks the next `run` and names
+`undo STAMP`; undo reverses the git step whether or not the commit happened. Undo refuses, before
+changing anything, when a file was saved where a removed copy used to be, when a moved file was
+edited since, or when a store or the index differs from what the run wrote; the last is overridden
+with `undo STAMP --force` (settings made since the run are then lost). `restore-quick-select.py`
+refuses a version-1 snapshot over a version-2 index unless `--allow-older-version`.
+
+It classifies each file in the favorites folder by bytes (identical to a library file: pointer;
+named as a plain re-save: pointer to the stock patch; named as tuned: moved to `Tuned Patches/`
+as a real file; anything else: stays, favorited under its own key), re-keys every store from the
+copy key to the target key (the favorite's value wins per field; the value is the first hit the
+browser read for the copy, its key or else its legacy stem, and descriptive or captured fields such
+as metadata `path` and hold `baseline` stay the target's), rewrites `last_patch` if it names a
+removed copy, backs up each store and the
+index into `.patch_browser_favorites_backups/pointers-STAMP/` first, and commits the file moves
+inside the library checkout. A second `run` finds nothing to do. Tests:
+`tests/test_favorites_migrate.py`, `tests/test_favorites_index.py`.
 
 ### Sections and the jump strip (2026-10-13)
 
@@ -539,8 +588,7 @@ The Quick Access list is grouped by instrument under non-tappable heading rows,
 in one scrolling list (no subfolders). A favorite's group is decided in
 `patch_browser/favorites_sections.py` (`favorite_group`) and nowhere else: the
 instrument you set on the favorite (long-press, **Set instrument…**), else the
-source patch's instrument (the copy's own folder says nothing), else the copy's,
-else **Other**. Sections run A–Z by instrument, with **Other** last (it is
+patch's own instrument (a favorite is a pointer, so there is only one), else **Other**. Sections run A–Z by instrument, with **Other** last (it is
 the catch-all, not an instrument); inside a section the list keeps its order.
 The order is `patch_metadata.INSTRUMENT_DISPLAY_ORDER`, the one instrument
 order on screen: the jump strip, the **Set instrument…** menu and the filter
@@ -561,58 +609,17 @@ is a sample, so a drag that stops and holds does not launch the list.
 
 Tests: `tests/test_favorites_sections.py`, `tests/test_scroll_fling.py`
 
-### Migrate flat Quick Access root copies
+### Backup and restore (favorites index)
 
-Older installs may have `.fxp` copies sitting directly in the Quick Access root. Run on the Pi (or any machine with the library mounted):
-
-```bash
-cd ~/MPE-Module
-python3 scripts/migrate-favorites-v2.py --dry-run
-```
-
-Dry-run lists each root copy, its proposed Quick Select root target, and the resolved `stable_key`. Migration **aborts** if any copy cannot be matched to exactly one library patch (ambiguous stem). Quick Access copies are excluded from the stem map so they do not collide with factory/user sources.
-
-When the plan looks correct:
-
-```bash
-python3 scripts/migrate-favorites-v2.py --apply
-# optional backup before apply:
-python3 scripts/migrate-favorites-v2.py --apply --backup-dir ~/qa-migration-backup
-```
-
-**Rollback:** if you used `--backup-dir`, restore the backed-up Quick Access tree and `~/.patch_browser_favorites.json` from that directory.
-
-### Backup and restore (curated Quick Select)
-
-Favorites are **hours of curation** — never bulk-delete root copies without a snapshot. Prefer restore from backup over destructive cleanup scripts.
+The index is the whole favorites state. Never edit it with the browser running.
 
 | Action | Command |
 |--------|---------|
-| **Snapshot on Pi** (before risky changes) | `python3 scripts/backup-quick-select.py` → `~/.patch_browser_favorites_backups/` |
-| **Pull to assets repo (git)** | `bash scripts/backup-quick-select.sh` → `MPE-Library/assets/user-data/quick-select/snapshots/` |
-| **Restore from snapshot** | `python3 scripts/restore-quick-select.py /path/to/snapshot --rebuild-index` |
-| **Surge folder backup** | e.g. `~/.Surge Synth Team/Surge XT/Patches.backup.*/Quick Select` — pass that path to `restore-quick-select.py` |
+| **Snapshot on Pi** (before risky changes) | `python3 scripts/backup-quick-select.py` -> `.patch_browser_favorites_backups/` beside the index |
+| **Pull to assets repo (git)** | `bash scripts/backup-quick-select.sh` |
+| **Restore from snapshot** | `python3 scripts/restore-quick-select.py /path/to/snapshot` (keeps a pre-restore copy unless `--no-backup`) |
 
-Restore always writes a **pre-restore snapshot** of the live tree + index unless you pass `--no-backup`. Bulk “Add all to Quick Select” auto-snapshots before copying.
-
-After `backup-quick-select.sh`, commit in **MPE-Library**:
-
-```bash
-cd ../MPE-Library
-git add assets/user-data/quick-select/
-git commit -m "Quick Select backup YYYY-MM-DD"
-git push
-```
-
-### Migrate legacy Liked/ → Quick Select root
-
-If an older install still has `Quick Access/Liked/` (from a prior favorites layout), the browser migrates on startup. To run manually:
-
-```bash
-python3 scripts/migrate-liked-to-root.py
-```
-
-Tests: `tests/test_favorites_index.py`, `tests/test_migrate_favorites_v2.py`
+Legacy `Liked/` folder names in an index load at the root.
 
 ## Known gaps (v0)
 

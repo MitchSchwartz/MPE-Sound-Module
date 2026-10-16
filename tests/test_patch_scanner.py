@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from patch_browser.favorites_index import FavoritesIndex
 from patch_browser.patch_scanner import (
     PatchScanner,
     favorites_display_name,
@@ -65,9 +66,11 @@ class PatchScannerTests(unittest.TestCase):
         self.assertEqual(favorites_display_name("Quick Access"), "!Quick Access")
         self.assertEqual(favorites_display_name("!Quick Access"), "!Quick Access")
 
-    def test_favorites_folder_matches_case_insensitive(self) -> None:
-        self.assertTrue(favorites_folder_matches("quick access"))
+    def test_favorites_folder_matches_the_virtual_label_only(self) -> None:
+        self.assertTrue(favorites_folder_matches("!quick access"))
         self.assertTrue(favorites_folder_matches("!Quick Access"))
+        # the folder of that name on disk is an ordinary category
+        self.assertFalse(favorites_folder_matches("Quick Access"))
 
     def test_quick_access_category_and_nested_scan(self) -> None:
         qa = self.root / "patches_factory"
@@ -81,12 +84,15 @@ class PatchScannerTests(unittest.TestCase):
         (qa_dir / "Solo.fxp").write_bytes(b"x")
 
         scanner = PatchScanner([user])
+        scanner.favorites_index = FavoritesIndex(self.root / "fav.json")
         scanner.scan_patches()
         label = favorites_display_name()
         self.assertIn(label, scanner.get_categories())
+        # patches saved into that folder are user patches, favorited on scan
         patches = scanner.get_patches_in_category(label)
         self.assertEqual(len(patches), 2)
         self.assertEqual(scanner.get_subfolders(label), ["Gig A"])
+        self.assertIn("Quick Access", scanner.get_categories())
 
     def test_quick_scan_category_recursive(self) -> None:
         sub = self.factory / "Keys" / "Electric"
@@ -105,6 +111,39 @@ class PatchScannerTests(unittest.TestCase):
         self.assertEqual(len(patches), 1)
         self.assertEqual(patches[0]["name"], "Loose")
 
+    def test_appliance_state_backups_are_not_patches(self) -> None:
+        self._touch("Keys/Real.fxp")
+        self._touch("appliance-state/captures/2026-10-01/home/favs/Backup.fxp")
+        self._touch("Keys/appliance-state/Nested.fxp")
+        self.scanner.scan_patches()
+        names = sorted(p["name"] for ps in self.scanner.patches.values() for p in ps)
+        self.assertEqual(names, ["Real"])
+        quick = self.scanner.quick_scan_category(self.factory / "Keys")
+        self.assertEqual([p["name"] for p in quick], ["Real"])
+
+    def test_library_dirs_skip_state_captures(self) -> None:
+        import os
+        from patch_browser.patch_scanner import resolve_library_patch_dirs
+
+        repo = self.root / "personal"
+        for rel in (
+            "assets/patches/patches_factory/A.fxp",
+            "assets/cc0-pack/B.fxp",
+            "assets/appliance-state/captures/x/C.fxp",
+            "assets/state/D.fxp",
+        ):
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_bytes(b"x")
+        old = os.environ.get("MPE_PERSONAL_REPO")
+        os.environ["MPE_PERSONAL_REPO"] = str(repo)
+        try:
+            names = sorted(p.name for p in resolve_library_patch_dirs(self.root))
+        finally:
+            if old is None:
+                os.environ.pop("MPE_PERSONAL_REPO")
+            else:
+                os.environ["MPE_PERSONAL_REPO"] = old
+        self.assertEqual(names, ["cc0-pack", "patches_factory"])
 
     def test_resolve_library_patch_dirs_finds_sibling_repo(self) -> None:
         from patch_browser.patch_scanner import resolve_library_patch_dirs

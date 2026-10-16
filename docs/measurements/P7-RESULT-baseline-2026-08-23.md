@@ -53,7 +53,7 @@ Pi has `arm_freq=2000` staged. After reboot:
 # on Pi
 cd ~/MPE-Module
 sudo ./scripts/measure-plan-p7.sh --phase oc \
-  --artifact-dir /home/<user>/plan-p7-20260823-145330
+  --artifact-dir ~/plan-p7-20260823-145330
 # script reverts config.txt and requires a second reboot back to 1800
 ```
 

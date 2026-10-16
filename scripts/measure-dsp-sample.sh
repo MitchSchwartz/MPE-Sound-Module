@@ -53,7 +53,9 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-RUN_AS_USER="${MPE_PI_USER:-<user>}"
+# shellcheck source=lib/appliance-user.sh
+source "$SCRIPT_DIR/lib/appliance-user.sh"
+RUN_AS_USER="$(mpe_appliance_user)" || exit 1
 _as_user() { sudo -u "$RUN_AS_USER" -- "$@"; }
 
 _set_env_var() {

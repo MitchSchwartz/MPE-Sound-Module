@@ -25,7 +25,7 @@ Reproduce with:
 ```bash
 python3 - <<'PY'
 import re
-base='/home/<user>/Documents/GitHub/MPE-Library/assets/user-data/quick-select/latest/Quick Select/'
+base='~/Documents/GitHub/MPE-Library/assets/user-data/quick-select/latest/Quick Select/'
 for name in ('Crystals','Cloud Horn','Brave New World','Duduk'):
     raw=open(base+name+'.fxp','rb').read()
     xml=raw[raw.find(b'<?xml'):raw.find(b'</patch>')]

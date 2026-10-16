@@ -59,8 +59,18 @@ levels go the way the mask does: the UI writes them to the route file's
 `levels` (throttled like a fader drag), and the remapper sends them with every
 datagram (`chainl`), so a restarted remapper re-asserts them with the depth.
 
+**Bass bypass** (`set_bass`, #173). Below a crossover the lows skip the
+effects and stay dry. One slider in the effect picker's header sets
+it for the loaded patch only: Off, or a step of
+`fx_host_protocol.BASS_STEPS_HZ` (80-300 Hz). A patch that never set one plays
+at `BASS_DEFAULT_HZ` (120 Hz), and its entry keeps it unset, so it follows the
+default. It goes the way the levels do: the UI writes it to the route file's
+`bass_hz` (throttled like a drag), and the remapper sends it (`bass <hz>`)
+ahead of the chain datagram whenever it sends the chain. With no effect ticked
+it is inert, as the Effect fader is: greyed out, and nothing moves.
+
 **Labels** (`chain_label`). The Effect fader and the mod-knob switch name the
-enabled effects in run order when the names fit ("Drive+Chorus"), otherwise a
+enabled effects in run order when the names fit, otherwise a
 count ("3 FX"), and "No FX" when none is on. Whether a label fits is the
 screen's call (a pixel budget it measures); this module only offers the long
 form first and the count after it.
@@ -220,7 +230,7 @@ def chain_names(mask: int) -> str:
     ids = fx_host_protocol.effects_in(mask)
     if not ids:
         return NO_FX_LABEL
-    return CHAIN_JOIN.join(fx_host_protocol.EFFECT_NAMES[i] for i in ids)
+    return CHAIN_JOIN.join(fx_host_protocol.EFFECT_SHORT_NAMES.get(i, fx_host_protocol.EFFECT_NAMES[i]) for i in ids)
 
 
 def chain_count(mask: int) -> str:
@@ -307,6 +317,9 @@ class FxConfig:
     depth: float = FACTORY_DEPTH
     #: One level per shipped effect, by effect id.
     levels: tuple[float, ...] = FACTORY_LEVELS
+    #: The bass bypass's crossover in force, Hz, or BASS_OFF. Never unset:
+    #: a patch with none plays at the default.
+    bass_hz: float = fx_host_protocol.BASS_DEFAULT_HZ
 
 
 def resolve_config(
@@ -328,6 +341,7 @@ def resolve_config(
         mod_wheel_target=normalize_target(target),
         depth=FACTORY_DEPTH if patch.depth is None else patch.depth,
         levels=FACTORY_LEVELS if patch.levels is None else patch.levels,
+        bass_hz=fx_host_protocol.BASS_DEFAULT_HZ if patch.bass_hz is None else patch.bass_hz,
     )
 
 
@@ -369,6 +383,9 @@ class Route:
     mask: int = fx_host_protocol.MASK_NONE
     #: One level per effect, by id; missing reads as every level 1.0.
     levels: tuple[float, ...] = fx_host_protocol.LEVELS_DEFAULT
+    #: The bass bypass's crossover; missing or malformed reads as the default,
+    #: as a patch with none does.
+    bass_hz: float = fx_host_protocol.BASS_DEFAULT_HZ
     route_stamp: str | None = None
     depth_request: float | None = None
     depth_stamp: str | None = None
@@ -396,10 +413,12 @@ def read_route(path: Path) -> Route:
     destination = data.get("cc1")
     mask = valid_mask(data.get("mask"))
     levels = fx_host_protocol.levels_from(data.get("levels"))
+    bass_hz = fx_host_protocol.bass_value(data.get("bass_hz"))
     return Route(
         destination=destination if destination in (CC1_TO_SURGE, CC1_TO_FX) else CC1_TO_SURGE,
         mask=fx_host_protocol.MASK_NONE if mask is None else mask,
         levels=fx_host_protocol.LEVELS_DEFAULT if levels is None else levels,
+        bass_hz=fx_host_protocol.BASS_DEFAULT_HZ if bass_hz is None else bass_hz,
         route_stamp=_stamp(data.get("route_stamp")),
         depth_request=_depth_value(data.get("depth_request")),
         depth_stamp=_stamp(data.get("depth_stamp")),
@@ -475,7 +494,7 @@ SEND_TOLERANCE = 1e-4
 
 class FxHostSender:
     """Fire-and-forget enable mask + depth + levels at the FX host
-    (`chainl`), deduplicated.
+    (`chainl`), and the bass bypass's crossover (`bass`), each deduplicated.
 
     Modelled on `LiveMonitorSender`: a connected, non-blocking UDP socket so an
     absent FX host shows up as ECONNREFUSED (counted and logged, rate-limited)
@@ -491,6 +510,8 @@ class FxHostSender:
         self._sock: socket.socket | None = None
         #: (mask, depth, levels) last delivered.
         self._last: tuple[int, float, tuple[float, ...]] | None = None
+        #: The crossover last delivered.
+        self._last_bass: float | None = None
         self._lock = threading.Lock()
         self._complained_at: float | None = None
         self.delivered = 0
@@ -507,39 +528,70 @@ class FxHostSender:
                 self._sock = None
         return self._sock
 
-    def send(self, mask: int, depth: float, levels=None) -> bool:
-        """`levels`: one per effect, by id; None is every level 1.0."""
+    def send(self, mask: int, depth: float, levels=None, bass_hz=None) -> bool:
+        """`levels`: one per effect, by id; None is every level 1.0. `bass_hz`:
+        the crossover, sent first (its own datagram, `bass`), or None to send
+        none. True when anything was delivered.
+
+        Whenever a chain datagram actually goes out, `bass` goes just before it
+        whatever its own dedup says: a restarted fx host starts Off and only
+        learns the chain again when the chain changes, so the crossover has to
+        ride along with it (review of #185). Otherwise `bass` alone is deduped.
+        """
+        bass_payload = None
+        if bass_hz is not None:
+            try:
+                bass_payload = fx_host_protocol.encode_bass(bass_hz)
+            except ValueError as exc:
+                self._say(f"fx host: not sending ({exc})")
         levels = fx_host_protocol.LEVELS_DEFAULT if levels is None else levels
         try:
-            payload = fx_host_protocol.encode_chain_levels(mask, depth, levels)
+            chain_payload = fx_host_protocol.encode_chain_levels(mask, depth, levels)
         except ValueError as exc:
             self._say(f"fx host: not sending ({exc})")
-            return False
-        value = max(0.0, min(1.0, float(depth)))
-        levels = tuple(max(0.0, min(1.0, float(level))) for level in levels)
+            chain_payload = None
+        sent = False
         with self._lock:
-            last = self._last
-            if (
-                last is not None
-                and last[0] == mask
-                and abs(last[1] - value) <= SEND_TOLERANCE
-                and all(abs(a - b) <= SEND_TOLERANCE for a, b in zip(last[2], levels))
-            ):
-                return False
-            if self._send is not None:
-                self._send(payload)
-            else:
-                sock = self._socket()
-                if sock is None:
-                    return False
-                try:
-                    sock.send(payload)
-                except OSError as exc:
-                    self._note_refusal(exc)
-                    return False
-            self._last = (mask, value, levels)
-            self.delivered += 1
+            chain_due = False
+            if chain_payload is not None:
+                value = max(0.0, min(1.0, float(depth)))
+                levels = tuple(max(0.0, min(1.0, float(level))) for level in levels)
+                last = self._last
+                chain_due = not (
+                    last is not None
+                    and last[0] == mask
+                    and abs(last[1] - value) <= SEND_TOLERANCE
+                    and all(abs(a - b) <= SEND_TOLERANCE for a, b in zip(last[2], levels))
+                )
+            if bass_payload is not None:
+                bass_value = float(bass_payload.split()[1])
+                bass_due = chain_due or self._last_bass is None or (
+                    abs(self._last_bass - bass_value) > SEND_TOLERANCE
+                )
+                if bass_due and self._deliver(bass_payload):
+                    self._last_bass = bass_value
+                    self.delivered += 1
+                    sent = True
+            if chain_due and self._deliver(chain_payload):
+                self._last = (mask, value, levels)
+                self.delivered += 1
+                sent = True
+        return sent
+
+    def _deliver(self, payload: bytes) -> bool:
+        """One datagram out, under the lock. False when it could not go."""
+        if self._send is not None:
+            self._send(payload)
             return True
+        sock = self._socket()
+        if sock is None:
+            return False
+        try:
+            sock.send(payload)
+        except OSError as exc:
+            self._note_refusal(exc)
+            return False
+        return True
 
     def _note_refusal(self, exc: OSError) -> None:
         self.refused_total += 1
@@ -635,6 +687,9 @@ class FxPolicy:
         self._next_level_write = 0.0
         self._level_unsent = False
         self.dragging_level = False
+        self._next_bass_write = 0.0
+        self._bass_unsent = False
+        self.dragging_bass = False
         self._patch_mod_request: int | None = None
         self._patch_mod_stamp: str | None = None
         self._next_patch_mod_write = 0.0
@@ -670,6 +725,19 @@ class FxPolicy:
 
     def level(self, effect_id: int) -> float:
         return self.config.levels[effect_id]
+
+    @property
+    def bass_hz(self) -> float:
+        """The bass bypass's crossover in force (Hz, or BASS_OFF): what the
+        route file carries."""
+        return self.config.bass_hz
+
+    @property
+    def bass_locked(self) -> bool:
+        """The bass slider has nothing to act on: no effect is ticked
+        (`effect_inert`, the Effect fader's test). Greyed out, it keeps its
+        value and takes no touch."""
+        return effect_inert(self.mask)
 
     def chain_label(self, fits=_always_fits) -> str:
         """The Effect fader's label (`chain_label`) within the caller's budget."""
@@ -720,6 +788,9 @@ class FxPolicy:
             depth=changes.get("depth", self.depth),
             target=changes.get("target", fx.target),
             levels=changes.get("levels", self.levels),
+            # The patch's own crossover, never the default it resolved to: an
+            # unset one stays unset until the slider sets it.
+            bass_hz=changes.get("bass_hz", fx.bass_hz),
         )
         self._store_due = self._clock() + STORE_WRITE_DELAY_S
 
@@ -799,6 +870,7 @@ class FxPolicy:
             mod_wheel_target=self.config.mod_wheel_target,
             depth=self.config.depth,
             levels=self.config.levels,
+            bass_hz=self.config.bass_hz,
         )
         self.publish()
 
@@ -837,12 +909,49 @@ class FxPolicy:
                 mod_wheel_target=self.config.mod_wheel_target,
                 depth=self.config.depth,
                 levels=levels,
+                bass_hz=self.config.bass_hz,
             )
             self._level_unsent = True
         now = self._clock()
         if self._level_unsent and (final or now >= self._next_level_write):
             self._next_level_write = now + DEPTH_PUBLISH_S
             self._level_unsent = False
+            self.publish()
+
+    def set_bass(self, hz: float, *, final: bool = False) -> None:
+        """Header slider: the bass bypass's crossover for the loaded patch
+        (stored with it), BASS_OFF or a value in BASS_MIN_HZ..BASS_MAX_HZ.
+        Only the crossover moves. Throttled while dragging and always written
+        on release, as `set_level` is, and inert where it is: the FX host off,
+        no effect ticked (`bass_locked`), or a value that is not a crossover.
+        """
+        if not self.enabled or self.bass_locked:
+            return
+        value = fx_host_protocol.bass_value(hz)
+        if value is None:
+            return
+        self.dragging_bass = not final
+        if value != self.bass_hz:
+            self._patch_changed(bass_hz=value)
+            self.config = FxConfig(
+                mask=self.config.mask,
+                mod_wheel_target=self.config.mod_wheel_target,
+                depth=self.config.depth,
+                levels=self.config.levels,
+                bass_hz=value,
+            )
+            self._bass_unsent = True
+        now = self._clock()
+        if self._bass_unsent and (final or now >= self._next_bass_write):
+            self._next_bass_write = now + DEPTH_PUBLISH_S
+            self._bass_unsent = False
+            self.publish()
+
+    def finish_bass(self) -> None:
+        """Slider released: write the last crossover if a throttle held it back."""
+        self.dragging_bass = False
+        if self._bass_unsent:
+            self._bass_unsent = False
             self.publish()
 
     def finish_level(self) -> None:
@@ -1013,6 +1122,7 @@ class FxPolicy:
                     "cc1": self.destination,
                     "mask": self.mask,
                     "levels": list(self.levels),
+                    "bass_hz": self.bass_hz,
                     "target": self.target,
                     "uses_mod_wheel": self.uses_mod_wheel,
                     "route_stamp": self._route_stamp,
@@ -1035,7 +1145,8 @@ class Cc1Router:
     """The remapper's half, and the only process that talks to the FX host.
 
     It applies the published route to incoming CC 1, applies the fader's depth
-    requests, the enable mask and the per-effect levels, and publishes the
+    requests, the enable mask, the per-effect levels and the bass bypass's
+    crossover, and publishes the
     depth in force for the UI. Depth has one owner
     here: the knob and the fader are two inputs to it, last one wins, and
     nothing else sends to UDP 9958. It also publishes the last CC 1 value it
@@ -1083,6 +1194,7 @@ class Cc1Router:
         self.destination = CC1_TO_SURGE
         self.mask = fx_host_protocol.MASK_NONE
         self.levels: tuple[float, ...] = fx_host_protocol.LEVELS_DEFAULT
+        self.bass_hz: float = fx_host_protocol.BASS_DEFAULT_HZ
         self.depth: float | None = None
         self.last_cc: int | None = None
         #: Surge's mod-wheel value as far as this process knows: the last CC 1
@@ -1118,10 +1230,13 @@ class Cc1Router:
             return
         self._file_id = file_id
         route = read_route(self._path)
-        chain_changed = route.mask != self.mask or route.levels != self.levels
+        chain_changed = (
+            route.mask != self.mask or route.levels != self.levels or route.bass_hz != self.bass_hz
+        )
         self.destination = route.destination
         self.mask = route.mask
         self.levels = route.levels
+        self.bass_hz = route.bass_hz
         # A route change (patch load, target flip) moves nothing here: the
         # knob is where it was, and its next move scales from whatever value
         # it now drives.
@@ -1144,11 +1259,11 @@ class Cc1Router:
                 # Pickup re-arm: the knob's next move scales from this depth.
                 self._set_depth(route.depth_request, DEPTH_FROM_FADER, route.depth_stamp)
         elif chain_changed and self.depth is not None:
-            self._sender.send(self.mask, self.depth, self.levels)
+            self._sender.send(self.mask, self.depth, self.levels, self.bass_hz)
 
     def _set_depth(self, depth: float, source: str, request: str | None = None) -> None:
         self.depth = max(0.0, min(1.0, float(depth)))
-        self._sender.send(self.mask, self.depth, self.levels)
+        self._sender.send(self.mask, self.depth, self.levels, self.bass_hz)
         self._levels.update(depth=self.depth, source=source, request=request, depth_at=self._clock())
         self._levels_dirty = True
 

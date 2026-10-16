@@ -147,7 +147,7 @@ Phased so bench/dev can continue on mutable SD until Phase 1 is ready to bake.
 
 ## Mapping to existing paths
 
-When `/state` lands, these move off the mutable root (today scattered under `/home/<user>`):
+When `/state` lands, these move off the mutable root (today scattered under `~`):
 
 | Today | File / directory |
 |-------|------------------|

@@ -19,7 +19,11 @@
 
 ### Backup & Sync Scripts
 - **provision/capture-external-state.sh** - Portable device state tree for golden-image restore ([`docs/PI4-GOLDEN-IMAGE.md`](../docs/PI4-GOLDEN-IMAGE.md))
-- **provision/archive-state-to-assets.sh** - Copy `state/` into MPE-Library (offsite backup)
+- **provision/archive-state-to-assets.sh** - Copy `state/` into the personal library under `state/appliance-state/` (offsite backup)
+- **library-writeback.sh** - Read-only capture of the device, settings snapshot, one commit in the personal library
+- **library-snapshot-settings.sh** - Copy settings JSON between a home dir or capture and `settings/` (copies, never links)
+- **mpe-library** - Restore a patch / stock / factory reset (backup commit, tag, push first) and merge template updates
+- **setup-pi-symlinks.sh** / **library-migrate-device.sh** - Wire a device to the personal library; checks first, rollback, no restarts ([`docs/LIBRARY-MIGRATION.md`](../docs/LIBRARY-MIGRATION.md))
 - **provision/capture-laptop-mpe-config.sh** - Laptop mpe-cli + SSH Host blocks
 - **apply-external-state.sh** - Restore portable state tree to Pi
 - **pull-all-from-device.sh** - Full backup from Pi to development machine
@@ -101,7 +105,7 @@ The 4-tier fallback system automatically selects:
 3. **Tier 3**: Any "Front output" device
 4. **Tier 4**: First available audio device
 
-Logs are written to `/home/<user>/surge-cli.log`
+Logs are written to `~/surge-cli.log`
 
 ---
 

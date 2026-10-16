@@ -75,9 +75,6 @@ def resolve_key_to_path(
         patch = scanner.get_patch_by_stable_key(key)
         if patch and patch.get("path"):
             return Path(str(patch["path"]))
-        entry = favorites.get_entry(key)
-        if entry and entry.get("dest_path"):
-            return Path(str(entry["dest_path"]))
         return None
 
     stem = key

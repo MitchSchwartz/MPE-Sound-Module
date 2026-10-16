@@ -14,7 +14,9 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && 
 # shellcheck source=lib/clock-stamp.sh
 source "$SCRIPT_DIR/lib/clock-stamp.sh"
 
-RUN_AS_USER="${MPE_PI_USER:-<user>}"
+# shellcheck source=lib/appliance-user.sh
+source "$SCRIPT_DIR/lib/appliance-user.sh"
+RUN_AS_USER="$(mpe_appliance_user)" || exit 1
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 ARTIFACT_DIR="${USER_HOME}/plan-p7-$(date +%Y%m%d-%H%M%S)"
 PHASE="full"

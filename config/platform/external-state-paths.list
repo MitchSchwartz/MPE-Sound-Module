@@ -2,7 +2,7 @@
 # and apply-external-state.sh. One path per line; # comments and blank lines ignored.
 # Paths are relative to the Pi user's home unless absolute.
 #
-# Pi 5 audit: run capture --check on raspberrypi5 and diff against actual home
+# Pi 5 audit: run capture --check on the Pi 5 and diff against actual home
 # (includes .patch_browser_poly_state.json — ceiling_poly / effective_poly).
 #
 # NEVER captured (hard-coded in capture script):
@@ -20,7 +20,9 @@
 surge/build/surge_xt_products/surge-xt-cli.provenance
 surge-cli-calibration.log
 .patch_browser_brightness.json
+.patch_browser_device_volume.json
 .patch_browser_favorites.json
+.patch_browser_fx.json
 .patch_browser_hold.json
 .patch_browser_last_patch.json
 .patch_browser_metadata.json
@@ -37,4 +39,8 @@ surge-cli-calibration.log
 .mpe_sl_watchdog.json
 .mpe_sl_master_clock.json
 .mpe_looper_timing.json
+# Looper saved songs and multigrid clips (WAV + JSON, tens of MB).
+# Default locations; MPE_LOOPER_SONGS_DIR / MPE_SL_CLIPS_DIR overrides are not followed.
+.mpe/looper-songs
+.mpe/looper-clips
 .local/share/Surge XT

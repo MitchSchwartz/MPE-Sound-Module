@@ -1,7 +1,7 @@
 # Review audit — live monitor & fader pickup (cycle 1 of 5)
 
 **2026-09-20.** Auditing `Documents/reviews/grumpy-review-live-monitor-and-fader-pickup-2026-09-20.md`
-against the actual uncommitted working tree at `/home/<user>/Documents/GitHub/MPE-Module`
+against the actual uncommitted working tree at `~/Documents/GitHub/MPE-Module`
 (branch `dev`, 10 modified + 6 new files, unchanged since the review was written).
 
 **Method.** Read every file the review cites in full: `native/mpe-live-monitor/mpe-live-monitor.c`

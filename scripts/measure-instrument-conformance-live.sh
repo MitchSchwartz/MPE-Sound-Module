@@ -15,7 +15,9 @@ source "$ROOT/scripts/lib/audio-engine.sh"
 # shellcheck source=lib/measurement-result.sh
 source "$ROOT/scripts/lib/measurement-result.sh"
 
-RUN_AS_USER="${MPE_PI_USER:-<user>}"
+# shellcheck source=lib/appliance-user.sh
+source "$ROOT/scripts/lib/appliance-user.sh"
+RUN_AS_USER="$(mpe_appliance_user)" || exit 1
 if [ "$(id -u)" -eq 0 ] && id "$RUN_AS_USER" >/dev/null 2>&1; then
     _as_user() { sudo -u "$RUN_AS_USER" -- "$@"; }
 else

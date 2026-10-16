@@ -6,7 +6,7 @@
 
 ---
 
-## Finding (SR&ED)
+## Finding
 
 **Instrument value and failure share a channel** — nine documented instances, one root
 cause. Broken instruments exit 0 and produce plausible empty/zero readings. C0 adds a

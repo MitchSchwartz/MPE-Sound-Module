@@ -1,4 +1,4 @@
-=== Plan P7 2026-08-22T12:11:04-04:00 artifacts=/home/<user>/plan-p7-20260822-121104 phase=full ===
+=== Plan P7 2026-08-22T12:11:04-04:00 artifacts=~/plan-p7-20260822-121104 phase=full ===
 git=cb6f4af
 buffer=1024 periods=2 confirm_sec=45 runs=3
 PREDICTION clock_gain_pct=11.1 expect_dsp_p99_drop_pct=~10 if_compute_bound

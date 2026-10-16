@@ -14,6 +14,6 @@ parent/
         └── binaries/
 ```
 
-Scripts resolve `../mpe-assets`, `../MPE-Library`, or `../MPE-Personal` automatically, or set `MPE_PERSONAL_REPO`. See **[docs/PATHS.md](docs/PATHS.md)**.
+Scripts resolve `../MPE-Library`, `../MPE-Personal`, or `../mpe-assets` automatically, or set `MPE_PERSONAL_REPO`. The checkout is your own full copy of a clean template library and keeps the template as its `upstream` remote. See **[docs/PATHS.md](docs/PATHS.md)**.
 
 Stock Surge factory + third-party patches can also come from a [Surge XT](https://surge-synthesizer.github.io/) install or from building Surge on the Pi — no separate assets repo required for the bundled library.

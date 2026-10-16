@@ -95,6 +95,6 @@ XRUN_COUNT 0
 PROBE_END
 === restore buffer 1024 periods 3 ===
 skip restore (--no-restore-buffer)
-done commit=091d63b log=/home/<user>/plan-v9a-20260822-030357/v9a-confirm-Cloud_Horn.log
+done commit=091d63b log=~/plan-v9a-20260822-030357/v9a-confirm-Cloud_Horn.log
 SENTINEL harness-end
 

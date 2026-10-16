@@ -16,8 +16,8 @@ oscillator count", "cushion is non-binding below the knee" — each is either a 
 Surge on ARM or a fact about a Cortex-A72 at 1.8 GHz, and **today we cannot tell which.**
 
 Re-running the same suite on a different microarchitecture disentangles them. That is a real
-technological advancement, it is cheap if the suite is frozen first, and it is a much
-stronger SR&ED position than either platform alone: **a finding replicated across two
+technological advancement, it is cheap if the suite is frozen first, and it is much
+stronger evidence than either platform alone: **a finding replicated across two
 architectures, or contradicted by one, is evidence of a kind a single board cannot produce.**
 
 **So the governing rule for this whole transition is: replication before optimisation.**
@@ -104,9 +104,9 @@ device and its URB configuration.
 
 **This is the control condition.** Without it, "the Pi 5 is faster" is unfalsifiable.
 
-### 1.6 — Run G3 (raw log archival) before the SD card matters less to you
+### 1.6 — Archive the raw logs before the SD card matters less to you
 
-OM-Repo [`sred/PROMPT-G3-archive-raw-logs.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/PROMPT-G3-archive-raw-logs.md). Once attention moves to the Pi 5, that card is a
+Copy the raw logs off the Pi 4 card. Once attention moves to the Pi 5, that card is a
 decreasingly-cared-for object holding the only copy of every number in 74 documents. Pull the
 logs while it is still the machine you are using.
 
@@ -276,19 +276,17 @@ Only once the reference suite has run unchanged:
 
 ---
 
-## 7. SR&ED threads this lands
+## 7. Open questions this lands
 
-- **U7 (is the platform compute-bound, which levers remain)** — currently open. P7 (§1.3) and
+- **Is the platform compute-bound, and which levers remain** — currently open. P7 (§1.3) and
   the Pi 5 comparison close it properly, with evidence from two architectures.
-- **New uncertainty U8 — cross-platform portability of the cost model.** Genuine, non-trivial,
-  and not answerable by looking anything up: whether findings derived on one ARM
-  microarchitecture hold on another for this specific audio graph. Frame it as such *now*,
-  before the work, which is exactly what G4 asks for.
-- **G2 (prior-art documentation)** — start the "prior art checked" paragraph with the Pi 5
-  work. Pi 5 specifications are published and must be *cited, not measured*; what is not
-  published is how this graph behaves on it.
-- **G5 (eligible vs routine)** — board assembly, OS install, and cable management are routine.
-  The measurement, prediction, and re-derivation are not. Mark the boundary as you go.
+- **Cross-platform portability of the cost model.** Genuine, non-trivial, and not answerable
+  by looking anything up: whether findings derived on one ARM microarchitecture hold on
+  another for this specific audio graph. Frame it as such *now*, before the work.
+- **Prior art.** Pi 5 specifications are published and must be *cited, not measured*; what is
+  not published is how this graph behaves on it.
+- **Routine versus investigation.** Board assembly, OS install, and cable management are
+  routine. The measurement, prediction, and re-derivation are not.
 
 ---
 
@@ -301,7 +299,7 @@ Only once the reference suite has run unchanged:
 3. P7 — clock-scaling diagnostic, ~13 min, now a Pi 5 forecast instrument
 4. P8 reframed as `build-surge.sh --arch` *(build already in progress)*
 5. Full Pi 4 state capture (§1.5)
-6. G3 raw-log archival; G1 effort walkthrough
+6. Raw-log archival
 7. Platform-stamp the docs; create `config/platform/pi4.env`
 8. **Write the predictions table (§5) and commit it**
 

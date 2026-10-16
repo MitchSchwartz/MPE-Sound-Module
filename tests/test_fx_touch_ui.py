@@ -608,7 +608,7 @@ class EffectPickerTests(_BrowserCase):
         # Changed without a relayout: the next frame names the new chain.
         self.policy.set_mask(D | C)
         texts = self._rendered_texts(browser)
-        self.assertIn("Drive+Chorus", texts)
+        self.assertIn("Tube+Chorus", texts)
         self.assertNotIn("No FX", texts)
         self.assertNotIn("Effect", texts)
 
@@ -641,16 +641,16 @@ class EffectPickerTests(_BrowserCase):
         self._measure(browser)
         column = self._effect_channel(browser).column_rect
         m = browser.main_rect
-        # The edge exactly where Drive's caret ends: Drive fits with no pixel
+        # The edge exactly where Tube's caret ends: Tube fits with no pixel
         # to spare, and one pixel less turns it into the count. The caret
         # counts: the text alone would still fit.
-        drive = FADER_LABEL_PX_18["Drive"]
+        drive = FADER_LABEL_PX_18["Tube"]
         caret_right = column.x + (column.w - drive) // 2 + drive + EFFECT_CARET_GAP_PX + EFFECT_CARET_W
         browser.main_rect = Rect(m.x, m.y, caret_right - m.x, m.h)
         self.policy.set_mask(T)
         self.assertEqual(self._effect_label(browser), "1 FX")
         self.policy.set_mask(D)
-        self.assertEqual(self._effect_label(browser), "Drive")
+        self.assertEqual(self._effect_label(browser), "Tube")
         browser.main_rect = Rect(m.x, m.y, caret_right - 1 - m.x, m.h)
         self.assertEqual(self._effect_label(browser), "1 FX")
 
@@ -659,7 +659,7 @@ class EffectPickerTests(_BrowserCase):
         short ones with it collapsed."""
         cases = {
             False: {0: "No FX", T: "Tremolo", C | D: "2 FX", C | D | P | T: "4 FX"},
-            True: {T: "Tremolo", C | D: "Drive+Chorus", D | P: "Drive+Phaser", C | T: "2 FX", C | D | P: "3 FX"},
+            True: {T: "Tremolo", C | D: "Tube+Chorus", D | P: "Tube+Phaser", C | T: "2 FX", C | D | P: "3 FX"},
         }
         for collapsed, table in cases.items():
             browser = self._browser(collapsed=collapsed)
@@ -840,7 +840,7 @@ class EffectPickerTests(_BrowserCase):
         with mock.patch.object(browser.font_md, "get_height", return_value=26):
             panel, options, done = browser._fx_effect_modal_layout()
         names = [fx_host_protocol.EFFECT_NAMES[eid] for _r, eid in options]
-        self.assertEqual(names, ["Drive", "Auto-wah", "Phaser", "Flanger", "Chorus", "Rotary", "Tremolo"])
+        self.assertEqual(names, ["Tube drive", "Auto-wah", "Phaser", "Flanger", "Chorus", "Rotary", "Tremolo"])
         self.assertTrue(_inside(panel, Rect(0, 0, SCREEN_W, SCREEN_H)), panel)
         self.assertGreaterEqual(panel.y, 16)
         self.assertLessEqual(panel.bottom, SCREEN_H - 16)
@@ -863,7 +863,7 @@ class EffectPickerTests(_BrowserCase):
 #: Effect names in DejaVu Sans 22 (font_md) and the slider's widest value in
 #: DejaVu Sans 18 (font_sm), measured with pygame-ce 2.5.8 on 2026-10-13
 #: (`pygame.font.match_font("dejavusans")`, as the app loads it).
-EFFECT_NAME_PX_22 = {"Drive": 53, "Phaser": 68, "Flanger": 76, "Chorus": 70, "Tremolo": 82, "Rotary": 66,
+EFFECT_NAME_PX_22 = {"Tube drive": 108, "Phaser": 68, "Flanger": 76, "Chorus": 70, "Tremolo": 82, "Rotary": 66,
                      "Auto-wah": 95}
 LEVEL_VALUE_PX_18 = {"100%": 45}
 
@@ -1141,6 +1141,124 @@ def fx_policy_publish_s() -> float:
     from patch_browser.fx_policy import DEPTH_PUBLISH_S
 
     return DEPTH_PUBLISH_S
+
+
+class BassSliderTests(_BrowserCase):
+    """The bass bypass slider in the picker's header (#173): between the
+    title and Done, Off then 80-300 Hz in steps, the value in Hz, greyed out
+    with no effect ticked."""
+
+    PATHS = EffectPickerTests.PATHS
+    _browser = EffectPickerTests._browser
+    _open = EffectLevelSliderTests._open
+    _event = EffectLevelSliderTests._event
+
+    def _route_bass(self):
+        route = self.root / "fx-route.json"
+        return json.loads(route.read_text())["bass_hz"] if route.exists() else None
+
+    def _x_for(self, track: Rect, hz: float) -> int:
+        from patch_browser.touch_browser_fx_effect_modal import bass_x
+
+        return bass_x(track, hz)
+
+    def test_it_sits_in_the_header_between_the_title_and_done(self) -> None:
+        for collapsed in (False, True):
+            with self.subTest(collapsed=collapsed):
+                browser = self._open(mask=C, collapsed=collapsed)
+                with mock.patch.object(browser.font_md, "get_height", return_value=26):
+                    panel, options, done = browser._fx_effect_modal_layout()
+                    slider, track = browser._fx_bass_layout()
+                    rows = browser._fx_effect_level_layout()
+                # Right of the title ("Effects", 68 px at 22), left of Done, in the header row.
+                self.assertGreaterEqual(slider.x, panel.x + 24 + 68 + 8)
+                self.assertLess(slider.right, done.x)
+                self.assertEqual((slider.y, slider.h), (done.y, done.h))
+                self.assertGreaterEqual(slider.h, MIN_TARGET_PX)
+                self.assertLess(slider.bottom, options[0][0].y)
+                for rect in [r for r, _ in options] + [level for level, _t, _e in rows] + [done]:
+                    self.assertFalse(_overlaps(slider, rect), (slider, rect))
+                self.assertTrue(_inside(track, slider), (track, slider))
+                # Each of the 15 positions at least 12 px apart: placeable by a finger.
+                steps = len(fx_host_protocol.BASS_STEPS_HZ)
+                self.assertGreaterEqual(track.w / (steps - 1), 12)
+                # The label column before the track, the value column after it.
+                from patch_browser.touch_browser_fx_effect_modal import FX_BASS_LABEL_W, FX_BASS_VALUE_W
+
+                self.assertGreaterEqual(track.x - slider.x, FX_BASS_LABEL_W)
+                self.assertGreaterEqual(slider.right - track.right, FX_BASS_VALUE_W)
+
+    def test_positions_and_values(self) -> None:
+        from patch_browser.touch_browser_fx_effect_modal import bass_at_x, bass_step, bass_text
+
+        track = Rect(100, 0, 280, 8)
+        self.assertEqual(bass_at_x(track, 0), fx_host_protocol.BASS_OFF)
+        self.assertEqual(bass_at_x(track, 10_000), fx_host_protocol.BASS_MAX_HZ)
+        for hz in fx_host_protocol.BASS_STEPS_HZ:
+            self.assertEqual(bass_at_x(track, self._x_for(track, hz)), hz)
+        self.assertEqual(bass_step(123.0), fx_host_protocol.BASS_STEPS_HZ.index(120.0))
+        self.assertEqual(bass_text(0.0), "Off")
+        self.assertEqual(bass_text(120.0), "120 Hz")
+        self.assertEqual(bass_text(300.0), "300 Hz")
+
+    def test_a_patch_with_none_shows_the_default(self) -> None:
+        browser = self._open(mask=C)
+        self.assertEqual(self.policy.bass_hz, fx_host_protocol.BASS_DEFAULT_HZ)
+        _slider, track = browser._fx_bass_layout()
+        self.assertEqual(self._x_for(track, self.policy.bass_hz),
+                         self._x_for(track, fx_host_protocol.BASS_DEFAULT_HZ))
+
+    def test_drag_sets_it_live_and_release_lands_it(self) -> None:
+        for path in self.PATHS:
+            with self.subTest(path=path):
+                browser = self._open(mask=C | D)
+                slider, track = browser._fx_bass_layout()
+                y = slider.y + slider.h // 2
+                self._event(path, browser, "down", (self._x_for(track, 200.0), y))
+                self.assertEqual(self.policy.bass_hz, 200.0)
+                self.assertEqual(self._route_bass(), 200.0)
+                self.assertTrue(browser._fx_bass_dragging)
+                self.now += 0.01
+                self._event(path, browser, "motion", (self._x_for(track, 90.0), y))
+                self.assertEqual(self.policy.bass_hz, 90.0)
+                self.assertEqual(self._route_bass(), 200.0)  # throttled
+                self._event(path, browser, "up", (self._x_for(track, 0.0), y))
+                self.assertEqual(self.policy.bass_hz, fx_host_protocol.BASS_OFF)
+                self.assertEqual(self._route_bass(), fx_host_protocol.BASS_OFF)
+                self.assertFalse(browser._fx_bass_dragging)
+                self.assertEqual(browser.screen_state, Screen.FX_EFFECT_MODAL)  # still open
+                # Nothing else moved.
+                self.assertEqual(self.policy.mask, C | D)
+                self.assertEqual(self.policy.levels, fx_host_protocol.LEVELS_DEFAULT)
+
+    def test_greyed_out_with_no_effect_ticked(self) -> None:
+        for path in self.PATHS:
+            with self.subTest(path=path):
+                browser = self._open(mask=0)
+                slider, track = browser._fx_bass_layout()
+                y = slider.y + slider.h // 2
+                self.assertTrue(self.policy.bass_locked)
+                self.assertIsNone(browser._fx_effect_modal_hit_at((self._x_for(track, 250.0), y)))
+                self._event(path, browser, "down", (self._x_for(track, 250.0), y))
+                self._event(path, browser, "up", (self._x_for(track, 250.0), y))
+                self.assertEqual(self.policy.bass_hz, fx_host_protocol.BASS_DEFAULT_HZ)
+                self.assertEqual(browser.screen_state, Screen.FX_EFFECT_MODAL)  # a tap inside the panel
+
+    def test_closing_mid_drag_lands_it(self) -> None:
+        browser = self._open(mask=C)
+        slider, track = browser._fx_bass_layout()
+        y = slider.y + slider.h // 2
+        self._event("mouse", browser, "down", (self._x_for(track, 150.0), y))
+        self.now += 0.01
+        self._event("mouse", browser, "motion", (self._x_for(track, 250.0), y))
+        browser._close_fx_effect_modal()
+        self.assertEqual(self._route_bass(), 250.0)
+        self.assertFalse(self.policy.dragging_bass)
+
+    def test_draw_does_not_raise_locked_or_not(self) -> None:
+        for mask in (0, C):
+            browser = self._open(mask=mask, collapsed=True)
+            browser._draw()
 
 
 class PatchModFaderTests(_BrowserCase):
@@ -1587,8 +1705,8 @@ class EffectCaretTests(_BrowserCase):
                     for channel in browser.mixer_channels:
                         if channel is not effect:
                             self.assertFalse(_overlaps(target, channel.column_rect), channel.channel_id)
-            # The widest label each nav shows: Tremolo open, Drive+Flanger collapsed.
-            self.assertEqual(widest, FADER_LABEL_PX_18["Tremolo" if not collapsed else "Drive+Flanger"])
+            # The widest label each nav shows: Tremolo open, Tube+Flanger collapsed.
+            self.assertEqual(widest, FADER_LABEL_PX_18["Tremolo" if not collapsed else "Tube+Flanger"])
 
     def test_no_caret_without_the_fx_host(self) -> None:
         browser = self._make_browser(fx_enabled=False)

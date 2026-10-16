@@ -13,7 +13,7 @@ SENTINEL soak-loop-entered
 SENTINEL soak-aborted stage=soak-loop-minute rc=1
 
 === B2 RESTART after 8f138ec fix 2026-08-23T00:51:44-04:00 ===
-pilot=PASS log=/home/<user>/instrument-soak-pilot-2026-08-23.log meter_age_s=0@minute1
+pilot=PASS log=~/instrument-soak-pilot-2026-08-23.log meter_age_s=0@minute1
 
 === measure-soak-instrument buffer=1024 periods=2 patch=Cloud Horn voices=5 hours=8 2026-08-23T00:51:44-04:00 ===
 PROVENANCE patch=Cloud Horn hold_voices=5 buffer=1024 periods=2 condition=A

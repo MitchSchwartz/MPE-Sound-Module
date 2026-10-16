@@ -46,7 +46,7 @@ case "$PLATFORM" in
         ;;
     pi5)
         img_prefix="mpe-pi5-golden"
-        ref_host="raspberrypi5"
+        ref_host="<pi5-hostname>"
         plat_label="Pi 5"
         ;;
 esac

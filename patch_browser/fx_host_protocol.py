@@ -37,6 +37,18 @@ they change nothing.
 
 The single-effect datagram of the first protocol, `fx <effect id> <depth>`, is
 still accepted and means exactly `chain <1 << id> <depth>`. `encode` writes it.
+
+**Bass bypass** (`bass <hz>`, `encode_bass`, #173). Below this crossover the
+signal skips the chain: the lows stay dry (per channel), and only the highs go
+through the effects (`native/mpe-fx-host/fx_dsp.h`, "Bass bypass"). 0 is Off.
+A datagram of its own rather than a field on `chainl`, whose level count is
+open-ended: every older message keeps its meaning, a client that predates it
+reads it as malformed and changes nothing, and a client that never receives
+one stays Off, which is how it played before. The client glides the crossover
+and fades the split in and out, so a sender may send raw slider steps. The UI
+offers Off and `BASS_STEPS_HZ` (80-300 Hz); the client accepts 20-1000.
+
+    bass 120.000000
 """
 
 from __future__ import annotations
@@ -70,13 +82,18 @@ EFFECT_IDS: tuple[int, ...] = (
 )
 EFFECT_NAMES: dict[int, str] = {
     EFFECT_CHORUS: "Chorus",
-    EFFECT_TUBE_DRIVE: "Drive",
+    EFFECT_TUBE_DRIVE: "Tube drive",
     EFFECT_PHASER: "Phaser",
     EFFECT_TREMOLO: "Tremolo",
     EFFECT_FLANGER: "Flanger",
     EFFECT_ROTARY: "Rotary",
     EFFECT_AUTO_WAH: "Auto-wah",
 }
+
+#: What the Effect fader and the mod-knob switch call an effect where room is
+#: tight (their pixel budget): the name itself unless listed here. The picker
+#: rows, which have the room, use `EFFECT_NAMES`.
+EFFECT_SHORT_NAMES: dict[int, str] = {EFFECT_TUBE_DRIVE: "Tube"}
 
 #: The order the enabled effects run in, first to last. A property of the DSP,
 #: not of the wire: the mask's bit order is the id order above, never this.
@@ -101,6 +118,20 @@ LEVEL_DEFAULT = 1.0
 LEVELS_DEFAULT: tuple[float, ...] = tuple(LEVEL_DEFAULT for _ in EFFECT_IDS)
 #: Must equal FX_MAX_EFFECTS in fx_dsp.h: the most levels a `chainl` may carry.
 MAX_LEVELS = 8
+
+#: The bass bypass (`bass <hz>`): Off, and the crossover range the UI offers.
+#: A patch that never set one plays at BASS_DEFAULT_HZ (`patch_fx`).
+BASS_OFF = 0.0
+BASS_MIN_HZ = 80.0
+BASS_MAX_HZ = 300.0
+BASS_DEFAULT_HZ = 120.0
+#: The slider's positions, left to right, evenly spaced on it: Off, then 10 Hz
+#: steps where a few hertz is audible on the low notes, 25 Hz steps above.
+BASS_STEPS_HZ: tuple[float, ...] = (
+    BASS_OFF,
+    80.0, 90.0, 100.0, 110.0, 120.0, 130.0, 140.0, 150.0,
+    175.0, 200.0, 225.0, 250.0, 275.0, 300.0,
+)
 
 
 def enabled(value: str | None = None) -> bool:
@@ -264,3 +295,34 @@ def encode_chain_levels(mask: int, depth: float, levels) -> bytes:
     value = max(0.0, min(1.0, value))
     fields = " ".join(f"{level:.6f}" for level in _check_levels(levels))
     return f"chainl {mask} {value:.6f} {fields}".encode("ascii")
+
+
+def bass_value(value) -> float | None:
+    """`value` as a crossover: BASS_OFF, or a finite number in
+    BASS_MIN_HZ..BASS_MAX_HZ. None for anything else (unset): nothing read
+    from a file is trusted, and a value out of range is not guessed at."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value):
+        return None
+    hz = float(value)
+    if hz == BASS_OFF:
+        return BASS_OFF
+    return hz if BASS_MIN_HZ <= hz <= BASS_MAX_HZ else None
+
+
+def encode_bass(hz: float) -> bytes:
+    """The bass bypass's datagram: the crossover in Hz, or BASS_OFF.
+
+    Anything above 0 is clamped to BASS_MIN_HZ..BASS_MAX_HZ, the range this
+    side offers. Raises ValueError for a non-finite or negative value, for the
+    reason `encode` does.
+    """
+    if isinstance(hz, bool) or not isinstance(hz, (int, float)):
+        raise ValueError(f"bass must be a number, got {hz!r}")
+    value = float(hz)
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError(f"bass must be finite and >= 0, got {hz!r}")
+    if value > 0.0:
+        value = max(BASS_MIN_HZ, min(BASS_MAX_HZ, value))
+    return f"bass {value:.6f}".encode("ascii")

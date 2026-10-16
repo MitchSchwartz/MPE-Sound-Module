@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Copy MPE-Module state/ captures into the private assets repo (offsite backup).
+# Copy MPE-Module state/ captures into the personal library repo (offsite backup).
 #
 #   ./scripts/provision/archive-state-to-assets.sh
-#   ./scripts/provision/archive-state-to-assets.sh state/raspberrypi5-2026-08-23
+#   ./scripts/provision/archive-state-to-assets.sh state/<pi5-host>-2026-08-23
 #
-# Destination: ../MPE-Library/assets/appliance-state/captures/<date>/
-# Runs credential scan before copy. Does not commit — run git in MPE-Library after review.
+# Destination: <personal repo>/state/appliance-state/captures/<date>/
+# Captures live under state/, never assets/: they hold hundreds of .fxp backup copies
+# that must not be mistaken for a patch root.
+# Runs credential scan before copy. Does not commit: scripts/library-writeback.sh
+# does that, or run git in the personal repo after review.
 #
 # See docs/BACKUP_GUIDE.md · docs/PI4-GOLDEN-IMAGE.md
 
@@ -13,7 +16,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DATE_TAG="$(date +%Y-%m-%d)"
+DATE_TAG="${MPE_ARCHIVE_DATE_TAG:-$(date +%Y-%m-%d)}"
 
 # shellcheck source=../lib/paths.sh
 source "$SCRIPT_DIR/../lib/paths.sh"
@@ -36,14 +39,14 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-if [ -z "$MPE_PERSONAL_REPO" ] || [ ! -d "$MPE_ASSETS_DIR" ]; then
-    echo "ERROR: private assets repo not found beside MPE-Module." >&2
-    echo "  Clone MPE-Library as ../MPE-Library or set MPE_PERSONAL_REPO." >&2
+if [ -z "$MPE_PERSONAL_REPO" ] || [ ! -d "$MPE_PERSONAL_REPO" ]; then
+    echo "ERROR: personal library repo not found." >&2
+    echo "  Clone it beside MPE-Module or set MPE_PERSONAL_REPO." >&2
     exit 1
 fi
 
 if [ -z "$DEST_ROOT" ]; then
-    DEST_ROOT="$MPE_ASSETS_DIR/appliance-state/captures/$DATE_TAG"
+    DEST_ROOT="$MPE_PERSONAL_REPO/state/appliance-state/captures/$DATE_TAG"
 fi
 
 mapfile -t SOURCES < <(
@@ -89,8 +92,8 @@ $(for src in "${SOURCES[@]}"; do echo "| \`$(basename "$src")\` | laptop capture
 Restore on laptop:
 
 \`\`\`bash
-cp -a MPE-Library/assets/appliance-state/captures/$DATE_TAG/raspberrypi5-* MPE-Module/state/
-./scripts/provision/apply-external-state.sh --state state/raspberrypi5-YYYY-MM-DD
+cp -a <personal-repo>/state/appliance-state/captures/$DATE_TAG/<host-label>-* MPE-Module/state/
+./scripts/provision/apply-external-state.sh --state state/<pi5-host>-YYYY-MM-DD
 \`\`\`
 
 Credential scan passed before copy. SSH blocks hold \`IdentityFile\` paths only — no private keys.
@@ -98,4 +101,4 @@ EOF
 
 echo ""
 echo "Archived to: $DEST_ROOT"
-echo "Next (in MPE-Library): git add assets/appliance-state && git commit && git push"
+echo "Next (in the personal repo): git add state/appliance-state && git commit && git push"

@@ -220,7 +220,7 @@ Workflow: certify reference → Part 1 again → new dated `mpe-pi4-golden-YYYYM
 Day-to-day **code-only** updates on an existing clone (without re-imaging):
 
 ```bash
-# on clone, as <user>
+# on clone, as <pi-user>
 cd ~/MPE-Module && git checkout main && git pull
 ./scripts/configure-pi-paths.sh --local --force
 sudo systemctl restart mpe-jackd surge-xt-cli touch-patch-browser
