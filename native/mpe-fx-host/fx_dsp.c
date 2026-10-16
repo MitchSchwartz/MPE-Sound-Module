@@ -221,7 +221,12 @@ static inline float limiter_need(float need, float y, float ceil)
  *   - Pre: a first-order low shelf, -6 dB below ~180 Hz, so the bass does not
  *     dominate the clipping (tighter, less mud) — the overdrive-pedal habit.
  *   - Drive G = 0.5 (1 + 15 a^2) for knob a: 0.5 (clean) .. 8 (+24 dB over
- *     that; +18 dB over unity). Was .. 16: the top is 6 dB lower.
+ *     that; +18 dB over unity). Was .. 16: the top is 6 dB lower. Round 5
+ *     (2026-10-15, per-effect levels made the top "not aggressive enough"):
+ *     over the top third G below ~600 Hz is multiplied by up to 4, to 32 at
+ *     full (+30 dB over unity), the treble much less, so it barely aliases
+ *     more;
+ *     below a = 2/3 nothing changes (DRIVE_TOP_*).
  *   - Shaper: f(u) = a(u + 0.2) - a(0.2), a(v) = v / sqrt(1 + v^2). The
  *     algebraic sigmoid has no corner anywhere (the old cubic went flat at
  *     |v| = 1 with a jump in curvature, which is what turns a hard-driven
@@ -273,7 +278,7 @@ static inline float limiter_need(float need, float y, float ceil)
  *   makeup and limiter 4                                             ~= 220
  *   shared: drive law 5 (one divide), detectors 10, peak window 7,
  *   makeup law 13 (one divide, one sqrt), limiter gain 4              ~=  39
- *   => ~480 ops per stereo frame (was ~460), ~75% of it the four half-band
+ *   => ~490 ops per stereo frame (was ~480 before the top third), ~75% of it the four half-band
  *   filters. It runs while bypassed too (see above). Laptop: the same
  *   ~120-135 ns/frame as before (fx-selftest --bench, interleaved with the
  *   old build); the Pi figure is the separate measurement.
@@ -301,7 +306,24 @@ static const float HB_B[DRIVE_HB_B_K] = {
 #define DRIVE_BIAS 0.2f
 #define DRIVE_F_BIAS 0.1961161351f   /* a(0.2) = 0.2 / sqrt(1.04) */
 #define DRIVE_SAT (1.0f + DRIVE_F_BIAS)
-#define DRIVE_MAX 8.0f               /* G at the top of the knob */
+#define DRIVE_MAX 8.0f               /* G at the top of the base law */
+/* The top third (2026-10-15, "not aggressive enough at the top"). With
+ * t = (a - DRIVE_TOP_FROM) / (1 - DRIVE_TOP_FROM), 0..1 over the knob's top
+ * third, and e = (DRIVE_TOP_BOOST - 1) t^2, 0..3, the shaper is fed
+ *   G_base (pre + e LP(pre)),   LP a one-pole at DRIVE_TOP_LP_HZ,
+ * and its output divided by G_base (1 + e). Well below 600 Hz that is
+ * G_base x 4 = 32 at full (+12 dB of drive over the old top; the harmonics
+ * it adds are the same with the corner anywhere from 0.5 to 2 kHz); the top
+ * end that would alias gets little of it. The plain x4 aliased -26 dB at
+ * 10 kHz (limit -35). The corner was 2 kHz until the review of #185 probed
+ * 12.75-17.25 kHz: there it read 5-7 dB worse than the old top, at 600 Hz
+ * 1.7-2.6 dB (fx_selftest.c, the aliasing check; 500 Hz moved enough of the
+ * extra drive into the bass split's range that its correction no longer fit).
+ * Below a = 2/3, e = 0: the old law exactly. t^2 matches value and slope at
+ * 2/3, no kink. One more one-pole per channel. */
+#define DRIVE_TOP_FROM (2.0f / 3.0f)
+#define DRIVE_TOP_BOOST 4.0f
+#define DRIVE_TOP_LP_HZ 600.0f
 #define DRIVE_PRES_DB 4.0
 #define DRIVE_PRES_HZ 1800.0f
 #define DRIVE_LP_HZ 6500.0f
@@ -396,6 +418,7 @@ static inline float drive_shape_old(float u)
 typedef struct {
     hb_hist up_a, up_b, dn_b_even, dn_b_odd, dn_a_even, dn_a_odd;
     float shelf;        /* low-pass memory for the shelf */
+    float top_lp;       /* low-pass memory for the top third's extra gain */
     float dc_x, dc_y;   /* DC blocker */
     float pres;         /* low-pass memory for the presence shelf */
     float lp;           /* post low-pass */
@@ -403,7 +426,7 @@ typedef struct {
 
 typedef struct {
     drive_chan ch[FX_CHANNELS];
-    float a_shelf, a_pres, k_pres, a_lp, dc_p, dc_k, a_detect, a_makeup;
+    float a_shelf, a_top, a_pres, k_pres, a_lp, dc_p, dc_k, a_detect, a_makeup;
     float ms_in, ms_out, makeup, a_release, limit;
     float peak_blocks[DRIVE_PEAK_BLOCKS - 1];
     float peak_now;
@@ -422,6 +445,7 @@ static int drive_init(void *state, float rate)
         return -1;
     }
     s->a_shelf = pole_alpha(DRIVE_SHELF_HZ, rate);
+    s->a_top = pole_alpha(DRIVE_TOP_LP_HZ, rate);
     s->a_pres = pole_alpha(DRIVE_PRES_HZ, rate);
     s->k_pres = (float)(pow(10.0, DRIVE_PRES_DB / 20.0) - 1.0);
 
@@ -476,7 +500,16 @@ static inline void drive_run(drive_state *s, const float *const in[FX_CHANNELS],
 {
     for (uint32_t i = 0; i < n; i++) {
         const float a = amount[i];
-        const float drive = 0.5f * (1.0f + (2.0f * DRIVE_MAX - 1.0f) * a * a);   /* 0.5 .. 8 */
+        float t = (a - DRIVE_TOP_FROM) * (1.0f / (1.0f - DRIVE_TOP_FROM));
+        t = t > 0.0f ? (t < 1.0f ? t : 1.0f) : 0.0f;
+#ifdef FX_SELFTEST
+        if (fx_test_no_top) {
+            t = 0.0f;
+        }
+#endif
+        const float base = 0.5f * (1.0f + (2.0f * DRIVE_MAX - 1.0f) * a * a);   /* 0.5 .. 8 */
+        const float extra = (DRIVE_TOP_BOOST - 1.0f) * t * t;                     /* 0 .. 3 */
+        const float drive = base * (1.0f + extra);
         const float inv_drive = 1.0f / drive;
         float x[FX_CHANNELS], y[FX_CHANNELS];
         float sq_in = 0.0f, sq_out = 0.0f;
@@ -488,7 +521,9 @@ static inline void drive_run(drive_state *s, const float *const in[FX_CHANNELS],
             s->peak_now = p > s->peak_now ? p : s->peak_now;
 
             c->shelf += s->a_shelf * (x[ch] - c->shelf);
-            float v = drive_core(c, (x[ch] - 0.5f * c->shelf) * drive, mode) * inv_drive;
+            const float pre = x[ch] - 0.5f * c->shelf;
+            c->top_lp += s->a_top * (pre - c->top_lp);
+            float v = drive_core(c, (pre + extra * c->top_lp) * base, mode) * inv_drive;
             float dc = s->dc_k * (v - c->dc_x) + s->dc_p * c->dc_y;
             c->dc_x = v;
             c->dc_y = dc;
@@ -497,6 +532,7 @@ static inline void drive_run(drive_state *s, const float *const in[FX_CHANNELS],
             c->lp += s->a_lp * (bright - c->lp);
             if (!(mode & DRIVE_NO_FLUSH)) {
                 c->shelf = flush(c->shelf);
+                c->top_lp = flush(c->top_lp);
                 c->dc_y = flush(c->dc_y);
                 c->pres = flush(c->pres);
                 c->lp = flush(c->lp);
@@ -1235,6 +1271,21 @@ static void rotary_feed(void *state, const float *const in[FX_CHANNELS], uint32_
  *     and below 1 everywhere else, so no tone is ever lifted. The coefficient
  *     g = tan(pi f / rate) is tabulated over u (WAH_TABLE points) and
  *     interpolated; a1 = 1 / (1 + g (g + k)) is one divide per frame.
+ *   - The top third (round 2, 2026-10-15: "deeper and wider sweep, more
+ *     resonance" at the top): from depth 2/3 to full, by t^2 (t 0..1 over
+ *     that third, so the value and the slope match at 2/3), the range
+ *     widens from 280 Hz..2.4 kHz to 200 Hz..3 kHz (3.9 octaves, was 3.1)
+ *     and Q follows the band: at full, 2 closed to 4 fully open (k 0.50 ->
+ *     0.25, linear in the band's log position; was 2.2 everywhere), so the
+ *     resonance is strongest where the sweep peaks and a quiet note low in
+ *     the range rings no longer than before (a ring lasts ~Q / f; Q 4 at
+ *     200 Hz would ring nearly as long as the Q 12 whistle at 530 Hz). The output is still k x band-pass, peak
+ *     gain 1. Below 2/3 it is the old wah: the table spans
+ *     180 Hz..3 kHz and the old ends sit at WAH_POS_LO / WAH_POS_HI. Why not
+ *     further up: the level curve lifts keys ~9 dB at full, so a tone at the
+ *     band's centre reads about that over its input, and a top of 4 kHz put
+ *     the level check's 3 kHz tone there (+8.3 dB, ceiling +3). With 3 kHz
+ *     and the extra width going down, the worst signal reads +1.9 dB.
  *   - Mix: wet_max 0.65 at full depth, rising with the knob (mix_full_at 1):
  *     away from the centre the output is 0.35 of the input (-9 dB), at the
  *     centre all of it. Depth sets both the range and the mix.
@@ -1246,9 +1297,10 @@ static void rotary_feed(void *state, const float *const in[FX_CHANNELS], uint32_
  * Level. The band-pass's gain is at most 1 at every frequency, and the mix is
  * a weighted average of the input and it, so before the level curve the wah
  * only takes energy away, and its whole sound is how much it takes from
- * outside its band: keys -2.8 dB at 50 % and -8.3 dB at full. The level curve
- * gives that back on keys (up to +8.3 dB), so what sits in the band comes out
- * over its input: the 3 kHz tone +2.0 dB at full, white noise +0.6 dB.
+ * outside its band: keys -2.8 dB at 50 % and -8.7 dB at full. The level curve
+ * gives that back on keys (up to +8.7 dB), so what sits in the band comes out
+ * over its input: the 3 kHz tone +1.9 dB at full. A sine at the band's centre
+ * reads about the whole lift: the any-signal bound is a sample of tones.
  * fx_selftest.c checks the band opens within 25 ms of a loud note.
  *
  * Stability: for any g > 0 and k > 0 the TPT SVF is stable, and the table
@@ -1259,12 +1311,23 @@ static void rotary_feed(void *state, const float *const in[FX_CHANNELS], uint32_
  * coming back in matches an instance that never stopped.
  *
  * Per stereo frame, active: detector 4, follower 3, knee 3 (one divide),
- * range 1, table lerp 6, a1..a3 6 (one divide); per channel: SVF 10, flushes
- * 2, scale 1 => ~26; total ~75 ops. No trig. Runs while bypassed too.
+ * range 1, table lerp 6, a1..a3 6 (one divide), top third 10; per channel:
+ * SVF 10, flushes 2, scale 1 => ~26; total ~85 ops. No trig. Runs while
+ * bypassed too.
  */
 #define WAH_LO_HZ 280.0
-#define WAH_HI_HZ 2400.0
+#define WAH_HI_HZ 2400.0         /* fully open, below the top third */
+#define WAH_TOP_HZ 3000.0        /* fully open, at full depth */
+#define WAH_BOTTOM_HZ 200.0      /* closed, at full depth */
 #define WAH_K 0.45f              /* 1 / Q */
+#define WAH_K_OPEN 0.25f         /* 1 / Q at full depth, fully open: Q 4 */
+#define WAH_K_CLOSED 0.50f       /* 1 / Q at full depth, closed: Q 2 */
+#define WAH_TOP_FROM (2.0f / 3.0f)
+/* The table spans WAH_BOTTOM_HZ..WAH_TOP_HZ (log); the old range's ends sit
+ * at these positions in it. */
+#define WAH_SPAN (log(WAH_TOP_HZ / WAH_BOTTOM_HZ))
+#define WAH_POS_LO ((float)(log(WAH_LO_HZ / WAH_BOTTOM_HZ) / WAH_SPAN))
+#define WAH_POS_HI ((float)(log(WAH_HI_HZ / WAH_BOTTOM_HZ) / WAH_SPAN))
 #define WAH_ATTACK_MS 4.0f
 #define WAH_RELEASE_MS 120.0f
 #define WAH_SENS 0.05f
@@ -1287,7 +1350,7 @@ static int wah_init(void *state, float rate)
         return -1;
     }
     for (int j = 0; j <= WAH_TABLE; j++) {
-        double hz = WAH_LO_HZ * pow(WAH_HI_HZ / WAH_LO_HZ, (double)j / WAH_TABLE);
+        double hz = WAH_BOTTOM_HZ * pow(WAH_TOP_HZ / WAH_BOTTOM_HZ, (double)j / WAH_TABLE);
         s->g[j] = (float)tan(M_PI * hz / (double)rate);
     }
     s->a_attack = (float)(1.0 - exp(-1.0 / (WAH_ATTACK_MS * 0.001 * (double)rate)));
@@ -1300,8 +1363,8 @@ static inline void wah_run(wah_state *s, const float *const in[FX_CHANNELS],
                            float *const wet[FX_CHANNELS], const float *amount, uint32_t n,
                            int mode)
 {
-    const float k = (mode & WAH_RUNAWAY) ? -0.05f : (mode & WAH_WHISTLE) ? (1.0f / 12.0f) : WAH_K;
-    const float out_k = (mode & WAH_WHISTLE) ? 1.0f : k;
+    const int fixed_k = mode & (WAH_RUNAWAY | WAH_WHISTLE);
+    const float k_fixed = (mode & WAH_RUNAWAY) ? -0.05f : (1.0f / 12.0f);
     /* 4 ms -> ~400 ms: the one-pole's coefficient is ~1 / (ms x rate). */
     const float a_attack = (mode & WAH_SLOW_ATTACK) ? 0.01f * s->a_attack : s->a_attack;
     for (uint32_t i = 0; i < n; i++) {
@@ -1312,13 +1375,32 @@ static inline void wah_run(wah_state *s, const float *const in[FX_CHANNELS],
         if (!(mode & WAH_NO_FLUSH)) {
             s->env = flush(s->env);
         }
+        /* The top third: t^2 from 0 at 2/3 to 1 at full, as the drive's. */
+        const float d = amount[i];
+        float t = (d - WAH_TOP_FROM) * (1.0f / (1.0f - WAH_TOP_FROM));
+        t = t > 0.0f ? (t < 1.0f ? t : 1.0f) : 0.0f;   /* NaN -> 0 */
+#ifdef FX_SELFTEST
+        if (fx_test_no_top) {
+            t = 0.0f;
+        }
+#endif
+        const float t2 = t * t;
         float open = s->env / (s->env + WAH_SENS);
         if (mode & WAH_NO_SWEEP) {
             open = 0.5f;
         }
-        float u = open * amount[i];
+        float u = open * d;
         u = u > 0.0f ? (u < 1.0f ? u : 1.0f) : 0.0f;   /* NaN -> 0 */
-        float pos = u * (float)WAH_TABLE;
+        /* 280 Hz..2.4 kHz below the top third, 200 Hz..3 kHz at full. */
+        const float lo = WAH_POS_LO - t2 * WAH_POS_LO;
+        const float hi = WAH_POS_HI + t2 * (1.0f - WAH_POS_HI);
+        const float p = lo + u * (hi - lo);
+        /* Q follows the band up at the top: a ring lasts ~Q / f, so low in
+         * the range it must stay low. */
+        const float k_top = WAH_K_CLOSED + p * (WAH_K_OPEN - WAH_K_CLOSED);
+        const float k = fixed_k ? k_fixed : WAH_K + t2 * (k_top - WAH_K);
+        const float out_k = (mode & WAH_WHISTLE) ? 1.0f : k;
+        float pos = p * (float)WAH_TABLE;
         uint32_t j = (uint32_t)pos;
         if (j >= WAH_TABLE) {
             j = WAH_TABLE - 1;
@@ -1366,21 +1448,39 @@ static void wah_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n
  * each effect's raw loss at 32 knob positions, plus 12 inside the drive's and
  * the rotary's fade-ins (`fx-selftest --unity-raw K DEPTH`, level curve and
  * makeup off, 4.8 s of keys); the fit's worst residual is 0.10 dB (the
- * auto-wah and the rotary), 0.05 the drive, 0.001 the rest. The self-test
+ * auto-wah and the rotary), 0.06 the drive, 0.001 the rest (the drive and the
+ * auto-wah refitted 2026-10-15 for their stronger top thirds). The self-test
  * holds every effect to +-0.3 dB of the input on keys. Re-run the report and
  * refit when an effect's voicing changes: the unity check fails first. What
  * the raw loss was, keys at full depth: chorus -3.0, drive +0.06, phaser
- * -0.88, tremolo -3.36, flanger -2.09, rotary -0.47, auto-wah -8.34 dB.
+ * -0.88, tremolo -3.36, flanger -2.09, rotary -0.47, auto-wah -8.71 dB.
  * Other signals keep their own difference from keys (`fx-selftest --unity
  * MASK DEPTH`): one effect alone at any depth, -6.6..+2.5 dB (the chorus's
  * 80 Hz tone at full; the rotary's 80 Hz tone in its fade-in). */
 #define CHORUS_LEVEL { 0.2381f, 0.3811f, 0.0030f, 0.1900f }
-#define DRIVE_LEVEL { 0.9524f, 0.0736f, 0.4631f, -0.1642f }
+#define DRIVE_LEVEL { 0.9519f, 0.0792f, 0.4629f, -0.1487f }
 #define PHASER_LEVEL { 0.5039f, 0.6722f, 0.1522f, 0.3351f }
 #define TREMOLO_LEVEL { 0.2555f, 0.2044f, 0.6255f, 0.1021f }
 #define FLANGER_LEVEL { 0.4161f, 0.5551f, -0.0499f, 0.2770f }
 #define ROTARY_LEVEL { 0.8985f, 0.0007f, 0.0830f, 0.2065f }
-#define WAH_LEVEL { -0.0346f, 0.1771f, 0.3864f, -0.4606f }
+#define WAH_LEVEL { -0.0519f, 0.1251f, 0.3731f, -0.4100f }
+
+/* The bass bypass's level correction (fx_dsp.h, "Bass bypass"): at each
+ * grid crossover, the level change (dB, negative a loss) whose negative,
+ * applied to the high band at the effect's full mix, puts the keys at full
+ * depth back at their level with the split off. Fitted by fx-selftest
+ * --fit-bass K (2026-10-15; the drive at depth 0.88, see fit_bass in
+ * fx_selftest.c); 20 Hz is no overlap with the keys, 0. Above 300 Hz
+ * (the UI's top) the last value holds. */
+const float FX_BASS_GRID_HZ[FX_BASS_GRID] = { 20.0f, 80.0f, 100.0f, 120.0f, 150.0f, 200.0f,
+                                              250.0f, 300.0f };
+static const float CHORUS_BASS[FX_BASS_GRID] = { 0, -0.048f, -0.056f, -0.062f, -0.104f, -0.281f, -0.524f, -0.769f };
+static const float DRIVE_BASS[FX_BASS_GRID] = { 0, -0.098f, -0.160f, -0.217f, -0.299f, -0.584f, -1.090f, -1.735f };
+static const float PHASER_BASS[FX_BASS_GRID] = { 0, -0.118f, -0.186f, -0.256f, -0.402f, -0.838f, -1.480f, -2.208f };
+static const float TREMOLO_BASS[FX_BASS_GRID] = { 0, -0.027f, -0.040f, -0.052f, -0.076f, -0.146f, -0.244f, -0.354f };
+static const float FLANGER_BASS[FX_BASS_GRID] = { 0, -0.148f, -0.222f, -0.294f, -0.440f, -0.860f, -1.417f, -1.956f };
+static const float ROTARY_BASS[FX_BASS_GRID] = { 0, -0.111f, -0.205f, -0.330f, -0.607f, -1.362f, -2.411f, -3.593f };
+static const float WAH_BASS[FX_BASS_GRID] = { 0, 0.042f, 0.068f, 0.100f, 0.154f, 0.272f, 0.470f, 0.785f };
 
 /* The wire's effect ids. Append only: an id is a number the policy module
  * sends, and renumbering would silently change what an old sender selects.
@@ -1388,18 +1488,19 @@ static void wah_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n
  * tests/test_fx_host.py reads this table and fails if they drift. */
 const fx_effect_desc FX_EFFECTS[] = {
     { "chorus", 0.5f, 1.0f, CHORUS_LEVEL, sizeof(chorus_state),
-      chorus_init, chorus_process, chorus_feed },
+      chorus_init, chorus_process, chorus_feed, CHORUS_BASS },
     { "drive", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state), drive_init, drive_process,
-      drive_feed },
+      drive_feed, DRIVE_BASS },
     { "phaser", PHASER_WET, 1.0f, PHASER_LEVEL, sizeof(phaser_state),
-      phaser_init, phaser_process, phaser_feed },
+      phaser_init, phaser_process, phaser_feed, PHASER_BASS },
     { "tremolo", 1.0f, 1.0f, TREMOLO_LEVEL, sizeof(tremolo_state), tremolo_init, tremolo_process,
-      tremolo_feed },
+      tremolo_feed, TREMOLO_BASS },
     { "flanger", FLANGER_WET, 1.0f, FLANGER_LEVEL,
-      sizeof(flanger_state), flanger_init, flanger_process, flanger_feed },
+      sizeof(flanger_state), flanger_init, flanger_process, flanger_feed, FLANGER_BASS },
     { "rotary", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
-      sizeof(rotary_state), rotary_init, rotary_process, rotary_feed },
-    { "auto-wah", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state), wah_init, wah_process, wah_feed },
+      sizeof(rotary_state), rotary_init, rotary_process, rotary_feed, ROTARY_BASS },
+    { "auto-wah", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state), wah_init, wah_process, wah_feed,
+      WAH_BASS },
 };
 const int FX_EFFECT_COUNT = (int)(sizeof(FX_EFFECTS) / sizeof(FX_EFFECTS[0]));
 
@@ -1614,66 +1715,66 @@ float fx_test_lfo_rounded(float phase)
 
 const fx_effect_desc FX_TEST_MUTANTS[FX_MUT_COUNT] = {
     [FX_MUT_DRIVE_NO_OVERSAMPLING] = { "drive-no-os", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
-                                       drive_init, drive_no_os, drive_feed },
+                                       drive_init, drive_no_os, drive_feed, NULL },
     [FX_MUT_DRIVE_NO_CEILING] = { "drive-no-ceiling", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
-                                  drive_init, drive_no_ceiling, drive_feed },
+                                  drive_init, drive_no_ceiling, drive_feed, NULL },
     [FX_MUT_DRIVE_NO_MAKEUP] = { "drive-no-makeup", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
-                                 drive_init, drive_no_makeup, drive_feed },
+                                 drive_init, drive_no_makeup, drive_feed, NULL },
     [FX_MUT_DRIVE_OLD_SHAPER] = { "drive-old-shaper", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
-                                  drive_init, drive_old_shaper, drive_feed },
+                                  drive_init, drive_old_shaper, drive_feed, NULL },
     [FX_MUT_DRIVE_ROUND3_BIAS] = { "drive-round3-bias", 1.0f, 0.05f, DRIVE_LEVEL,
                                    sizeof(drive_state), drive_init, drive_round3_bias,
-                                   drive_feed },
+                                   drive_feed, NULL },
     [FX_MUT_DRIVE_NO_FLUSH] = { "drive-no-flush", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
-                                drive_init, drive_no_flush, drive_no_flush_feed },
+                                drive_init, drive_no_flush, drive_no_flush_feed, NULL },
     [FX_MUT_PHASER_NO_FLUSH] = { "phaser-no-flush", PHASER_WET, 1.0f, PHASER_LEVEL, sizeof(phaser_state),
-                                 phaser_init, phaser_no_flush, phaser_no_flush_feed },
+                                 phaser_init, phaser_no_flush, phaser_no_flush_feed, NULL },
     [FX_MUT_PHASER_HOT_FEEDBACK] = { "phaser-hot", PHASER_WET, 1.0f, PHASER_LEVEL, sizeof(phaser_state),
-                                     phaser_init, phaser_hot, phaser_feed },
+                                     phaser_init, phaser_hot, phaser_feed, NULL },
     [FX_MUT_PHASER_RUNAWAY] = { "phaser-runaway", PHASER_WET, 1.0f, PHASER_LEVEL, sizeof(phaser_state),
-                                phaser_init, phaser_runaway, phaser_runaway_feed },
+                                phaser_init, phaser_runaway, phaser_runaway_feed, NULL },
     [FX_MUT_FLANGER_NO_FLUSH] = { "flanger-no-flush", FLANGER_WET, 1.0f, FLANGER_LEVEL, sizeof(flanger_state),
-                                  flanger_init, flanger_no_flush, flanger_no_flush_feed },
+                                  flanger_init, flanger_no_flush, flanger_no_flush_feed, NULL },
     [FX_MUT_FLANGER_HOT_FEEDBACK] = { "flanger-hot", FLANGER_WET, 1.0f, FLANGER_LEVEL, sizeof(flanger_state),
-                                      flanger_init, flanger_hot, flanger_feed },
+                                      flanger_init, flanger_hot, flanger_feed, NULL },
     [FX_MUT_FLANGER_RUNAWAY] = { "flanger-runaway", FLANGER_WET, 1.0f, FLANGER_LEVEL, sizeof(flanger_state),
-                                 flanger_init, flanger_runaway, flanger_runaway_feed },
+                                 flanger_init, flanger_runaway, flanger_runaway_feed, NULL },
     [FX_MUT_TREMOLO_OVERSHOOT] = { "tremolo-overshoot", 1.0f, 1.0f, TREMOLO_LEVEL, sizeof(tremolo_state),
-                                   tremolo_init, tremolo_overshoot, tremolo_feed },
+                                   tremolo_init, tremolo_overshoot, tremolo_feed, NULL },
     [FX_MUT_TREMOLO_SHALLOW_TOP] = { "tremolo-shallow-top", 1.0f, 1.0f, TREMOLO_LEVEL,
                                      sizeof(tremolo_state), tremolo_init, tremolo_shallow_top,
-                                     tremolo_feed },
+                                     tremolo_feed, NULL },
     [FX_MUT_TREMOLO_ROUNDED_TRI] = { "tremolo-rounded-triangle", 1.0f, 1.0f, TREMOLO_LEVEL,
                                      sizeof(tremolo_state), tremolo_init, tremolo_rounded,
-                                     tremolo_feed },
+                                     tremolo_feed, NULL },
     [FX_MUT_TREMOLO_NO_FLOOR] = { "tremolo-no-floor", 1.0f, 1.0f, TREMOLO_LEVEL,
                                   sizeof(tremolo_state), tremolo_init, tremolo_no_floor,
-                                  tremolo_feed },
+                                  tremolo_feed, NULL },
     [FX_MUT_ROTARY_NO_FLUSH] = { "rotary-no-flush", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
                                  sizeof(rotary_state), rotary_init,
-                                 rotary_no_flush, rotary_no_flush_feed },
+                                 rotary_no_flush, rotary_no_flush_feed, NULL },
     [FX_MUT_ROTARY_NO_DOPPLER] = { "rotary-no-doppler", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
                                    sizeof(rotary_state), rotary_init,
-                                   rotary_no_doppler, rotary_feed },
+                                   rotary_no_doppler, rotary_feed, NULL },
     [FX_MUT_ROTARY_NO_INERTIA] = { "rotary-no-inertia", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
                                    sizeof(rotary_state), rotary_init,
-                                   rotary_no_inertia, rotary_feed },
+                                   rotary_no_inertia, rotary_feed, NULL },
     [FX_MUT_ROTARY_LINEAR_AM] = { "rotary-linear-am", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
                                   sizeof(rotary_state), rotary_init, rotary_linear_am,
-                                  rotary_feed },
+                                  rotary_feed, NULL },
     [FX_MUT_ROTARY_WIDE_CENTER] = { "rotary-1ms-centre", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
                                     sizeof(rotary_state), rotary_init, rotary_wide_center,
-                                    rotary_wide_center_feed },
+                                    rotary_wide_center_feed, NULL },
     [FX_MUT_WAH_NO_FLUSH] = { "auto-wah-no-flush", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
-                              wah_init, wah_no_flush, wah_no_flush_feed },
+                              wah_init, wah_no_flush, wah_no_flush_feed, NULL },
     [FX_MUT_WAH_NO_SWEEP] = { "auto-wah-no-sweep", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
-                              wah_init, wah_no_sweep, wah_feed },
+                              wah_init, wah_no_sweep, wah_feed, NULL },
     [FX_MUT_WAH_RUNAWAY] = { "auto-wah-runaway", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
-                             wah_init, wah_runaway, wah_runaway_feed },
+                             wah_init, wah_runaway, wah_runaway_feed, NULL },
     [FX_MUT_WAH_WHISTLE] = { "auto-wah-whistle", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
-                             wah_init, wah_whistle, wah_feed },
+                             wah_init, wah_whistle, wah_feed, NULL },
     [FX_MUT_WAH_SLOW_ATTACK] = { "auto-wah-slow-attack", WAH_WET, 1.0f, WAH_LEVEL,
-                                 sizeof(wah_state), wah_init, wah_slow_attack, wah_feed },
+                                 sizeof(wah_state), wah_init, wah_slow_attack, wah_feed, NULL },
 };
 
 int fx_test_no_clamp;
@@ -1693,6 +1794,7 @@ static float one_pole_alpha(double ms, float rate)
 
 #ifdef FX_SELFTEST
 int fx_test_no_level;
+int fx_test_no_top;
 int fx_test_level_hot;
 int fx_test_level_cold;
 int fx_test_level_wobble;
@@ -1726,6 +1828,167 @@ static inline float makeup_at(const fx_engine *e, float m)
     }
     float frac = pos - (float)j;
     return e->makeup[j] + frac * (e->makeup[j + 1] - e->makeup[j]);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Bass bypass (fx_dsp.h, "Bass bypass")                                      */
+/* ------------------------------------------------------------------------- */
+
+#ifdef FX_SELFTEST
+int fx_test_bass_split_at_depth0;
+int fx_test_bass_lr2;
+int fx_test_bass_unsmoothed;
+int fx_test_bass_stereo;
+int fx_test_bass_low_left;
+int fx_test_bass_no_park;
+int fx_test_bass_drive_outside;
+int fx_test_bass_no_corr;
+const float *fx_test_bass_fit[FX_MAX_EFFECTS];
+#endif
+
+#ifndef FX_BASS_CHAIN_SHARE
+#define FX_BASS_CHAIN_SHARE 0.85f
+#endif
+#define BASS_K 1.41421356f   /* 1/Q, Butterworth: two of them in series are LR4 */
+
+/* The TPT SVF's coefficients for the crossover in force. Once per chunk while
+ * it glides (tanf), never per sample. */
+static void bass_coefs(fx_engine *e)
+{
+    float hz = e->bass_hz;
+    if (hz > 0.45f * e->rate) {
+        hz = 0.45f * e->rate;
+    }
+    const float g = tanf((float)M_PI * hz / e->rate);
+    e->bass_a1 = 1.0f / (1.0f + g * (g + BASS_K));
+    e->bass_a2 = g * e->bass_a1;
+    e->bass_a3 = g * e->bass_a2;
+    /* The level correction at this crossover: linear in log frequency
+     * between grid points. */
+    int j = 0;
+    while (j < FX_BASS_GRID - 2 && e->bass_hz > FX_BASS_GRID_HZ[j + 1]) {
+        j++;
+    }
+    float t = logf(e->bass_hz / FX_BASS_GRID_HZ[j]) / logf(FX_BASS_GRID_HZ[j + 1] / FX_BASS_GRID_HZ[j]);
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    for (int k = 0; k < e->count; k++) {
+        const float *loss = e->table[k].bass_loss;
+#ifdef FX_SELFTEST
+        if (fx_test_bass_fit[k] != NULL) {
+            loss = fx_test_bass_fit[k];
+        }
+#endif
+        float db = 0.0f;
+        if (loss != NULL) {
+            db = loss[j] + t * (loss[j + 1] - loss[j]);
+        }
+#ifdef FX_SELFTEST
+        if (fx_test_bass_no_corr) {
+            db = 0.0f;
+        }
+#endif
+        e->bass_corr[k] = powf(10.0f, -db / 20.0f);
+    }
+}
+
+/* One sample through one section: its low- and high-pass outputs. */
+static inline void svf_tick(fx_svf *f, const fx_engine *e, float v0, float *lp, float *hp)
+{
+    const float v3 = v0 - f->ic2;
+    const float v1 = e->bass_a1 * f->ic1 + e->bass_a2 * v3;
+    const float v2 = f->ic2 + e->bass_a2 * f->ic1 + e->bass_a3 * v3;
+    f->ic1 = flush(2.0f * v1 - f->ic1);
+    f->ic2 = flush(2.0f * v2 - f->ic2);
+    *lp = v2;
+    *hp = v0 - BASS_K * v1 - v2;
+}
+
+static void bass_reset(fx_engine *e)
+{
+    memset(e->bass_first, 0, sizeof(e->bass_first));
+    memset(&e->bass_lo, 0, sizeof(e->bass_lo));
+    memset(&e->bass_lo_r, 0, sizeof(e->bass_lo_r));
+    memset(e->bass_hi, 0, sizeof(e->bass_hi));
+}
+
+/* The crossover's glide toward the target, one step per chunk. Off holds the
+ * crossover where it is: the fade-out plays at the split it had. */
+static void bass_glide(fx_engine *e, float target)
+{
+    if (!(target > 0.0f) || e->bass_hz == target) {
+        return;
+    }
+    float hz = e->bass_hz + e->bass_glide * (target - e->bass_hz);
+#ifdef FX_SELFTEST
+    if (fx_test_bass_unsmoothed) {
+        hz = target;
+    }
+#endif
+    if (fabsf(target - hz) <= 0.01f || hz == e->bass_hz) {
+        hz = target;
+    }
+    e->bass_hz = hz;
+    bass_coefs(e);
+}
+
+/* One frame of the split: x (the two channels, in place) becomes the chain's
+ * input x + b (hi - x), and lo[ch] the low band times b to add back after the
+ * chain: the same mono low band on both channels. */
+static inline void bass_frame(fx_engine *e, float *l, float *r, float b, float lo[FX_CHANNELS])
+{
+    float lp_l, hp_l, lp_r, hp_r, low, hi_l, hi_r, unused;
+    svf_tick(&e->bass_first[0], e, finite_or_zero(*l), &lp_l, &hp_l);
+    svf_tick(&e->bass_first[1], e, finite_or_zero(*r), &lp_r, &hp_r);
+#ifdef FX_SELFTEST
+    if (fx_test_bass_lr2) {
+        /* One Butterworth section per band: LP + HP sum with a notch at the
+         * corner. */
+        lo[0] = lo[1] = b * 0.5f * (lp_l + lp_r);
+        *l += b * (hp_l - *l);
+        *r += b * (hp_r - *r);
+        return;
+    }
+    if (fx_test_bass_low_left) {
+        /* Mutant: both channels' lows from L only. */
+        svf_tick(&e->bass_lo, e, lp_l, &low, &unused);
+        svf_tick(&e->bass_hi[0], e, hp_l, &unused, &hi_l);
+        svf_tick(&e->bass_hi[1], e, hp_r, &unused, &hi_r);
+        lo[0] = lo[1] = b * low;
+        *l += b * (hi_l - *l);
+        *r += b * (hi_r - *r);
+        return;
+    }
+    if (FX_BASS_LOW_MONO ? fx_test_bass_stereo : !fx_test_bass_stereo) {
+#else
+    if (!FX_BASS_LOW_MONO) {
+#endif
+        /* Each channel keeps its own low band. */
+        float low_r;
+        svf_tick(&e->bass_lo, e, lp_l, &low, &unused);
+        svf_tick(&e->bass_lo_r, e, lp_r, &low_r, &unused);
+        svf_tick(&e->bass_hi[0], e, hp_l, &unused, &hi_l);
+        svf_tick(&e->bass_hi[1], e, hp_r, &unused, &hi_r);
+        lo[0] = b * low;
+        lo[1] = b * low_r;
+        *l += b * (hi_l - *l);
+        *r += b * (hi_r - *r);
+        return;
+    }
+    svf_tick(&e->bass_lo, e, 0.5f * (lp_l + lp_r), &low, &unused);
+    svf_tick(&e->bass_hi[0], e, hp_l, &unused, &hi_l);
+    svf_tick(&e->bass_hi[1], e, hp_r, &unused, &hi_r);
+    lo[0] = lo[1] = b * low;
+    *l += b * (hi_l - *l);
+    *r += b * (hi_r - *r);
+}
+
+void fx_engine_set_bass(fx_engine *e, float hz)
+{
+    if (!(hz > 0.0f)) {        /* also NaN */
+        e->bass_target = 0.0f;
+        return;
+    }
+    e->bass_target = hz < FX_BASS_MIN_HZ ? FX_BASS_MIN_HZ : (hz > FX_BASS_MAX_HZ ? FX_BASS_MAX_HZ : hz);
 }
 
 /* The static level curve (fx_dsp.h, "Level curve"), tabulated over depth.
@@ -1794,6 +2057,14 @@ int fx_engine_set_rate(fx_engine *e, float rate)
     e->rate = rate;
     e->depth_alpha = one_pole_alpha(e->depth_ms, rate);
     e->xfade_step = xfade_step_for(e->xfade_ms, rate);
+    e->bass_glide = (float)(1.0 - exp(-(double)FX_CHUNK / ((FX_BASS_GLIDE_MS / 1000.0) * (double)rate)));
+    bass_reset(e);
+    e->bass_warm = 0;
+    e->bass_mix = 0.0f;
+    if (!(e->bass_hz > 0.0f)) {
+        e->bass_hz = 120.0f;   /* any valid corner: replaced before it is heard */
+    }
+    bass_coefs(e);
     return 0;
 }
 
@@ -1823,6 +2094,18 @@ int fx_engine_init(fx_engine *e, const fx_effect_desc *table, int count, float r
         if (!placed[k]) {
             e->order[n++] = k;
         }
+    }
+    /* The bass split comes before the first stage inside it: the drive, if
+     * it runs first and is outside (FX_BASS_DRIVE_INSIDE 0), runs before it. */
+    int drive_inside = FX_BASS_DRIVE_INSIDE;
+#ifdef FX_SELFTEST
+    if (fx_test_bass_drive_outside) {
+        drive_inside = 0;
+    }
+#endif
+    e->bass_split_at = 0;
+    if (!drive_inside && n > 0 && strcmp(table[e->order[0]].name, "drive") == 0) {
+        e->bass_split_at = 1;
     }
     makeup_table(e);
     for (int k = 0; k < count; k++) {
@@ -1927,6 +2210,10 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
     float depth_ramp[FX_CHUNK];
     float on_ramp[FX_CHUNK];
     float makeup_m[FX_CHUNK];   /* the chain's makeup driver m, per frame */
+    float bass_lo[FX_CHANNELS][FX_CHUNK];   /* the low band times b, added back */
+    float bass_h[FX_CHUNK];   /* the split's level correction - 1, per frame */
+    float bass_lo_b[FX_CHUNK];   /* b, per frame */
+    float bass_hp_max[FX_CHUNK], bass_hp_sum[FX_CHUNK];   /* the boosts: largest, total */
     const float *const x_in[FX_CHANNELS] = { x_buf[0], x_buf[1] };
     float *const wet[FX_CHANNELS] = { wet_buf[0], wet_buf[1] };
 
@@ -1957,7 +2244,42 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
             live |= audible && !(e->depth[k] == 0.0f && target[k] == 0.0f);
         }
 
-        if (!live) {
+        /* The bass split: wanted while the chain is live with a crossover
+         * set; running while wanted or still fading out. */
+        const float bass_t = e->bass_target;
+        int bass_live = live;
+#ifdef FX_SELFTEST
+        if (fx_test_bass_split_at_depth0) {
+            bass_live = 1;
+        }
+#endif
+        const float bass_want = (bass_t > 0.0f && bass_live) ? 1.0f : 0.0f;
+        const int bass_run = e->bass_mix > 0.0f || bass_want > 0.0f;
+
+        if (!live && !bass_run) {
+            /* The filters stay warm while an effect is ticked, so the knob
+             * coming up from 0 finds them current; otherwise nothing runs. */
+            if (bass_t > 0.0f && (mask & ((1u << e->count) - 1u)) != 0u) {
+                float park = FX_BASS_PARK_HZ;
+#ifdef FX_SELFTEST
+                if (fx_test_bass_no_park) {
+                    park = bass_t;
+                }
+#endif
+                if (!e->bass_warm) {
+                    bass_reset(e);
+                    e->bass_hz = park;
+                    bass_coefs(e);
+                }
+                bass_glide(e, park);   /* the split comes in parked */
+                for (uint32_t i = 0; i < n; i++) {
+                    float l = x_buf[0][i], r = x_buf[1][i], lo[FX_CHANNELS];
+                    bass_frame(e, &l, &r, 1.0f, lo);
+                }
+                e->bass_warm = 1;
+            } else {
+                e->bass_warm = 0;
+            }
             /* Bypass. Output is the input, bit for bit (within the clamp);
              * every effect keeps its history so re-entry is click-free. The
              * enable ramps land on their targets: nothing is audible to fade.
@@ -1985,8 +2307,58 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
 
         for (uint32_t i = 0; i < n; i++) {
             makeup_m[i] = 0.0f;
+            bass_h[i] = 0.0f;   /* the largest cut */
+            bass_hp_max[i] = 0.0f;
+            bass_hp_sum[i] = 0.0f;
         }
-        for (int s = 0; s < e->count; s++) {
+        if (bass_run && !e->bass_warm) {
+            /* Coming in cold: from rest, parked, under the fade. */
+            bass_reset(e);
+            e->bass_hz = FX_BASS_PARK_HZ;
+#ifdef FX_SELFTEST
+            if (fx_test_bass_no_park && bass_t > 0.0f) {
+                e->bass_hz = bass_t;
+            }
+#endif
+            bass_coefs(e);
+        }
+        e->bass_warm = bass_run;
+        for (int s = 0; s <= e->count; s++) {
+            if (bass_run && s == e->bass_split_at) {
+                /* b moves only with the corner parked; the corner leaves the
+                 * park only once b is 1 (fx_dsp.h, FX_BASS_PARK_HZ). */
+                float b = e->bass_mix;
+                float hz_goal = (bass_want > 0.0f && b >= 1.0f) ? bass_t : FX_BASS_PARK_HZ;
+                float b_goal = e->bass_hz <= FX_BASS_PARKED ? bass_want : b;
+#ifdef FX_SELFTEST
+                if (fx_test_bass_no_park) {
+                    hz_goal = bass_t;
+                    b_goal = bass_want;
+                }
+#endif
+                bass_glide(e, hz_goal);
+                for (uint32_t i = 0; i < n; i++) {
+                    if (b < b_goal) {
+                        b = fminf(b_goal, b + e->xfade_step);
+                    } else if (b > b_goal) {
+                        b = fmaxf(b_goal, b - e->xfade_step);
+                    }
+#ifdef FX_SELFTEST
+                    if (fx_test_bass_unsmoothed) {
+                        b = bass_want;
+                    }
+#endif
+                    float lo[FX_CHANNELS];
+                    bass_frame(e, &x_buf[0][i], &x_buf[1][i], b, lo);
+                    bass_lo[0][i] = lo[0];
+                    bass_lo[1][i] = lo[1];
+                    bass_lo_b[i] = b;
+                }
+                e->bass_mix = b;
+            }
+            if (s == e->count) {
+                break;
+            }
 #ifdef FX_SELFTEST
             const int k = e->order[fx_test_reverse_order ? e->count - 1 - s : s];
 #else
@@ -2025,11 +2397,24 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
             desc->process(e->state[k], x_in, wet, depth_ramp, n);
             const float wmax = desc->wet_max;
             const float full = 1.0f / desc->mix_full_at;
+            /* The bass split's level correction (fx_dsp.h, "Bass bypass"):
+             * this stage's share, per unit of its mix, the enable ramp and
+             * the split's fade; the chain applies the largest. */
+            const float corr = bass_run ? (e->bass_corr[k] - 1.0f) / wmax : 0.0f;
             for (uint32_t i = 0; i < n; i++) {
                 /* full = 1 (the knob is the mix) leaves d unchanged, bit for bit. */
                 const float dk = depth_ramp[i];
                 const float w = fminf(1.0f, dk * full) * wmax;
                 const float g = level_at(e, k, dk);
+                if (corr != 0.0f) {
+                    const float h = corr * w * on_ramp[i];
+                    if (h > 0.0f) {
+                        bass_hp_max[i] = fmaxf(bass_hp_max[i], h);
+                        bass_hp_sum[i] += h;
+                    } else {
+                        bass_h[i] = fminf(bass_h[i], h);
+                    }
+                }
                 const float ck = on_ramp[i];
                 for (int ch = 0; ch < FX_CHANNELS; ch++) {
                     const float xs = x_buf[ch][i];
@@ -2055,6 +2440,21 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
             }
         }
 #endif
+        /* The low band back, under the makeup: the level on keys stays
+         * G(m) x the input whatever the split. */
+        if (bass_run) {
+            for (int ch = 0; ch < FX_CHANNELS; ch++) {
+                for (uint32_t i = 0; i < n; i++) {
+                    /* The high band's correction, faded with the split: the
+                     * largest boost, a share of the others, the largest cut. */
+                    const float b = bass_lo_b[i];
+                    const float up = bass_hp_max[i] +
+                                     FX_BASS_CHAIN_SHARE * (bass_hp_sum[i] - bass_hp_max[i]);
+                    const float h = (1.0f + b * up) * (1.0f + b * bass_h[i]);
+                    x_buf[ch][i] = x_buf[ch][i] * h + bass_lo[ch][i];
+                }
+            }
+        }
         /* The chain's makeup, once, after the last stage. G(0) is exactly 1. */
         for (uint32_t i = 0; i < n; i++) {
             const float gm = makeup_at(e, makeup_m[i]);
@@ -2135,6 +2535,36 @@ static int only_blanks(const char *rest)
         rest++;
     }
     return *rest == '\0';
+}
+
+int fx_parse_bass(const char *text, float *hz)
+{
+    while (*text == ' ' || *text == '\t') {
+        text++;
+    }
+    if (strncmp(text, "bass", 4) != 0) {
+        return 0;
+    }
+    const char *rest = text + 4;
+    if (*rest != ' ' && *rest != '\t') {
+        return 0;
+    }
+    /* A plain decimal: digits and a point, no sign, exponent or hex. */
+    const char *tok = rest;
+    while (*tok == ' ' || *tok == '\t') {
+        tok++;
+    }
+    for (const char *c = tok; *c != '\0' && *c != ' ' && *c != '\t' && *c != '\n' && *c != '\r'; c++) {
+        if ((*c < '0' || *c > '9') && *c != '.') {
+            return 0;
+        }
+    }
+    float value = 0.0f;
+    if (!parse_float(&rest, &value) || !only_blanks(rest) || value < 0.0f) {
+        return 0;
+    }
+    *hz = value;
+    return 1;
 }
 
 int fx_parse_control(const char *text, uint32_t *mask, float *depth,

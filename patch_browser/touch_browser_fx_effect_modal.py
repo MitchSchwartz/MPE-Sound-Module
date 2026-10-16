@@ -26,6 +26,14 @@ level to the FX host as you drag. An unticked effect's slider is greyed out
 (the play screen's locked-fader look: dim track, hollow handle, muted text),
 keeps its value, and takes no touch.
 
+The header holds one more slider, between the title and Done: the bass
+bypass (#173), labelled "Dry bass". Below its crossover the lows skip the
+effects and stay dry. Its positions are Off at the left, then
+`fx_host_protocol.BASS_STEPS_HZ` (80-300 Hz) evenly spaced, and the value
+shows in Hz ("Off", "120 Hz"). It looks and drags as the level sliders do
+(`FxPolicy.set_bass`, live, throttled), and is greyed out with no effect
+ticked, as the Effect fader is (`FxPolicy.bass_locked`).
+
 The panel only states intent. `FxPolicy.toggle_effect` sets the loaded patch's
 enable mask and `FxPolicy.set_level` one effect's level (nothing global), and
 both are written to `fx-route.json`; the remapper is still the one process
@@ -110,6 +118,16 @@ FX_LEVEL_HANDLE_H = 32
 #: Taller while held, so the finger's slider shows it has it.
 FX_LEVEL_HANDLE_H_DRAG = 40
 FX_LEVEL_TRACK_H = 8
+#: The bass bypass slider in the header (#173): it starts this far right of
+#: the panel's inner edge (the title, "Effects", 68 px in DejaVu Sans 22, and
+#: air) and stops this far short of Done. Its label column ("Dry bass", ~79 px
+#: in DejaVu Sans 18) and its value column ("300 Hz", ~62 px) are fixed, so
+#: the track is the same wherever the fonts measure.
+FX_BASS_TITLE_W = 76
+FX_BASS_GAP = 12
+FX_BASS_LABEL = "Dry bass"
+FX_BASS_LABEL_W = 84
+FX_BASS_VALUE_W = 64
 #: Width kept at the right end of each row for a per-effect settings button
 #: (parameter pages, later). 0 today: no button, the whole row is the choice.
 FX_EFFECT_ROW_SETTINGS_W = 0
@@ -149,6 +167,38 @@ def level_at_x(track: Rect, x: int) -> float:
 
 def level_percent(level: float) -> str:
     return f"{int(round(level * 100))}%"
+
+
+def bass_track(slider: Rect) -> Rect:
+    """The bass slider's drawn track: after the label column, inset by half a
+    handle, and short of the value column."""
+    x = slider.x + FX_BASS_LABEL_W + FX_LEVEL_HANDLE_W // 2
+    right = slider.right - FX_BASS_VALUE_W - FX_LEVEL_HANDLE_W // 2
+    return Rect(x, slider.y + (slider.h - FX_LEVEL_TRACK_H) // 2, max(1, right - x), FX_LEVEL_TRACK_H)
+
+
+def bass_step(hz: float) -> int:
+    """The position of the step nearest `hz` (a stored value between steps
+    shows at its nearest)."""
+    steps = fx_host_protocol.BASS_STEPS_HZ
+    return min(range(len(steps)), key=lambda i: abs(steps[i] - hz))
+
+
+def bass_at_x(track: Rect, x: int) -> float:
+    """The crossover a finger at `x` sets: the nearest of the evenly spaced
+    steps, Off at the left end."""
+    steps = fx_host_protocol.BASS_STEPS_HZ
+    frac = (x - track.x) / track.w if track.w > 0 else 0.0
+    return steps[int(round(max(0.0, min(1.0, frac)) * (len(steps) - 1)))]
+
+
+def bass_x(track: Rect, hz: float) -> int:
+    """Where the handle sits for `hz`."""
+    return track.x + int(round(track.w * bass_step(hz) / (len(fx_host_protocol.BASS_STEPS_HZ) - 1)))
+
+
+def bass_text(hz: float) -> str:
+    return "Off" if hz == fx_host_protocol.BASS_OFF else f"{int(round(hz))} Hz"
 
 
 class TouchBrowserFxEffectModalMixin:
@@ -274,6 +324,9 @@ class TouchBrowserFxEffectModalMixin:
         if getattr(self, "_fx_level_dragging", None) is not None:
             self._fx_level_dragging = None
             self.fx_policy.finish_level()
+        if getattr(self, "_fx_bass_dragging", False):
+            self._fx_bass_dragging = False
+            self.fx_policy.finish_bass()
         self.screen_state = Screen.BROWSER
 
     def _toggle_fx_effect(self, effect_id: int) -> None:
@@ -297,6 +350,14 @@ class TouchBrowserFxEffectModalMixin:
         ]
         done = Rect(inner_x + inner_w - FX_EFFECT_DONE_W, panel.y + pad_v, FX_EFFECT_DONE_W, FX_EFFECT_HEADER_H)
         return panel, options, done
+
+    def _fx_bass_layout(self) -> tuple[Rect, Rect]:
+        """(slider touch target, drawn track) of the header's bass slider:
+        between the title and Done, the header row's full height."""
+        panel, _options, done = self._fx_effect_modal_layout()
+        x = panel.x + FX_EFFECT_MODAL_PAD + FX_BASS_TITLE_W + FX_BASS_GAP
+        slider = Rect(x, done.y, max(1, done.x - FX_BASS_GAP - x), done.h)
+        return slider, bass_track(slider)
 
     def _fx_effect_rows(self, inner_x: int, y: int, inner_w: int) -> list[tuple[Rect, int]]:
         return [
@@ -383,7 +444,37 @@ class TouchBrowserFxEffectModalMixin:
                 enabled=checked,
                 dragging=dragging == effect_id,
             )
+        self._draw_fx_bass()
         self._draw_fx_effect_done(done, pressed=self._pressed("done"))
+
+    def _draw_fx_bass(self) -> None:
+        """The header's bass slider: its label, then a level slider's track,
+        fill, handle and value, greyed out the same way when locked."""
+        theme = self.theme
+        slider, track = self._fx_bass_layout()
+        enabled = not self.fx_policy.bass_locked
+        hz = self.fx_policy.bass_hz
+        label = self.font_sm.render(FX_BASS_LABEL, True, theme.text if enabled else theme.muted)
+        self.screen.blit(label, (slider.x, slider.y + (slider.h - self.font_sm.get_height()) // 2))
+        pygame.draw.rect(self.screen, theme.bg if enabled else theme.surface, track.pygame_rect, border_radius=4)
+        handle_cx = bass_x(track, hz)
+        if enabled and handle_cx > track.x:
+            fill = pygame.Rect(track.x, track.y, handle_cx - track.x, track.h)
+            pygame.draw.rect(self.screen, theme.accent, fill, border_radius=4)
+        dragging = getattr(self, "_fx_bass_dragging", False)
+        handle_h = FX_LEVEL_HANDLE_H_DRAG if dragging else FX_LEVEL_HANDLE_H
+        handle = pygame.Rect(
+            handle_cx - FX_LEVEL_HANDLE_W // 2, slider.y + (slider.h - handle_h) // 2, FX_LEVEL_HANDLE_W, handle_h
+        )
+        pygame.draw.rect(self.screen, theme.accent if enabled else theme.surface, handle, border_radius=6)
+        pygame.draw.rect(
+            self.screen, theme.text if enabled else theme.muted, handle, width=2 if dragging else 1, border_radius=6
+        )
+        text = self.font_sm.render(bass_text(hz), True, theme.text if enabled else theme.muted)
+        self.screen.blit(
+            text,
+            (slider.right - text.get_width(), slider.y + (slider.h - self.font_sm.get_height()) // 2),
+        )
 
     def _draw_fx_effect_level(
         self, level: Rect, track: Rect, value: float, *, enabled: bool, dragging: bool = False
@@ -421,10 +512,14 @@ class TouchBrowserFxEffectModalMixin:
 
     def _fx_effect_modal_hit_at(self, pos: tuple[int, int]) -> str | None:
         """"done", "effect:<id>" (a row's toggle), "level:<id>" (a ticked
-        effect's slider) or None. A greyed slider is None: it takes no touch."""
+        effect's slider), "bass" (the header's slider, when an effect is
+        ticked) or None. A greyed slider is None: it takes no touch."""
         _panel, options, done = self._fx_effect_modal_layout()
         if done.contains(*pos):
             return "done"
+        bass, _track = self._fx_bass_layout()
+        if bass.contains(*pos):
+            return None if self.fx_policy.bass_locked else "bass"
         for rect, effect_id in options:
             if rect.contains(*pos):
                 return f"effect:{effect_id}"
@@ -439,13 +534,23 @@ class TouchBrowserFxEffectModalMixin:
         track = next(t for _l, t, eid in self._fx_effect_level_layout() if eid == effect_id)
         self.fx_policy.set_level(effect_id, level_at_x(track, x), final=final)
 
+    def _apply_fx_bass_x(self, x: int, *, final: bool) -> None:
+        _slider, track = self._fx_bass_layout()
+        self.fx_policy.set_bass(bass_at_x(track, x), final=final)
+
     def _handle_fx_effect_modal_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
         self._fx_level_dragging = None
+        self._fx_bass_dragging = False
         # The panel rect is what a backdrop tap is measured against; set it
         # here too, so a tap before the first frame is judged correctly.
         self._modal_panel_rect = self._fx_effect_modal_layout()[0]
         hit = self._fx_effect_modal_hit_at(pos)
+        if hit == "bass":
+            # A drag from the first touch, as a level slider is.
+            self._fx_bass_dragging = True
+            self._apply_fx_bass_x(pos[0], final=False)
+            return
         if hit is not None and hit.startswith("level:"):
             # A slider press is a drag from the first touch: the level jumps
             # to the finger and follows it. Not a pending tap, so a release
@@ -456,11 +561,20 @@ class TouchBrowserFxEffectModalMixin:
         self._modal_press_hit(pos, hit)
 
     def _handle_fx_effect_modal_pointer_move(self, pos: tuple[int, int]) -> None:
+        if getattr(self, "_fx_bass_dragging", False):
+            self._apply_fx_bass_x(pos[0], final=False)
+            return
         effect_id = getattr(self, "_fx_level_dragging", None)
         if effect_id is not None:
             self._apply_fx_level_x(effect_id, pos[0], final=False)
 
     def _handle_fx_effect_modal_pointer_up(self, pos: tuple[int, int]) -> None:
+        if getattr(self, "_fx_bass_dragging", False):
+            self._fx_bass_dragging = False
+            self._apply_fx_bass_x(pos[0], final=True)
+            self.fx_policy.finish_bass()
+            self._clear_modal_pointer()
+            return
         effect_id = getattr(self, "_fx_level_dragging", None)
         if effect_id is not None:
             self._fx_level_dragging = None

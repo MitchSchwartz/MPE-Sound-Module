@@ -178,6 +178,11 @@ typedef struct {
      * its own feedback) run in full with the output discarded; the tremolo
      * advances its LFO. NULL for an effect with no history. */
     void (*feed)(void *state, const float *const in[FX_CHANNELS], uint32_t n);
+    /* The bass bypass's level correction (fx_dsp.h, "Bass bypass"): the
+     * gain its high band needs, as a loss in dB at its full mix, with the
+     * split at each of FX_BASS_GRID_HZ. NULL: none. Last, so a table entry that names
+     * no correction gets none. */
+    const float *bass_loss;
 } fx_effect_desc;
 
 /* Points of the per-effect level table over depth 0..1. 80, not 64, so that
@@ -189,6 +194,90 @@ typedef struct {
 /* The chain's makeup at full depth, in dB (see "Makeup" above). The one place
  * it is set: the self-test derives its bounds from it. */
 #define FX_MAKEUP_DB 1.0
+
+/* Bass bypass (#173). Below a crossover the signal skips the chain: a
+ * Linkwitz-Riley 4th-order split (two cascaded Butterworth sections per band,
+ * TPT state-variable filters, so a moving corner stays stable) sends the low
+ * band (dry, per channel or summed to mono: FX_BASS_LOW_MONO) straight to the
+ * output, and the high band through the chain. LR4's two bands sum to an allpass: flat in level, so with the chain
+ * transparent the split changes the phase of the lows and nothing else.
+ *
+ *   out = G(m) * ( b * lo + chain( x + b * (hi - x) ) )
+ *
+ * b runs 0 -> 1 over the enable crossfade time when the split comes in (the
+ * chain goes live with the crossover set, or the crossover is set while it is
+ * live) and back when it goes, so neither is a step. The crossover glides
+ * (one-pole, FX_BASS_GLIDE_MS, coefficients once per FX_CHUNK) rather than
+ * jumping, and b only moves with the corner parked at FX_BASS_PARK_HZ (in:
+ * fade, then glide up; out: glide down, then fade: ~0.25 s). b = 0 is the chain exactly as before: Off, and the whole bypass
+ * (depth 0 or no effect on) still return the input bit for bit, because the
+ * split only runs while the chain is live, or while b fades out after it.
+ * The makeup applies to the sum, so the level on keys stays G(m) x the input.
+ *
+ * Per stereo frame while the split runs: five SVFs (~11 ops each with the
+ * flush), the mono sum and the fade, ~70 ops. While bypassed with an effect
+ * ticked the filters keep running (no output), so the knob coming up from 0
+ * finds them warm; with no effect ticked, nothing runs. */
+
+/* Level. LR4's bands sum flat only while they are coherent. An effect
+ * decorrelates the high band from the dry lows (delays, sweeps, a rotor), and
+ * in the octave around the crossover the two then add in power: down to -3 dB
+ * there. On the keys that octave is most of the signal once the crossover
+ * reaches 200-300 Hz: measured at 300 Hz, full depth, the rotary -1.9 dB, the
+ * phaser and the flanger -1.0. So each effect carries its loss over the
+ * crossover (`bass_loss`, fitted on the keys like the level curve, fx_dsp.c)
+ * and the stage gives it back on the high band only:
+ *
+ *   h_k = 1 + (H_k(fc) - 1) * b * c_k * w_k / wet_max_k,   H_k = 10 ^ (-loss_k(fc) / 20)
+ *
+ * so it scales with the stage's mix and fades with the split, and the lows
+ * stay at their dry level. Applied once, after the chain, as the largest
+ * stage's (the same rule as the makeup): the loss comes from the high band
+ * no longer matching the lows, and two decorrelating stages lose barely more
+ * than one, so a correction per stage overshot a chain by 1 dB. A correction
+ * on the high band alone has to be larger than the loss it gives back (the
+ * lows are part of the level), so the tables are fitted, not measured:
+ * fx-selftest --fit-bass K. H_k is looked up once per chunk (a pow per stage
+ * while the crossover glides). */
+#define FX_BASS_GRID 8
+extern const float FX_BASS_GRID_HZ[FX_BASS_GRID];
+
+/* 1: the drive is inside the bypass: the split comes before it, so the lows
+ * stay clean as well as dry. 0: the drive runs on the whole signal
+ * and the split comes after it (the lows are driven, then kept dry of
+ * the modulation effects). The one place this is decided. */
+#define FX_BASS_DRIVE_INSIDE 1
+/* The crossover range the client accepts; 0 (or below) is Off. The UI offers
+ * Off and 80-300 Hz (patch_browser/fx_host_protocol.py). */
+#define FX_BASS_MIN_HZ 20.0f
+#define FX_BASS_MAX_HZ 1000.0f
+/* How fast a moved crossover glides to its new value. 100 ms, was 50: a
+ * corner moving under a tone near it modulates the band sum while it moves
+ * (the bands sum to an allpass only at rest); gliding up from the park past
+ * an 84 Hz tone, 50 ms dipped it 1.6 dB, 100 ms 0.9 (fx_selftest.c, the fade
+ * check). */
+#define FX_BASS_GLIDE_MS 100.0
+/* Where the corner parks while the split fades in or out (review of #185):
+ * mid-fade the dry lows and the band-split lows are mixed, and near the
+ * corner LR4's allpass has them half a turn apart, so at the corner they
+ * cancelled (the low band dipped up to -13 dB for ~30 ms). The split now
+ * fades in with the corner here, below the keyboard, then glides up to the
+ * target; going out it glides down here first, then fades. Parked counts as
+ * within FX_BASS_PARKED of it. */
+#define FX_BASS_PARK_HZ 10.0f
+#define FX_BASS_PARKED (1.2f * FX_BASS_PARK_HZ)
+/* 1: the low band is summed to mono (both channels get (L + R) / 2 below the
+ * corner). 0: each channel keeps its own low band, dry. Mono loses the bass
+ * of a stereo patch: -3 dB where L and R are uncorrelated, and it cancels
+ * where they are opposed (review of #185); per channel keeps every low as it
+ * was. Pending Mitch's choice; 0 until then. */
+#ifndef FX_BASS_LOW_MONO
+#define FX_BASS_LOW_MONO 0
+#endif
+
+typedef struct {
+    float ic1, ic2;
+} fx_svf;
 
 typedef struct {
     const fx_effect_desc *table;
@@ -213,6 +302,20 @@ typedef struct {
     float level[FX_MAX_EFFECTS][FX_LEVEL_POINTS + 1];
     /* G(m) over m = 0..1, the chain's makeup (see "Makeup" above). */
     float makeup[FX_LEVEL_POINTS + 1];
+
+    /* The bass bypass (see above). */
+    float bass_target;  /* Hz, 0 = Off: fx_engine_set_bass */
+    float bass_hz;      /* the crossover in force, gliding toward the target */
+    float bass_mix;     /* b, 0..1 */
+    float bass_glide;   /* one-pole coefficient per FX_CHUNK */
+    float bass_a1, bass_a2, bass_a3;   /* the SVF coefficients at bass_hz */
+    int bass_warm;      /* the filters ran last chunk */
+    int bass_split_at;  /* the stage (index into order) the split comes before */
+    float bass_corr[FX_MAX_EFFECTS];   /* H_k at bass_hz */
+    fx_svf bass_first[FX_CHANNELS];    /* per channel: LP and HP section 1 */
+    fx_svf bass_lo;                    /* mono: LP section 2 */
+    fx_svf bass_lo_r;                  /* unused but by a self-test mutant */
+    fx_svf bass_hi[FX_CHANNELS];       /* per channel: HP section 2 */
 } fx_engine;
 
 /* The effects this build ships. Index = the effect id on the wire. */
@@ -245,11 +348,18 @@ void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
                        float *const out[FX_CHANNELS], uint32_t nframes,
                        uint32_t mask, float depth);
 
+/* The crossover the next period plays toward: Hz, or 0 (or anything not a
+ * positive number) for Off; clamped to FX_BASS_MIN_HZ..FX_BASS_MAX_HZ. RT-safe:
+ * it only stores. */
+void fx_engine_set_bass(fx_engine *e, float hz);
+
 /* One line of ASCII per datagram:
  *   `chainl <mask> <depth> <l0> <l1> ...`  the enabled effects, the shared
  *                            depth, and a level per effect in effect-id order
  *   `chain <mask> <depth>`   the same with every level 1.0
  *   `fx <effect id> <depth>` the first protocol: means chain <1 << id> <depth>
+ *   `bass <hz>`              the bass bypass's crossover, 0 for Off: parsed
+ *                            by fx_parse_bass below, not here
  * `chainl` carries from 0 to FX_MAX_EFFECTS levels. Append-only: an effect
  * the sender names no level for plays at level 1.0, and levels for ids this
  * build does not ship are parsed and left unused, so a sender that knows a
@@ -262,6 +372,12 @@ void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
  * parser. */
 int fx_parse_control(const char *text, uint32_t *mask, float *depth,
                      float levels[FX_MAX_EFFECTS]);
+
+/* `bass <hz>`: the bass bypass's crossover, a separate datagram so that every
+ * older message keeps its meaning and an older client ignores this one (it
+ * reads as malformed there, which changes nothing). 0 is Off. Returns 1 and
+ * fills `hz` (finite, >= 0, unclamped) on a well-formed message, 0 otherwise. */
+int fx_parse_bass(const char *text, float *hz);
 
 #ifdef FX_SELFTEST
 /* Deliberately broken builds of the shipped effects, compiled only into the
@@ -304,11 +420,34 @@ extern int fx_test_no_clamp;
  * as the round-3 makeup did with the phaser's sweep (the static-gain check
  * must). */
 extern int fx_test_no_level;
+/* The drive's and the auto-wah's top thirds off (2026-10-15): both play their
+ * round-before law at every depth, so the shaper and band-pass checks keep
+ * measuring the voicing they were calibrated on, and the top-third checks
+ * have a control. */
+extern int fx_test_no_top;
 extern int fx_test_level_hot;
 extern int fx_test_level_cold;
 extern int fx_test_level_wobble;
 /* The chain run in reverse order (the order check must catch it). */
 extern int fx_test_reverse_order;
+/* The bass bypass broken: the split run even at depth 0 (the bit-identity
+ * checks must catch it; the flat-sum check uses it on purpose, to split and
+ * recombine with the chain bypassed), a Linkwitz-Riley 2 split in place of
+ * LR4 (one section per band: its sum has a notch, the flat-sum check must
+ * catch it), the fade and the glide instant (the click check must), the lows
+ * left in stereo (the mono check must), and the drive moved outside the
+ * split whatever FX_BASS_DRIVE_INSIDE says (read at init). */
+extern int fx_test_bass_split_at_depth0;
+extern int fx_test_bass_lr2;
+extern int fx_test_bass_unsmoothed;
+extern int fx_test_bass_stereo;      /* the other FX_BASS_LOW_MONO option */
+extern int fx_test_bass_low_left;    /* mutant: both channels' lows from L only */
+extern int fx_test_bass_no_park;     /* mutant: fade at the target corner (pre-review) */
+extern int fx_test_bass_drive_outside;
+/* The level correction off (the bass level check's control), and a table to
+ * use in place of an effect's own (fx-selftest --fit-bass). */
+extern int fx_test_bass_no_corr;
+extern const float *fx_test_bass_fit[FX_MAX_EFFECTS];
 /* The makeup broken: off (the lower bound must catch it), and following the
  * targets instead of the smoothed depths and enable ramps (the click checks
  * must). */

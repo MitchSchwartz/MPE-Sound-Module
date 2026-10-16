@@ -156,15 +156,18 @@ class ResolveConfigTests(unittest.TestCase):
 
 
 class _RecordingSender:
-    """(mask, depth) per send in `sent`; the levels sent with each, in `levels`."""
+    """(mask, depth) per send in `sent`; the levels sent with each, in
+    `levels`; the bass crossover sent with each, in `bass`."""
 
     def __init__(self) -> None:
         self.sent: list[tuple[int, float]] = []
         self.levels: list[tuple[float, ...] | None] = []
+        self.bass: list[float | None] = []
 
-    def send(self, mask: int, depth: float, levels=None) -> bool:
+    def send(self, mask: int, depth: float, levels=None, bass_hz=None) -> bool:
         self.sent.append((mask, depth))
         self.levels.append(None if levels is None else tuple(levels))
+        self.bass.append(bass_hz)
         return True
 
 
@@ -613,6 +616,7 @@ class ChainSelectionTests(unittest.TestCase):
                 "cc1",
                 "mask",
                 "levels",
+                "bass_hz",
                 "target",
                 "uses_mod_wheel",
                 "route_stamp",
@@ -1090,6 +1094,55 @@ class FxHostSenderTests(unittest.TestCase):
         self.assertFalse(sender.send(C, 0.5, (1.0, 1.0)))
         self.assertEqual(len(said), 4)
 
+    def test_bass_rides_with_every_chain_send_so_a_restarted_host_relearns_it(self) -> None:
+        """Review of #185 (P1): the fx host starts Off. After it restarts, the
+        next chain datagram it gets must be preceded by `bass`, even though the
+        crossover has not changed since the sender last delivered it."""
+        import socket as socketmod
+
+        def listen(port: int = 0) -> socketmod.socket:
+            sock = socketmod.socket(socketmod.AF_INET, socketmod.SOCK_DGRAM)
+            sock.setsockopt(socketmod.SOL_SOCKET, socketmod.SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", port))
+            sock.settimeout(0.5)
+            return sock
+
+        def drain(sock: socketmod.socket) -> list[bytes]:
+            got: list[bytes] = []
+            sock.settimeout(0.2)
+            while True:
+                try:
+                    got.append(sock.recv(4096))
+                except (socketmod.timeout, BlockingIOError):
+                    return got
+
+        host = listen()
+        port = host.getsockname()[1]
+        sender = fx_policy.FxHostSender(host="127.0.0.1", port=port, log=None)
+        self.addCleanup(sender.close)
+        sender.send(C, 0.5, bass_hz=120)
+        first = drain(host)
+        self.assertEqual([p.split()[0] for p in first], [b"bass", b"chainl"])
+
+        # The fx host restarts: a fresh process on the same port, starting Off.
+        host.close()
+        host = listen(port)
+        self.addCleanup(host.close)
+        sender.send(C, 0.5, bass_hz=120)  # nothing new: nothing sent
+        self.assertEqual(drain(host), [])
+        sender.send(C, 0.6, bass_hz=120)  # the chain moves: bass rides along
+        after = drain(host)
+        self.assertEqual(after, [fx_host_protocol.encode_bass(120),
+                                 fx_host_protocol.encode_chain_levels(C, 0.6, fx_host_protocol.LEVELS_DEFAULT)])
+
+    def test_bass_alone_is_still_deduplicated(self) -> None:
+        sent: list[bytes] = []
+        sender = fx_policy.FxHostSender(send=sent.append, log=None)
+        sender.send(C, 0.5, bass_hz=120)
+        sender.send(C, 0.5, bass_hz=120)
+        sender.send(C, 0.5, bass_hz=150)
+        self.assertEqual([p.split()[0] for p in sent], [b"bass", b"chainl", b"bass"])
+
     def test_absent_fx_host_never_raises(self) -> None:
         # Nothing listens on this port; a connected UDP socket gets the refusal
         # on a later send. Either way send() returns, never raises.
@@ -1154,9 +1207,14 @@ class RemapDaemonCc1Tests(unittest.TestCase):
             daemon._handle_incoming(None, [0xB0, 1, 127], 0.0)
         self.assertEqual(emitted, [])
         # A five-entry levels list (written before the rotary and the
-        # auto-wah) reads them as 1.0.
+        # auto-wah) reads them as 1.0; a route with no bass_hz (written
+        # before the bass bypass) plays at the default crossover, sent first.
         self.assertEqual(
-            wire, [b"chainl 10 1.000000 1.000000 0.250000 1.000000 0.500000 1.000000 1.000000 1.000000"]
+            wire,
+            [
+                b"bass 120.000000",
+                b"chainl 10 1.000000 1.000000 0.250000 1.000000 0.500000 1.000000 1.000000 1.000000",
+            ],
         )
 
     def test_on_but_routed_to_surge_forwards(self) -> None:
