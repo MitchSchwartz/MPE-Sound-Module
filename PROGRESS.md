@@ -182,7 +182,7 @@ Full log paths and harness notes: [`docs/measurements/G2-RESULT-2026-08-23.md`](
 6. **Ask the shortest useful version of a test** before running it. **Any window over 30 minutes
    needs Mitch's explicit approval and a written justification** — expected event rate, events
    needed, why shorter will not do. Doctrine:
-   `docs/measurements/MEASUREMENT-DISCIPLINE.md`, skill: OM-Repo `.claude/skills/measurement-design/`.
+   `docs/measurements/MEASUREMENT-DISCIPLINE.md`.
 7. **One variable.** Overclock and rebuild do not overlap. Neither overlaps a soak. This
    applies hardest during the Pi 5 transition, where a dozen things change at once.
 8. **Name the platform in every measurement doc.** Two boards, one repo: an unstamped number is

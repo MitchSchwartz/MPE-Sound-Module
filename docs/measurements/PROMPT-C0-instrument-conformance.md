@@ -3,8 +3,7 @@
 **This is now the first thing that runs, before any measurement, in every session.** Nothing
 else in the queue proceeds until it exists and passes.
 
-Doctrine: [`MEASUREMENT-DISCIPLINE.md`](MEASUREMENT-DISCIPLINE.md) **Rule -1**. Skill:
-OM-Repo `.claude/skills/measurement-design/` **Step 0**.
+Doctrine: [`MEASUREMENT-DISCIPLINE.md`](MEASUREMENT-DISCIPLINE.md) **Rule -1**.
 
 ---
 

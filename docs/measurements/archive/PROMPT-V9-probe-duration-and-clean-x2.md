@@ -4,7 +4,7 @@ Copy everything below the line.
 
 ---
 
-**Invoke `measurement-design` before running either cell.**
+**Follow `docs/measurements/MEASUREMENT-DISCIPLINE.md` before running either cell.**
 
 ## Context
 

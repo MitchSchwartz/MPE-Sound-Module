@@ -472,7 +472,7 @@ mpe pull-videos -o ~/Videos --delete-source
 
 On the Pi directly: `./scripts/record-screen.sh` (see [docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)).
 
-Allowlist / pattern: [OM-Repo appliance-cli-pattern](https://github.com/opsMachine/OM-Repo/blob/main/Docs/appliance-cli-pattern.md) · [MPE-Module AGENTS.md](AGENTS.md) § Pi CLI.
+See [AGENTS.md](AGENTS.md) § Pi CLI.
 
 ---
 
