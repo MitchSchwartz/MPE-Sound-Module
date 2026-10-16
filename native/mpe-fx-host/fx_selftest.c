@@ -31,7 +31,7 @@
  *                               signal in dB re the input x makeup, the worst
  *                               peak over the input, and the keys at -9 dBFS
  *                               (device mode): peak dBFS and clamped samples
- *   fx-selftest --fit-bass K    effect K's bass-bypass level correction,
+ *   fx-selftest --fit-bass K [DEPTH]  effect K's bass-bypass level correction,
  *                               fitted on the keys (fx_dsp.h, "Bass bypass")
  *   fx-selftest --tremolo-shape one cycle of the tremolo's gain, before (the
  *                               rounded triangle) and after (the sine with a
@@ -1514,19 +1514,19 @@ static void test_pack_reentry(int k)
  * settled) folds onto one 24-sample period, whose DFT bins are multiples of
  * 2 kHz. The true harmonics below Nyquist are 10 and 20 kHz; everything else
  * except DC is alias. Returns alias power over total, in dB. */
-static float drive_alias_db(const fx_effect_desc *table)
+static float drive_alias_db_at(const fx_effect_desc *table, int P, int k)
 {
     fx_engine e;
     CHECK(fx_engine_init(&e, table, N_FX, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
-    enum { P = 24 };
+    CHECK(P <= 64 && (PERIOD * 3) % (uint32_t)P == 0, "alias period");
     float l[PERIOD * 3], r[PERIOD * 3], ol[PERIOD * 3], or_[PERIOD * 3];   /* 768 = 32 P */
-    double fold[P] = { 0 };
+    double fold[64] = { 0 };
     signal_gen g = { SIG_SINE, 0.5f, 10000.0f, 0.0 };
     long t = 0;
     for (int p = 0; p < 400; p++) {
         /* Phase from the sample index, so the period is exact. */
         for (uint32_t i = 0; i < PERIOD * 3; i++, t++) {
-            l[i] = r[i] = g.amp * (float)sin(2.0 * M_PI * (double)(t % P) * 10.0 / 48.0);
+            l[i] = r[i] = g.amp * (float)sin(2.0 * M_PI * (double)((t * k) % P) / P);
         }
         run_period(&e, l, r, ol, or_, PERIOD * 3, BIT(1), 1.0f);
         if (p >= 200) {
@@ -1545,11 +1545,38 @@ static float drive_alias_db(const fx_effect_desc *table)
         }
         double pw = re * re + im * im;
         total += pw;
-        if (b != 5 && b != 10) {
+        if (b != k && !(2 * k <= P / 2 && b == 2 * k)) {   /* fundamental, h2 below Nyquist */
             alias += pw;
         }
     }
     return (float)(10.0 * log10(alias / total + 1e-30));
+}
+
+/* 10 kHz: 5 cycles in 24 samples. */
+static float drive_alias_db(const fx_effect_desc *table)
+{
+    return drive_alias_db_at(table, 24, 5);
+}
+
+/* Higher tones (review of #185: 10 kHz alone left the top of the band
+ * unchecked): 12.75, 15 and 17.25 kHz, bins 17, 20 and 23 of 64 (750 Hz).
+ * Above 12 kHz every harmonic is above Nyquist, so everything but the
+ * fundamental is alias. The band ALIAS_LIMIT_DB covers ends at 12.75 kHz:
+ * the drive's round-4 law (G 8, the top third off) already read -37.1 at
+ * 15 kHz and -31.5 at 17.25, a limit of 4x oversampling with this shaper.
+ * Above it the bound is relative: the top third may add at most
+ * ALIAS_TOP_MAX_DB there (+1.7 / +2.6 / +2.1 with the extra drive's corner at 600 Hz;
+ * at 2 kHz it added +6.2 / +7.0 / +5.7, which is what this caught). */
+#define ALIAS_TOP_MAX_DB 3.0
+static const int ALIAS_HI_BINS[3] = { 17, 20, 23 };
+static float drive_alias_hi_db(const fx_effect_desc *table, float each[3])
+{
+    float worst = -300.0f;
+    for (int j = 0; j < 3; j++) {
+        each[j] = drive_alias_db_at(table, 64, ALIAS_HI_BINS[j]);
+        worst = fmaxf(worst, each[j]);
+    }
+    return worst;
 }
 
 /* Measured: -51.7 dB oversampled, -12.5 dB without (the round-3 voicing:
@@ -1562,10 +1589,34 @@ static void test_drive_aliasing(void)
 {
     float a = drive_alias_db(FX_EFFECTS);
     float c = drive_alias_db(table_with(1, &FX_TEST_MUTANTS[FX_MUT_DRIVE_NO_OVERSAMPLING]));
+    float h[3], ch[3];
+    drive_alias_hi_db(FX_EFFECTS, h);
+    float chi = drive_alias_hi_db(table_with(1, &FX_TEST_MUTANTS[FX_MUT_DRIVE_NO_OVERSAMPLING]), ch);
+    fx_test_no_top = 1;
+    float o[3];
+    drive_alias_hi_db(FX_EFFECTS, o);
+    fx_test_no_top = 0;
     if (g_verbose) {
         printf("  drive    aliasing (10 kHz, full drive): %.1f dB; control (no oversampling) "
                "%.1f dB; limit %.1f dB\n", (double)a, (double)c, (double)ALIAS_LIMIT_DB);
+        printf("  drive    aliasing 12.75 / 15 / 17.25 kHz: %.1f / %.1f / %.1f dB (top third off "
+               "%.1f / %.1f / %.1f); control (no oversampling) worst %.1f dB; limit %.1f dB\n",
+               (double)h[0], (double)h[1], (double)h[2], (double)o[0], (double)o[1],
+               (double)o[2], (double)chi, (double)ALIAS_LIMIT_DB);
+        printf("  drive    aliasing limits: %.1f dB to 12.75 kHz; above, the top third adds at "
+               "most %+.1f dB (adds %+.1f / %+.1f / %+.1f)\n", (double)ALIAS_LIMIT_DB,
+               ALIAS_TOP_MAX_DB, (double)(h[0] - o[0]), (double)(h[1] - o[1]),
+               (double)(h[2] - o[2]));
     }
+    CHECK(h[0] < ALIAS_LIMIT_DB, "drive: aliased energy %.1f dB at 12.75 kHz, limit %.1f",
+          (double)h[0], (double)ALIAS_LIMIT_DB);
+    for (int j = 0; j < 3; j++) {
+        CHECK(h[j] - o[j] <= ALIAS_TOP_MAX_DB, "drive: the top third adds %+.1f dB of alias at "
+              "bin %d/64, limit %+.1f", (double)(h[j] - o[j]), ALIAS_HI_BINS[j],
+              ALIAS_TOP_MAX_DB);
+    }
+    CHECK(chi >= ALIAS_LIMIT_DB, "drive: control (no oversampling) passed above 12 kHz too: "
+          "%.1f dB", (double)chi);
     CHECK(a < ALIAS_LIMIT_DB, "drive: aliased energy %.1f dB, limit %.1f", (double)a,
           (double)ALIAS_LIMIT_DB);
     CHECK(c >= ALIAS_LIMIT_DB, "drive: control (no oversampling) passed too: %.1f dB",
@@ -4509,15 +4560,19 @@ static void test_bass_clean(void)
     CHECK(residue == 0, "bass: %zu non-zero samples 1 s after silence", residue);
 }
 
-/* fx-selftest --fit-bass K: effect K's bass_loss table, fitted. At each
- * crossover on the grid, the loss (dB) that brings the keys at full depth
- * with the split back to their level without it, by bisection; printed as
- * the C initializer fx_dsp.c carries. */
-static void fit_bass(int k)
+/* fx-selftest --fit-bass K [DEPTH]: effect K's bass_loss table, fitted. At
+ * each crossover on the grid, the loss (dB) that brings the keys at DEPTH
+ * (default full) with the split back to their level without it, by
+ * bisection; printed as the C initializer fx_dsp.c carries. The drive's is
+ * fitted at 0.88: its correction is one gain whatever the depth, its top
+ * third behaves differently with the split from the rest of its range, and
+ * at 0.88 the errors either side balance (full fitted: +0.30 dB below 2/3 at
+ * a 300 Hz split, past the 0.3 bound). */
+static void fit_bass(int k, float depth)
 {
     static float tab[FX_BASS_GRID];
     float rr, pr;
-    level_at(FX_EFFECTS, BIT(k), SIG_I_KEYS, 1.0f, &rr, &pr);
+    level_at(FX_EFFECTS, BIT(k), SIG_I_KEYS, depth, &rr, &pr);
     const double off = db(rr);
     fx_test_bass_fit[k] = tab;
     for (int j = 1; j < FX_BASS_GRID; j++) {
@@ -4528,7 +4583,7 @@ static void fit_bass(int k)
             const double mid = 0.5 * (lo + hi);
             tab[j] = (float)mid;
             g_bass_hz = FX_BASS_GRID_HZ[j];
-            level_at(FX_EFFECTS, BIT(k), SIG_I_KEYS, 1.0f, &rr, &pr);
+            level_at(FX_EFFECTS, BIT(k), SIG_I_KEYS, depth, &rr, &pr);
             g_bass_hz = 0.0f;
             if (db(rr) < off) {
                 hi = mid;
@@ -5122,13 +5177,14 @@ int main(int argc, char **argv)
         unity_line((uint32_t)atoi(argv[2]), (float)atof(argv[3]));
         return 0;
     }
-    if (argc == 3 && strcmp(argv[1], "--fit-bass") == 0) {
+    if ((argc == 3 || argc == 4) && strcmp(argv[1], "--fit-bass") == 0) {
         const int k = atoi(argv[2]);
-        if (k < 0 || k >= N_FX) {
+        const float depth = argc == 4 ? (float)atof(argv[3]) : 1.0f;
+        if (k < 0 || k >= N_FX || !(depth > 0.0f && depth <= 1.0f)) {
             return 2;
         }
         keys_build();
-        fit_bass(k);
+        fit_bass(k, depth);
         return 0;
     }
     if (argc == 2 && strcmp(argv[1], "--tremolo-shape") == 0) {
@@ -5143,7 +5199,7 @@ int main(int argc, char **argv)
     if (!runner_check && (argc > 2 || (argc == 2 && strcmp(argv[1], "-v") != 0))) {
         fprintf(stderr, "usage: fx-selftest [-v | --parse TEXT | --parse-lines | --measure | "
                         "--measure-unlevelled | --measure-no-makeup | --tremolo-shape | --bench | "
-                        "--unity-raw K DEPTH | --unity MASK DEPTH [BASS_HZ] | --fit-bass K | "
+                        "--unity-raw K DEPTH | --unity MASK DEPTH [BASS_HZ] | --fit-bass K [DEPTH] | "
                         "--runner-check order|fail|crash]\n");
         return 2;
     }

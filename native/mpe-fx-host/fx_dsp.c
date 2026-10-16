@@ -223,8 +223,9 @@ static inline float limiter_need(float need, float y, float ceil)
  *   - Drive G = 0.5 (1 + 15 a^2) for knob a: 0.5 (clean) .. 8 (+24 dB over
  *     that; +18 dB over unity). Was .. 16: the top is 6 dB lower. Round 5
  *     (2026-10-15, per-effect levels made the top "not aggressive enough"):
- *     over the top third G below ~2 kHz is multiplied by up to 4, to 32 at
- *     full (+30 dB over unity), the treble much less, so it does not alias;
+ *     over the top third G below ~600 Hz is multiplied by up to 4, to 32 at
+ *     full (+30 dB over unity), the treble much less, so it barely aliases
+ *     more;
  *     below a = 2/3 nothing changes (DRIVE_TOP_*).
  *   - Shaper: f(u) = a(u + 0.2) - a(0.2), a(v) = v / sqrt(1 + v^2). The
  *     algebraic sigmoid has no corner anywhere (the old cubic went flat at
@@ -310,15 +311,19 @@ static const float HB_B[DRIVE_HB_B_K] = {
  * t = (a - DRIVE_TOP_FROM) / (1 - DRIVE_TOP_FROM), 0..1 over the knob's top
  * third, and e = (DRIVE_TOP_BOOST - 1) t^2, 0..3, the shaper is fed
  *   G_base (pre + e LP(pre)),   LP a one-pole at DRIVE_TOP_LP_HZ,
- * and its output divided by G_base (1 + e). Below 2 kHz that is G_base x 4 =
- * 32 at full (+12 dB of drive over the old top); at 10 kHz the low-pass gives
- * only about +3 dB, so the top end that would alias gets little of it (the
- * plain x4 measured -26 dB on the aliasing check, limit -35; this -40).
+ * and its output divided by G_base (1 + e). Well below 600 Hz that is
+ * G_base x 4 = 32 at full (+12 dB of drive over the old top; the harmonics
+ * it adds are the same with the corner anywhere from 0.5 to 2 kHz); the top
+ * end that would alias gets little of it. The plain x4 aliased -26 dB at
+ * 10 kHz (limit -35). The corner was 2 kHz until the review of #185 probed
+ * 12.75-17.25 kHz: there it read 5-7 dB worse than the old top, at 600 Hz
+ * 1.7-2.6 dB (fx_selftest.c, the aliasing check; 500 Hz moved enough of the
+ * extra drive into the bass split's range that its correction no longer fit).
  * Below a = 2/3, e = 0: the old law exactly. t^2 matches value and slope at
  * 2/3, no kink. One more one-pole per channel. */
 #define DRIVE_TOP_FROM (2.0f / 3.0f)
 #define DRIVE_TOP_BOOST 4.0f
-#define DRIVE_TOP_LP_HZ 2000.0f
+#define DRIVE_TOP_LP_HZ 600.0f
 #define DRIVE_PRES_DB 4.0
 #define DRIVE_PRES_HZ 1800.0f
 #define DRIVE_LP_HZ 6500.0f
@@ -1453,7 +1458,7 @@ static void wah_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n
  * MASK DEPTH`): one effect alone at any depth, -6.6..+2.5 dB (the chorus's
  * 80 Hz tone at full; the rotary's 80 Hz tone in its fade-in). */
 #define CHORUS_LEVEL { 0.2381f, 0.3811f, 0.0030f, 0.1900f }
-#define DRIVE_LEVEL { 0.9530f, 0.0756f, 0.4637f, -0.2056f }
+#define DRIVE_LEVEL { 0.9519f, 0.0792f, 0.4629f, -0.1487f }
 #define PHASER_LEVEL { 0.5039f, 0.6722f, 0.1522f, 0.3351f }
 #define TREMOLO_LEVEL { 0.2555f, 0.2044f, 0.6255f, 0.1021f }
 #define FLANGER_LEVEL { 0.4161f, 0.5551f, -0.0499f, 0.2770f }
@@ -1464,12 +1469,13 @@ static void wah_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n
  * grid crossover, the level change (dB, negative a loss) whose negative,
  * applied to the high band at the effect's full mix, puts the keys at full
  * depth back at their level with the split off. Fitted by fx-selftest
- * --fit-bass K (2026-10-15); 20 Hz is no overlap with the keys, 0. Above 300 Hz
+ * --fit-bass K (2026-10-15; the drive at depth 0.88, see fit_bass in
+ * fx_selftest.c); 20 Hz is no overlap with the keys, 0. Above 300 Hz
  * (the UI's top) the last value holds. */
 const float FX_BASS_GRID_HZ[FX_BASS_GRID] = { 20.0f, 80.0f, 100.0f, 120.0f, 150.0f, 200.0f,
                                               250.0f, 300.0f };
 static const float CHORUS_BASS[FX_BASS_GRID] = { 0, -0.048f, -0.056f, -0.062f, -0.104f, -0.281f, -0.524f, -0.769f };
-static const float DRIVE_BASS[FX_BASS_GRID] = { 0, -0.128f, -0.207f, -0.270f, -0.352f, -0.604f, -1.056f, -1.629f };
+static const float DRIVE_BASS[FX_BASS_GRID] = { 0, -0.098f, -0.160f, -0.217f, -0.299f, -0.584f, -1.090f, -1.735f };
 static const float PHASER_BASS[FX_BASS_GRID] = { 0, -0.118f, -0.186f, -0.256f, -0.402f, -0.838f, -1.480f, -2.208f };
 static const float TREMOLO_BASS[FX_BASS_GRID] = { 0, -0.027f, -0.040f, -0.052f, -0.076f, -0.146f, -0.244f, -0.354f };
 static const float FLANGER_BASS[FX_BASS_GRID] = { 0, -0.148f, -0.222f, -0.294f, -0.440f, -0.860f, -1.417f, -1.956f };
