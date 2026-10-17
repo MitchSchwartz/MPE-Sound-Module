@@ -208,6 +208,16 @@ def parse_args() -> argparse.Namespace:
         help="Skip light-touch measurement and Touch floor writes",
     )
     parser.add_argument(
+        "--touch-target-lufs",
+        type=float,
+        default=None,
+        help=(
+            "Fixed light-touch target: write each patch's Touch floor as soon as it is "
+            "measured, so an interrupted run keeps them (default: cohort median, written "
+            "at the end of the run)"
+        ),
+    )
+    parser.add_argument(
         "--pressure-output",
         type=Path,
         default=None,
@@ -902,7 +912,7 @@ def verify_patch(
     if not entry or entry.get("gain_db") is None:
         return VerifyResult(ok=False, skipped=True, reason="not calibrated")
     gain_db = float(entry["gain_db"])
-    if not loader.load_patch(str(patch_path), apply_normalization=False):
+    if not loader.load_patch(str(patch_path), apply_normalization=False, capture_hold=False):
         print(f"  [fail] OSC load failed: {name}", file=sys.stderr)
         return VerifyResult(ok=False, reason="OSC load failed")
     loader.user_volume_trim = 1.0
@@ -924,14 +934,18 @@ def write_touch_calibrations(
     pressure_path: Path,
     measurements: list[tuple[str, float, float, float, Path]],
     patch_dirs,
+    target_lufs: float | None = None,
 ) -> tuple[float, int]:
     """Write each measured patch's Touch floor under the key the browser reads.
 
     The key comes from the patch's path. A name alone resolves to the bare stem,
     which the browser only falls back to, so a patch with a keyed entry would get
     a second, never-read entry and keep its old floor.
+
+    target_lufs None takes the cohort median of ``measurements``.
     """
-    target_lufs = resolve_light_touch_target([m[1] for m in measurements])
+    if target_lufs is None:
+        target_lufs = resolve_light_touch_target([m[1] for m in measurements])
     pressure_store = PatchPressureStore(pressure_path)
     pressure_store.set_patch_dirs(patch_dirs)
     for name, lufs_light, lufs_strike, lufs_sustain, path in measurements:
@@ -970,7 +984,7 @@ def calibrate_patch(
         peak_sustain = true_peak
         lufs_light = (mock_lufs - 12.0) if touch_cal else None
     else:
-        if not loader.load_patch(str(patch_path), apply_normalization=False):
+        if not loader.load_patch(str(patch_path), apply_normalization=False, capture_hold=False):
             print(f"  [fail] OSC load failed: {name}", file=sys.stderr)
             return CalibrateResult(ok=False)
 
@@ -1374,9 +1388,18 @@ def main() -> int:
                         and result.lufs_strike is not None
                         and result.lufs_sustain is not None
                     ):
-                        light_measurements.append(
-                            (name, result.lufs_light, result.lufs_strike, result.lufs_sustain, path)
+                        measurement = (
+                            name, result.lufs_light, result.lufs_strike, result.lufs_sustain, path
                         )
+                        if touch_cal and args.touch_target_lufs is not None:
+                            write_touch_calibrations(
+                                pressure_path,
+                                [measurement],
+                                SURGE_PATCH_DIRS,
+                                target_lufs=args.touch_target_lufs,
+                            )
+                        else:
+                            light_measurements.append(measurement)
             if light_measurements and touch_cal and not _interrupted:
                 target_lufs, touch_updated = write_touch_calibrations(
                     pressure_path, light_measurements, SURGE_PATCH_DIRS
