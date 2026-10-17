@@ -920,6 +920,29 @@ def verify_patch(
     return VerifyResult(ok=ok, peak_dbtp=peak)
 
 
+def write_touch_calibrations(
+    pressure_path: Path,
+    measurements: list[tuple[str, float, float, float, Path]],
+    patch_dirs,
+) -> tuple[float, int]:
+    """Write each measured patch's Touch floor under the key the browser reads.
+
+    The key comes from the patch's path. A name alone resolves to the bare stem,
+    which the browser only falls back to, so a patch with a keyed entry would get
+    a second, never-read entry and keep its old floor.
+    """
+    target_lufs = resolve_light_touch_target([m[1] for m in measurements])
+    pressure_store = PatchPressureStore(pressure_path)
+    pressure_store.set_patch_dirs(patch_dirs)
+    for name, lufs_light, lufs_strike, lufs_sustain, path in measurements:
+        floor = compute_touch_calibration_floor(
+            lufs_light, target_lufs, lufs_strike, lufs_sustain
+        )
+        pressure_store.set_calibration(name, floor, lufs_light, patch_path=str(path))
+    pressure_store.save()
+    return target_lufs, len(measurements)
+
+
 def calibrate_patch(
     patch_path: Path,
     loader: PatchLoader,
@@ -1242,7 +1265,7 @@ def main() -> int:
             return 1
 
         midi_out: object | None = None
-        light_measurements: list[tuple[str, float, float, float]] = []
+        light_measurements: list[tuple[str, float, float, float, Path]] = []
         try:
             if args.mock_lufs is None:
                 midi_out = open_midi_out(midi_port)
@@ -1352,19 +1375,12 @@ def main() -> int:
                         and result.lufs_sustain is not None
                     ):
                         light_measurements.append(
-                            (name, result.lufs_light, result.lufs_strike, result.lufs_sustain)
+                            (name, result.lufs_light, result.lufs_strike, result.lufs_sustain, path)
                         )
             if light_measurements and touch_cal and not _interrupted:
-                target_lufs = resolve_light_touch_target([v for _, v, _, _ in light_measurements])
-                pressure_store = PatchPressureStore(pressure_path)
-                touch_updated = 0
-                for name, lufs_light, lufs_strike, lufs_sustain in light_measurements:
-                    floor = compute_touch_calibration_floor(
-                        lufs_light, target_lufs, lufs_strike, lufs_sustain
-                    )
-                    pressure_store.set_calibration(name, floor, lufs_light)
-                    touch_updated += 1
-                pressure_store.save()
+                target_lufs, touch_updated = write_touch_calibrations(
+                    pressure_path, light_measurements, SURGE_PATCH_DIRS
+                )
                 print(
                     f"Wrote {touch_updated} touch calibration entries to {pressure_path} "
                     f"(light target {target_lufs:.1f} LUFS)",

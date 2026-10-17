@@ -48,3 +48,40 @@ class TouchCalibrationBatchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TouchCalibrationWritesKeyedEntryTests(unittest.TestCase):
+    """The calibration script writes Touch under the key the browser reads."""
+
+    def test_keyed_entry_is_updated_and_keeps_the_user_offset(self) -> None:
+        import importlib.util
+        import json
+        import sys
+
+        module_path = Path(__file__).resolve().parent.parent / "scripts" / "calibrate-patch-normalization.py"
+        spec = importlib.util.spec_from_file_location("calibrate_patch_normalization", module_path)
+        cal = importlib.util.module_from_spec(spec)
+        sys.modules["calibrate_patch_normalization"] = cal
+        spec.loader.exec_module(cal)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            third = root / "patches_3rdparty"
+            patch = third / "Dan Maurer" / "Keys" / "Forte Piano.fxp"
+            patch.parent.mkdir(parents=True)
+            patch.write_bytes(b"x")
+            key = "thirdparty:Dan Maurer/Keys/Forte Piano"
+            store_path = root / "pressure.json"
+            store_path.write_text(json.dumps({key: {"cal_floor": 0.5, "user_touch_offset": 0.2}}))
+
+            cal.write_touch_calibrations(
+                store_path,
+                [("Forte Piano", -30.0, -31.0, -29.0, patch),
+                 ("Other", -30.0, -31.0, -29.0, third / "X" / "Other.fxp")],
+                [third],
+            )
+
+            data = json.loads(store_path.read_text())
+            self.assertNotIn("Forte Piano", data)  # no bare-stem entry beside the keyed one
+            self.assertEqual(data[key]["user_touch_offset"], 0.2)
+            self.assertNotEqual(data[key]["cal_floor"], 0.5)
