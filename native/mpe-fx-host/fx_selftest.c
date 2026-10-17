@@ -2288,9 +2288,11 @@ static void tremolo_shape_report(void)
 /* A 2 kHz tone (horn band), both channels, through the rotary at full depth:
  * 3 s to spin up, then 1 s of the left output, demodulated one 24-sample
  * cycle at a time. The phase step between cycles is the frequency offset;
- * returns the largest, as a fraction of 2 kHz. Shipped: about 1.7 % (the
- * horn's 0.40 ms excursion at 6.7 Hz). Control: the rotary with its delays
- * held still (level modulation only), which moves no phase. Limit 0.5 %. */
+ * returns the largest, as a fraction of 2 kHz. Shipped: 2.90 % (the horn's
+ * 0.40 ms excursion at 6.7 Hz gives 1.7 %; the level swing's sidebands and
+ * the directivity's bright/dull crossfade, whose phase turns with the horn,
+ * add the rest). Control: the rotary with its delays held still (level and
+ * tone modulation only): 0.087 %, the crossfade's phase alone. Limit 0.5 %. */
 #define ROTARY_PITCH_MIN 0.005
 
 static double rotary_pitch_dev(const fx_effect_desc *d)
@@ -2418,12 +2420,19 @@ static void test_rotary_inertia(void)
 /* A 3 kHz tone (the horn's band) at 0.3 through the rotary alone at full
  * depth (fast), 3 s to spin up, then 2 s in 10 ms windows: each window's
  * L^2 + R^2 out over in. The horn's and the drum's gains are constant-power
- * pairs, sqrt(1 + a c) and sqrt(1 - a c), so as each rotor turns the sound
- * moves across the image and the sum stays put: what is left is the Doppler
- * and the crossover. The spread (loudest window over quietest) is the check:
- * shipped 1.25 dB. Limit 1.8 dB. Control: gains 1 + a c and 1 - a c, whose
- * power sum swells by 2 a^2 c^2 (+1.7 dB at the horn's a = 0.7): 2.58 dB. */
-#define ROTARY_POWER_SPREAD_DB 1.8
+ * pairs, sqrt(1 + a c) and sqrt(1 - a c), so the level swing alone moves the
+ * sound across the image and the sum stays put. The horn's directivity does
+ * not keep it: with the horn side-on (c = 0) both microphones hear half the
+ * dull copy, and at 3 kHz the dull copy is -5.7 dB, so the sum dips there by
+ * design: the mouth points at neither microphone. For the gains and the
+ * directivity alone (no Doppler, no crossover) the sum runs from 0.49 to
+ * 0.89 of the input's, a 2.60 dB spread; before the directivity the same figure was 0, measured
+ * 1.25 (the Doppler and the crossover), held to 1.8. The spread (loudest
+ * window over quietest) is the check: shipped 3.39 dB. Limit 2.60 + 1.8 =
+ * 4.4 dB. Control: gains 1 + a c and 1 - a c, whose power sum swells by
+ * 2 a^2 c^2 (+1.7 dB at the horn's a = 0.7): 4.74 dB for the gains and the
+ * directivity alone, 5.33 measured. */
+#define ROTARY_POWER_SPREAD_DB 4.4
 
 static double rotary_power_spread_db(const fx_effect_desc *d)
 {
@@ -2467,6 +2476,68 @@ static void test_rotary_power(void)
     }
     CHECK(s <= ROTARY_POWER_SPREAD_DB, "rotary: L^2 + R^2 swings %.2f dB as the rotors turn", s);
     CHECK(c > ROTARY_POWER_SPREAD_DB, "rotary: control (linear AM) swung only %.2f dB", c);
+}
+
+/* --- the horn is duller facing away ---------------------------------------- */
+
+/* A 5 kHz tone at 0.3 (the horn's band, under its 5.5 kHz driver) through the
+ * rotary alone at the chorale speed (knob at 0.1, all rotary), 0.5 s to
+ * settle, then 2.5 s (two horn turns) of the left microphone in 10 ms
+ * windows: the loudest window over the quietest. The level swing alone is
+ * (1 + a) / (1 - a) in power, 7.53 dB at the horn's a = 0.70, the same at
+ * every frequency. The directivity adds the dull copy's loss at 5 kHz as the
+ * mouth turns away, 9.25 dB, for 16.78 dB in all; shipped 18.62 measured
+ * (the Doppler's sidebands and the delay lines' interpolation add the rest).
+ * Limit: the level swing + 3 dB. Control: the horn as bright facing away as
+ * facing the microphone, the level swing alone: 8.44 dB. */
+#define ROTARY_DIR_AM_DB 7.53
+#define ROTARY_DIR_MARGIN_DB 3.0
+
+static double rotary_dir_swing_db(const fx_effect_desc *d)
+{
+    void *st = calloc(1, d->state_bytes);
+    CHECK(st != NULL && d->init(st, RATE) == 0, "init");
+    float l[FX_CHUNK], r[FX_CHUNK], wl[FX_CHUNK], wr[FX_CHUNK], slow[FX_CHUNK];
+    for (uint32_t i = 0; i < FX_CHUNK; i++) {
+        slow[i] = 0.1f;
+    }
+    const float *const in[FX_CHANNELS] = { l, r };
+    float *const wet[FX_CHANNELS] = { wl, wr };
+    signal_gen g = { SIG_SINE, 0.3f, 5000.0f, 0.0 };
+    const long settle = (long)RATE / 2, total = 3 * (long)RATE, win = (long)RATE / 100;
+    double so = 0.0, lo = 1e9, hi = 0.0;
+    long n = 0;
+    for (long t = 0; t < total; t += FX_CHUNK) {
+        sig_fill(&g, l, r, FX_CHUNK);
+        d->process(st, in, wet, slow, FX_CHUNK);
+        for (uint32_t i = 0; i < FX_CHUNK && t >= settle; i++) {
+            so += (double)wl[i] * wl[i];
+            if (++n == win) {
+                lo = fmin(lo, so);
+                hi = fmax(hi, so);
+                so = 0.0;
+                n = 0;
+            }
+        }
+    }
+    free(st);
+    return 10.0 * log10(hi / lo);
+}
+
+static void test_rotary_directivity(void)
+{
+    double s = rotary_dir_swing_db(&FX_EFFECTS[FX_I_ROTARY]);
+    double c = rotary_dir_swing_db(&FX_TEST_MUTANTS[FX_MUT_ROTARY_NO_DIRECTIVITY]);
+    const double lim = ROTARY_DIR_AM_DB + ROTARY_DIR_MARGIN_DB;
+    if (g_verbose) {
+        printf("  rotary   directivity, 5 kHz at the left microphone, chorale: swing %.2f dB; "
+               "control (no directivity) %.2f dB; level swing alone %.2f, limit %.2f\n", s, c,
+               ROTARY_DIR_AM_DB, lim);
+    }
+    CHECK(s > lim, "rotary: a 5 kHz tone swings only %.2f dB as the horn turns: no duller "
+          "facing away than the level swing gives", s);
+    CHECK(c <= lim, "rotary: control (no directivity) swung %.2f dB too: the check cannot tell "
+          "tone from level", c);
 }
 
 /* --- the auto-wah's band-pass peaks at 1 ------------------------------------- */
@@ -4715,6 +4786,7 @@ CASE0(test_tremolo_smoothness)
 CASE0(test_rotary_pitch)
 CASE0(test_rotary_inertia)
 CASE0(test_rotary_power)
+CASE0(test_rotary_directivity)
 CASE0(test_wah_onset)
 CASE0(test_wah_peak_gain)
 CASE0(test_wah_sweeps)
@@ -4828,6 +4900,7 @@ static void build_cases(void)
     add_case("rotary pitch", 0, case_test_rotary_pitch, NULL, 2);
     add_case("rotary inertia", 0, case_test_rotary_inertia, NULL, 1);
     add_case("rotary power", 0, case_test_rotary_power, NULL, 1);
+    add_case("rotary directivity", 0, case_test_rotary_directivity, NULL, 1);
     add_case("auto-wah onset", 0, case_test_wah_onset, NULL, 1);
     add_case("auto-wah peak gain", 0, case_test_wah_peak_gain, NULL, 1);
     add_case("feedback auto-wah", FX_I_WAH, case_test_feedback_stability, NULL, 3);
