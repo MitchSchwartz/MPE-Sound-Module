@@ -325,6 +325,7 @@ class PatchLoader:
         *,
         apply_normalization: bool = True,
         stable_key: str | None = None,
+        capture_hold: bool = True,
     ):
         if not self.osc_enabled:
             print(f"OSC disabled, cannot load: {patch_path}")
@@ -352,9 +353,12 @@ class PatchLoader:
             time.sleep(PATCH_LOAD_SETTLE_S)
             self._apply_playback_policy(patch_name)
             self._send_combined_volume()
-            if not self._capture_hold_baseline(patch_name):
-                print(f"Hold baseline query failed for {patch_name}; using stored values if any")
-            self._send_hold_osc(patch_name)
+            # Calibration measures the patch as authored and must not write
+            # the Hold store: its loads carry no stable key.
+            if capture_hold:
+                if not self._capture_hold_baseline(patch_name):
+                    print(f"Hold baseline query failed for {patch_name}; using stored values if any")
+                self._send_hold_osc(patch_name)
             # The source file, not the Reuse Single copy: same routings, and
             # the copy may not exist when the feature is off.
             self.fx_policy.on_patch_loaded(

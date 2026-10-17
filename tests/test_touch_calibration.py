@@ -85,3 +85,39 @@ class TouchCalibrationWritesKeyedEntryTests(unittest.TestCase):
             self.assertNotIn("Forte Piano", data)  # no bare-stem entry beside the keyed one
             self.assertEqual(data[key]["user_touch_offset"], 0.2)
             self.assertNotEqual(data[key]["cal_floor"], 0.5)
+
+    def test_fixed_target_is_used_for_a_single_patch(self) -> None:
+        import importlib.util
+        import json
+        import sys
+
+        from patch_browser.patch_pressure import compute_touch_calibration_floor
+
+        module_path = Path(__file__).resolve().parent.parent / "scripts" / "calibrate-patch-normalization.py"
+        spec = importlib.util.spec_from_file_location("calibrate_patch_normalization", module_path)
+        cal = importlib.util.module_from_spec(spec)
+        sys.modules["calibrate_patch_normalization"] = cal
+        spec.loader.exec_module(cal)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            third = root / "patches_3rdparty"
+            patch = third / "TNMG" / "Basses" / "Analog Foundation.fxp"
+            patch.parent.mkdir(parents=True)
+            patch.write_bytes(b"x")
+            key = "thirdparty:TNMG/Basses/Analog Foundation"
+            store_path = root / "pressure.json"
+
+            target, n = cal.write_touch_calibrations(
+                store_path,
+                [("Analog Foundation", -34.0, -20.0, -22.0, patch)],
+                [third],
+                target_lufs=-26.86,
+            )
+
+            self.assertEqual((target, n), (-26.86, 1))
+            data = json.loads(store_path.read_text())
+            expected = compute_touch_calibration_floor(-34.0, -26.86, -20.0, -22.0)
+            fallback = compute_touch_calibration_floor(-34.0, -28.0, -20.0, -22.0)
+            self.assertNotAlmostEqual(expected, fallback, places=3)
+            self.assertAlmostEqual(data[key]["cal_floor"], round(expected, 3), places=3)

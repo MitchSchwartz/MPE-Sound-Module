@@ -33,6 +33,22 @@ class PatchLoaderPlaybackTests(unittest.TestCase):
         self.assertTrue(ok)
         policy_mock.assert_called_once_with("Lead")
 
+    def test_calibration_load_leaves_the_hold_store_alone(self) -> None:
+        loader = PatchLoader()
+        loader.osc_client = FakeOscClient()
+        loader.osc_enabled = True
+        with (
+            mock.patch("patch_browser.patch_loader.ensure_reuse_single_patch", return_value=Path("/p/Lead.fxp")),
+            mock.patch("patch_browser.patch_loader.time.sleep"),
+            mock.patch.object(loader, "_capture_hold_baseline", return_value=True) as capture,
+            mock.patch.object(loader, "_send_hold_osc", return_value=True) as send,
+            mock.patch.object(loader, "_apply_playback_policy"),
+        ):
+            ok = loader.load_patch("/p/Lead.fxp", apply_normalization=False, capture_hold=False)
+        self.assertTrue(ok)
+        capture.assert_not_called()
+        send.assert_not_called()
+
     def test_load_patch_resolves_fx_policy_from_the_source_file(self) -> None:
         fx = mock.Mock(enabled=False)
         loader = PatchLoader(fx_policy=fx, fx_store=mock.Mock())
