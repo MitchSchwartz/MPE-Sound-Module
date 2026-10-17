@@ -405,6 +405,7 @@ enum {
     FX_MUT_ROTARY_NO_INERTIA,       /* rotor speed jumps to the knob's */
     FX_MUT_ROTARY_LINEAR_AM,        /* gains 1 +- a c: the two sides' power swells */
     FX_MUT_ROTARY_WIDE_CENTER,      /* delays centred on 1 ms: a deeper comb in the fade-in */
+    FX_MUT_ROTARY_NO_DIRECTIVITY,   /* the horn as bright facing away as facing the microphone */
     FX_MUT_WAH_NO_FLUSH,            /* filter and envelope memories never flushed */
     FX_MUT_WAH_NO_SWEEP,            /* the envelope never reaches the filter */
     FX_MUT_WAH_RUNAWAY,             /* negative damping: the resonance grows */

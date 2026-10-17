@@ -1018,8 +1018,9 @@ static void tremolo_feed(void *state, const float *const in[FX_CHANNELS], uint32
  * Leslie is fed mono, and a mono sum would collapse the patch and lose 3 dB on
  * whatever is not common to both sides):
  *
- *   x -> crossover (800 Hz) -> low  -> drum line -> tap at the drum's delay  x drum gain --+
- *                           -> high -> horn line -> tap at the horn's delay  x horn gain --+-> wet
+ *   x -> crossover (800 Hz) -> low  -> drum line -> tap at the drum's delay ------- x drum gain --+
+ *                           -> high -> driver LP (5.5 kHz) -> horn line -> tap at the horn's delay
+ *                              -> directivity: f tap + (1 - f) LP(tap) (1.8 kHz) x horn gain --+-> wet
  *
  *   - Crossover: second-order Linkwitz-Riley built from one one-pole low-pass
  *     coefficient: low = LP(LP(x)), high = -HP(HP(x)), HP = 1 - LP. The two
@@ -1032,12 +1033,30 @@ static void tremolo_feed(void *state, const float *const in[FX_CHANNELS], uint32
  *     goes to -1. Doppler: the delay is centre -/+ excursion x c (the horn
  *     0.40 ms, the drum 0.25 ms, both around 0.5 ms), so the pitch rises as
  *     a rotor approaches a microphone and falls as it leaves: at the fast
- *     speed, +-1.7 % (29 cents) for the horn by the excursion alone, +-2.3 %
- *     as fx_selftest.c reads it on a 2 kHz tone (the level swing adds its
- *     sidebands), +-0.9 % for the drum, the two ears in opposite directions. Level: the gains are sqrt(1 +- a c), a 0.70 for the
- *     horn (+2.3 / -5.2 dB) and 0.35 for the drum, so the two microphones'
- *     powers always sum to 2: the sound swings across the image without the
- *     total changing.
+ *     speed, +-1.7 % (29 cents) for the horn by the excursion alone, +-2.9 %
+ *     as fx_selftest.c reads it on a 2 kHz tone (the level swing and the
+ *     directivity add their sidebands), +-0.9 % for the drum, the two ears in
+ *     opposite directions. Level: the gains are sqrt(1 +- a c), a 0.70 for
+ *     the horn (+2.3 / -5.2 dB) and 0.35 for the drum, so the two
+ *     microphones' gains' squares always sum to 2: the sound swings across
+ *     the image without the total changing.
+ *   - Horn driver: a real horn's compression driver rolls off above 5-6 kHz,
+ *     so the horn band goes through a one-pole low-pass at 5.5 kHz. Before
+ *     the delay line, where the driver is: the rotation shifts the pitch of
+ *     what the driver already played. Without it the top octaves of the
+ *     keys went round the horn at full strength, Doppler sidebands and all:
+ *     a fizz on top, the likeliest part of what was heard as the rotary
+ *     interfering with itself (2026-10-17; not yet confirmed by ear).
+ *   - Directivity: a horn is bright with its mouth towards a microphone and
+ *     dull with it turned away; the tone swirling with the rotation, not
+ *     only the level and the pitch, is most of the Leslie's warmth. Each
+ *     microphone keeps a dull copy of its own horn tap (one-pole low-pass,
+ *     1.8 kHz, its own memory) and hears f x tap + (1 - f) x dull, f = (1 +
+ *     c_mic) / 2 how far the mouth faces it: c_mic = +c left, -c right. So
+ *     the left hears the bright horn as it comes round (f 1), the dull one
+ *     as it faces the right (f 0), and side-on half of each. Fixed
+ *     coefficients: per frame it is one crossfade weight, per channel a
+ *     one-pole and a crossfade.
  *   - Speed: the knob is the speed. Its first ROTARY_MIX_FULL (10 %) fades the
  *     rotary in at the slow (chorale) speed: the engine's mix, mix_full_at
  *     0.1. From there to the top the target speed runs linearly from chorale
@@ -1053,17 +1072,26 @@ static void tremolo_feed(void *state, const float *const in[FX_CHANNELS], uint32
  * about -22 dB, at the edge of hearing; by 5 % the mix is half and the slow
  * rotor is clearly there; at 10 % it is all rotary at chorale speed.
  *
- * Level. With the same signal on both channels the two microphones' powers
- * sum to the input's at every instant, whatever the rotors do: for one band
- * the gains' squares sum to 2, and the crossover's bands, aligned or not, add
- * to at most the input (above); fx_selftest.c checks the power sum stays
- * within 1.8 dB on a 3 kHz tone (1.25 measured: the Doppler and the
- * crossover). Below 10 % it is a mix of the input and a ~0.5 ms late copy, a
- * comb whose first notch is at 1 kHz: keys -2.8 dB at 5 % before the level
+ * Level. With the same signal on both channels the gains alone keep the
+ * two microphones' powers summed to the input's at every instant, whatever
+ * the rotors do: for one band the gains' squares sum to 2, and the
+ * crossover's bands, aligned or not, add to at most the input (above). The
+ * drum band keeps that. The horn band gives some of it up to the
+ * directivity, by design: side-on, both microphones hear half the dull
+ * copy, so on a 3 kHz tone the sum dips to 0.49 of the input with the horn
+ * side-on and comes back to 0.89 as it faces one (2.60 dB; the driver's
+ * -1.1 dB there is in both). fx_selftest.c checks the power sum stays
+ * within 4.4 dB on that tone (3.39 measured: the directivity, the Doppler
+ * and the crossover; 1.25 before the directivity), and that a 5 kHz tone
+ * at one microphone swings 18.6 dB as the horn turns (the level swing
+ * alone is 7.5). Below 10 % it is a mix of the input and a ~0.5 ms late
+ * copy, a comb whose first notch is at 1 kHz: keys -2.8 dB at 5 % before the level
  * curve. A 1 ms centre put that notch at 500 Hz, in the middle of the keys:
  * -5.1 dB. The crossover's band edge (its powers sum to -3 dB at 800 Hz when
- * the bands' delays differ) and the delay lines' linear interpolation lose a
- * little more on broadband: keys -0.47 dB at full. The level curve gives all
+ * the bands' delays differ), the delay lines' linear interpolation and the
+ * horn's driver and directivity lose a little more on broadband: keys -0.47
+ * dB at full (-0.42 before the driver and the directivity, the same run:
+ * little of the keys' energy is where they act). The level curve gives all
  * of it back on keys; tones the comb passes come out over the input, up to
  * +2.5 dB (80 Hz at 5 %). Peaks are not guaranteed: a channel's gain reaches
  * +2.3 dB as the horn faces it. The engine's clamp holds +-1.
@@ -1074,12 +1102,16 @@ static void tremolo_feed(void *state, const float *const in[FX_CHANNELS], uint32
  * that never stopped.
  *
  * Per stereo frame, active: speed targets 4, two rotors' inertia 2 x 4 and
- * phase 2 x 3, two cosines 2 x 9, four gains (one sqrt each) 4 x 3; per
- * channel: crossover 10 and its flushes 3, two writes, two taps (delay 2,
- * split 2, two reads and a lerp 3) 14, mix 3 => ~30; total ~110 ops plus 8
- * memory ops. No trig, no division. Runs while bypassed too.
+ * phase 2 x 3, two cosines 2 x 9, four gains (one sqrt each) 4 x 3,
+ * directivity weights 2; per channel: crossover 10 and its flushes 3, driver
+ * low-pass 3 and its flush 1, two writes, two taps (delay 2, split 2, two
+ * reads and a lerp 3) 14, dull copy 3 and its flush 1, crossfade 3, mix 3
+ * => ~41; total ~130 ops plus 8 memory ops. No trig, no division. Runs
+ * while bypassed too.
  */
 #define ROTARY_XOVER_HZ 800.0f
+#define ROTARY_DRIVER_HZ 5500.0f  /* the horn's compression driver rolls off here */
+#define ROTARY_DARK_HZ 1800.0f    /* the horn's sound with its mouth turned away */
 #define ROTARY_HORN_SLOW_HZ 0.80f
 #define ROTARY_HORN_FAST_HZ 6.7f
 #define ROTARY_DRUM_SLOW_HZ 0.67f
@@ -1105,7 +1137,9 @@ typedef struct {
     float horn[FX_CHANNELS][ROTARY_BUF];
     float drum[FX_CHANNELS][ROTARY_BUF];
     float lp1[FX_CHANNELS], lp2[FX_CHANNELS], hp2[FX_CHANNELS];   /* crossover */
-    float a_x;
+    float drv[FX_CHANNELS];        /* the horn driver's low-pass, before the horn line */
+    float dark[FX_CHANNELS];       /* each microphone's dull copy of its horn tap */
+    float a_x, a_drv, a_dark;
     uint32_t w;
     float horn_hz, drum_hz;        /* the rotors' speeds */
     float horn_ph, drum_ph;        /* their phases, 0..1 */
@@ -1115,7 +1149,7 @@ typedef struct {
 } rotary_state;
 
 enum { ROTARY_NO_FLUSH = 1, ROTARY_NO_DOPPLER = 2, ROTARY_NO_INERTIA = 4, ROTARY_LINEAR_AM = 8,
-       ROTARY_WIDE_CENTER = 16 };
+       ROTARY_WIDE_CENTER = 16, ROTARY_NO_DIRECTIVITY = 32 };
 
 static float inertia_alpha(float seconds, float rate)
 {
@@ -1129,6 +1163,8 @@ static int rotary_init(void *state, float rate)
         return -1;
     }
     s->a_x = pole_alpha(ROTARY_XOVER_HZ, rate);
+    s->a_drv = pole_alpha(ROTARY_DRIVER_HZ, rate);
+    s->a_dark = pole_alpha(ROTARY_DARK_HZ, rate);
     s->w = 0;
     s->horn_hz = ROTARY_HORN_SLOW_HZ;
     s->drum_hz = ROTARY_DRUM_SLOW_HZ;
@@ -1196,6 +1232,13 @@ static inline void rotary_run(rotary_state *s, const float *const in[FX_CHANNELS
             gd[0] = 1.0f + ROTARY_DRUM_AM * cd;
             gd[1] = 1.0f - ROTARY_DRUM_AM * cd;
         }
+        /* How far the horn's mouth faces each microphone, 0 (away) .. 1. */
+        const float fl = 0.5f + 0.5f * ch;
+        float fh[FX_CHANNELS] = { fl, 1.0f - fl };
+        if (mode & ROTARY_NO_DIRECTIVITY) {   /* self-test: the horn sounds the same all round */
+            fh[0] = 1.0f;
+            fh[1] = 1.0f;
+        }
         const float dh[FX_CHANNELS] = { center - horn_exc * ch, center + horn_exc * ch };
         const float dd[FX_CHANNELS] = { center - drum_exc * cd, center + drum_exc * cd };
 
@@ -1207,16 +1250,21 @@ static inline void rotary_run(rotary_state *s, const float *const in[FX_CHANNELS
             s->hp2[c] += s->a_x * (h1 - s->hp2[c]);
             const float lo = s->lp2[c];
             const float hi = s->hp2[c] - h1;   /* -(h1 - LP(h1)) */
+            s->drv[c] += s->a_drv * (hi - s->drv[c]);
+            const float th = rotary_tap(s->horn[c], w, dh[c]);
+            const float td = rotary_tap(s->drum[c], w, dd[c]);
+            s->dark[c] += s->a_dark * (th - s->dark[c]);
             if (!(mode & ROTARY_NO_FLUSH)) {
                 s->lp1[c] = flush(s->lp1[c]);
                 s->lp2[c] = flush(s->lp2[c]);
                 s->hp2[c] = flush(s->hp2[c]);
+                s->drv[c] = flush(s->drv[c]);
+                s->dark[c] = flush(s->dark[c]);
             }
-            const float th = rotary_tap(s->horn[c], w, dh[c]);
-            const float td = rotary_tap(s->drum[c], w, dd[c]);
-            s->horn[c][w] = hi;
+            s->horn[c][w] = s->drv[c];
             s->drum[c][w] = lo;
-            y[c] = gh[c] * th + gd[c] * td;
+            const float hb = s->dark[c] + fh[c] * (th - s->dark[c]);   /* f bright + (1 - f) dark */
+            y[c] = gh[c] * hb + gd[c] * td;
         }
         if (wet != NULL) {
             wet[0][i] = y[0];
@@ -1448,8 +1496,9 @@ static void wah_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n
  * each effect's raw loss at 32 knob positions, plus 12 inside the drive's and
  * the rotary's fade-ins (`fx-selftest --unity-raw K DEPTH`, level curve and
  * makeup off, 4.8 s of keys); the fit's worst residual is 0.10 dB (the
- * auto-wah and the rotary), 0.06 the drive, 0.001 the rest (the drive and the
- * auto-wah refitted 2026-10-15 for their stronger top thirds). The self-test
+ * auto-wah), 0.06 the drive, 0.05 the rotary, 0.001 the rest (the drive and
+ * the auto-wah refitted 2026-10-15 for their stronger top thirds, the rotary
+ * 2026-10-17 for the horn's driver and directivity). The self-test
  * holds every effect to +-0.3 dB of the input on keys. Re-run the report and
  * refit when an effect's voicing changes: the unity check fails first. What
  * the raw loss was, keys at full depth: chorus -3.0, drive +0.06, phaser
@@ -1462,16 +1511,16 @@ static void wah_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n
 #define PHASER_LEVEL { 0.5039f, 0.6722f, 0.1522f, 0.3351f }
 #define TREMOLO_LEVEL { 0.2555f, 0.2044f, 0.6255f, 0.1021f }
 #define FLANGER_LEVEL { 0.4161f, 0.5551f, -0.0499f, 0.2770f }
-#define ROTARY_LEVEL { 0.8985f, 0.0007f, 0.0830f, 0.2065f }
+#define ROTARY_LEVEL { 0.8872f, 0.0021f, 0.0771f, 0.2978f }
 #define WAH_LEVEL { -0.0519f, 0.1251f, 0.3731f, -0.4100f }
 
 /* The bass bypass's level correction (fx_dsp.h, "Bass bypass"): at each
  * grid crossover, the level change (dB, negative a loss) whose negative,
  * applied to the high band at the effect's full mix, puts the keys at full
  * depth back at their level with the split off. Fitted by fx-selftest
- * --fit-bass K (2026-10-15; the drive at depth 0.88, see fit_bass in
- * fx_selftest.c); 20 Hz is no overlap with the keys, 0. Above 300 Hz
- * (the UI's top) the last value holds. */
+ * --fit-bass K (2026-10-15, the rotary 2026-10-17; the drive at depth 0.88,
+ * see fit_bass in fx_selftest.c); 20 Hz is no overlap with the keys, 0.
+ * Above 300 Hz (the UI's top) the last value holds. */
 const float FX_BASS_GRID_HZ[FX_BASS_GRID] = { 20.0f, 80.0f, 100.0f, 120.0f, 150.0f, 200.0f,
                                               250.0f, 300.0f };
 static const float CHORUS_BASS[FX_BASS_GRID] = { 0, -0.048f, -0.056f, -0.062f, -0.104f, -0.281f, -0.524f, -0.769f };
@@ -1479,7 +1528,7 @@ static const float DRIVE_BASS[FX_BASS_GRID] = { 0, -0.098f, -0.160f, -0.217f, -0
 static const float PHASER_BASS[FX_BASS_GRID] = { 0, -0.118f, -0.186f, -0.256f, -0.402f, -0.838f, -1.480f, -2.208f };
 static const float TREMOLO_BASS[FX_BASS_GRID] = { 0, -0.027f, -0.040f, -0.052f, -0.076f, -0.146f, -0.244f, -0.354f };
 static const float FLANGER_BASS[FX_BASS_GRID] = { 0, -0.148f, -0.222f, -0.294f, -0.440f, -0.860f, -1.417f, -1.956f };
-static const float ROTARY_BASS[FX_BASS_GRID] = { 0, -0.111f, -0.205f, -0.330f, -0.607f, -1.362f, -2.411f, -3.593f };
+static const float ROTARY_BASS[FX_BASS_GRID] = { 0, -0.114f, -0.211f, -0.340f, -0.623f, -1.392f, -2.460f, -3.670f };
 static const float WAH_BASS[FX_BASS_GRID] = { 0, 0.042f, 0.068f, 0.100f, 0.154f, 0.272f, 0.470f, 0.785f };
 
 /* The wire's effect ids. Append only: an id is a number the policy module
@@ -1665,6 +1714,11 @@ static void rotary_wide_center_feed(void *st, const float *const in[FX_CHANNELS]
 {
     rotary_run(st, in, NULL, ZERO_AMOUNT, n, ROTARY_WIDE_CENTER);
 }
+static void rotary_no_directivity(void *st, const float *const in[FX_CHANNELS],
+                                  float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    rotary_run(st, in, wet, amount, n, ROTARY_NO_DIRECTIVITY);
+}
 static void wah_no_flush(void *st, const float *const in[FX_CHANNELS],
                          float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
 {
@@ -1765,6 +1819,9 @@ const fx_effect_desc FX_TEST_MUTANTS[FX_MUT_COUNT] = {
     [FX_MUT_ROTARY_WIDE_CENTER] = { "rotary-1ms-centre", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
                                     sizeof(rotary_state), rotary_init, rotary_wide_center,
                                     rotary_wide_center_feed, NULL },
+    [FX_MUT_ROTARY_NO_DIRECTIVITY] = { "rotary-no-directivity", 1.0f, ROTARY_MIX_FULL,
+                                       ROTARY_LEVEL, sizeof(rotary_state), rotary_init,
+                                       rotary_no_directivity, rotary_feed, NULL },
     [FX_MUT_WAH_NO_FLUSH] = { "auto-wah-no-flush", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
                               wah_init, wah_no_flush, wah_no_flush_feed, NULL },
     [FX_MUT_WAH_NO_SWEEP] = { "auto-wah-no-sweep", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
