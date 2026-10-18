@@ -37,7 +37,9 @@ from patch_browser.midi_sync import is_note_off, is_note_on
 PEDAL_FADE_ENV = "MPE_PEDAL_FADE_S"
 DEFAULT_PEDAL_FADE_S = 3.0
 RELEASE_FADE_ENV = "MPE_PEDAL_RELEASE_FADE_S"
-DEFAULT_RELEASE_FADE_S = 2.0  # sustain_fade_duration in pedal-to-osc.py
+# 0: pedal up releases every pedal-held note at once, as a piano's dampers
+# all fall together. >0 spreads them (pedal-to-osc.py's old CC 64 ramp).
+DEFAULT_RELEASE_FADE_S = 0.0
 RELEASE_CURVE_ENV = "MPE_PEDAL_RELEASE_CURVE"
 # CC 64 values per step, copied from SustainFadeController.get_fade_steps.
 # Read as the share of pedal-held notes still held at each step (value / 127).
