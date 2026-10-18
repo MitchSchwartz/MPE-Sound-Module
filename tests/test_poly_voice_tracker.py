@@ -305,7 +305,10 @@ class RemapperShedTests(unittest.TestCase):
             mock.patch("patch_browser.poly_voice_tracker.VOICE_TRACKER_FILE", self.ledger),
             mock.patch.object(self.module, "FADE_REQUEST_FILE", self.request),
             mock.patch("builtins.print"),
-            mock.patch.dict(os.environ, {}, clear=True),
+            # Surge owns sustain here (pedal fade off), so CC 64 reaches the
+            # ledger and pedal holds block the shed. With the fade on the
+            # remapper owns the pedal: tests/test_pedal_fade.py.
+            mock.patch.dict(os.environ, {"MPE_PEDAL_FADE_S": "0"}, clear=True),
         ]
         for patch in self.patches:
             patch.start()

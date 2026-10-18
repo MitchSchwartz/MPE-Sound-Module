@@ -6,6 +6,7 @@ from __future__ import annotations
 import heapq
 import os
 import queue
+import signal
 import subprocess
 import sys
 import time
@@ -27,6 +28,7 @@ from patch_browser.midi_sync import (  # noqa: E402
     should_schedule,
 )
 from patch_browser.patch_pressure import PatchPressureStore  # noqa: E402
+from patch_browser.pedal_fade import PedalFade  # noqa: E402
 from patch_browser.poly_voice_tracker import (  # noqa: E402
     FADE_REQUEST_FILE,
     SHED_NOTE_OFF_VELOCITY,
@@ -131,6 +133,11 @@ class PressureRemapDaemon:
         self._shed_pending: tuple[int, float, str] | None = None
         # None unless MPE_FX_HOST is on: then CC 1 is forwarded exactly as before.
         self._cc1 = Cc1Router.from_env()
+        # None when MPE_PEDAL_FADE_S=0: CC 64 then goes to Surge untouched and
+        # Surge owns sustain, as before. Otherwise the remapper owns the pedal
+        # (patch_browser/pedal_fade.py) and pedal-held notes end on a deadline.
+        self._pedal = PedalFade.from_env()
+        self._clock = time.monotonic
 
     def _refresh_floor(self) -> None:
         from patch_browser.patch_pressure import LIVE_STATE_FILE
@@ -210,9 +217,37 @@ class PressureRemapDaemon:
     def _send(self, out_msg: list[int]) -> None:
         if not out_msg:
             return
+        if self._pedal is None:
+            self._send_to_surge(out_msg)
+            return
+        for msg in self._pedal.filter(out_msg, self._clock()):
+            self._send_to_surge(msg)
+
+    def _send_to_surge(self, out_msg: list[int]) -> None:
         if fade_actuation_enabled() and self._voice_tracker.observe_message(out_msg):
             self._voice_tracker.persist()
         self._out.send_message(out_msg)
+
+    def _process_pedal_deadlines(self, now: float) -> None:
+        """Send the note-offs of pedal-held notes whose fade time has come.
+
+        Called from the 2 ms drain loop; with nothing due it is one float
+        compare, so no thread and no timer are needed for ~2 ms resolution.
+        """
+        if self._pedal is None or self._out is None:
+            return
+        for msg in self._pedal.due(now):
+            self._send_to_surge(msg)
+
+    def _release_pedal_held(self) -> None:
+        """Release every pedal-held note (input teardown, process exit)."""
+        if self._pedal is None or self._out is None:
+            return
+        for msg in self._pedal.release_all():
+            try:
+                self._send_to_surge(msg)
+            except Exception as exc:  # Surge may already be gone at exit
+                print(f"Warning: pedal release failed: {exc!r}", flush=True)
 
     def _emit_message(self, binding: SourceBinding, message: list[int]) -> None:
         if self._out is None:
@@ -268,6 +303,10 @@ class PressureRemapDaemon:
             off = [0x80 | channel, note, SHED_NOTE_OFF_VELOCITY]
             self._out.send_message(off)
             self._voice_tracker.observe_message(off, now=now)
+            if self._pedal is not None:
+                # This was the note's one note-off: the pedal must not send
+                # another at its deadline, nor pass the key's own later.
+                self._pedal.forget(channel, note)
         if plan.release:
             self._voice_tracker.persist()
         if plan.release or plan.blocked_by_sustain or (plan.done and sounding > limit):
@@ -337,6 +376,7 @@ class PressureRemapDaemon:
         if self._cc1 is not None:
             self._cc1.refresh(now)
         sent = self._drain_scheduled(now)
+        self._process_pedal_deadlines(now)
         self._process_shed_request(now)
         while True:
             try:
@@ -354,6 +394,9 @@ class PressureRemapDaemon:
         for binding in self._bindings:
             for msg in binding.reset():
                 self._send(msg)
+        # The pedal goes with its port: with the remapper owning sustain, a
+        # pedal left down would otherwise hold every later release.
+        self._release_pedal_held()
         self._bindings = []
         for midi_in in self._inputs:
             # close_port() does NOT free the ALSA sequencer client — that is
@@ -506,11 +549,19 @@ class PressureRemapDaemon:
             )
             return 1
         self._out.open_port(out_index)
+        if self._pedal is not None:
+            # Surge never sees CC 64 from here on, so clear any hold a previous
+            # run (with the pedal passed through) left latched in it.
+            self._send_to_surge([0xB0, 64, 0])
+            # systemd stops this unit with SIGTERM. Raise so the finally below
+            # runs and pedal-held notes get their note-off before exit.
+            signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
         quantize_label = "off" if self._grid_ticks <= 0 else f"{self._grid_ticks} ticks"
         print(
             f"MPE pressure remap: output → {out_ports[out_index]!r} "
             f"(offset={self._offset_ms:.1f} ms, quantize={quantize_label}, "
-            f"clock_through={'on' if self._pass_clock else 'off'})",
+            f"clock_through={'on' if self._pass_clock else 'off'}, "
+            f"pedal_fade={'off' if self._pedal is None else f'{self._pedal.fade_s:g} s, release {self._pedal.release_fade_s:g} s'})",
             flush=True,
         )
 
@@ -530,6 +581,10 @@ class PressureRemapDaemon:
             return 0
         finally:
             self._close_inputs()
+
+
+def _raise_keyboard_interrupt(_signum, _frame) -> None:
+    raise KeyboardInterrupt
 
 
 def main() -> int:
