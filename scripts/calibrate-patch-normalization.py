@@ -276,6 +276,45 @@ def emit_progress(args: argparse.Namespace, payload: dict) -> None:
         pass
 
 
+# A run whose readings stop depending on the patch is measuring something
+# else: a patch load that no longer takes, or a note that never released.
+# Distinct patches reading within PLATEAU_DB of each other on both anchors,
+# PLATEAU_PATCHES in a row, halt the run and roll those entries back.
+PLATEAU_PATCHES = 4
+PLATEAU_DB = 0.3
+
+
+class PlateauGuard:
+    def __init__(self, patches: int = PLATEAU_PATCHES, tolerance_db: float = PLATEAU_DB) -> None:
+        self.patches = patches
+        self.tolerance_db = tolerance_db
+        self._run: list[tuple[Path, float, float]] = []
+
+    def add(self, path: Path, strike: float, sustain: float) -> list[Path] | None:
+        """Record one reading; the plateau's patches once it is long enough to halt."""
+        if self._run:
+            _first, s0, u0 = self._run[0]
+            if abs(strike - s0) > self.tolerance_db or abs(sustain - u0) > self.tolerance_db:
+                self._run = []
+        self._run.append((path, strike, sustain))
+        if len(self._run) >= self.patches:
+            return [p for p, _s, _u in self._run]
+        return None
+
+
+def roll_back_entries(store_path: Path, snapshot: dict, keys: list[str]) -> None:
+    """Put each key back to its run-start entry, or remove it if it had none."""
+    data = json.loads(store_path.read_text()) if store_path.exists() else {}
+    for key in keys:
+        if key in snapshot:
+            data[key] = snapshot[key]
+        else:
+            data.pop(key, None)
+    tmp = store_path.with_suffix(store_path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(store_path)
+
+
 def write_failure_report(
     *,
     patch_index: int,
@@ -1121,6 +1160,9 @@ def main() -> int:
     store.set_patch_dirs(SURGE_PATCH_DIRS)
     pressure_path = args.pressure_output or default_pressure_path()
     touch_cal = not args.no_touch_cal
+    norm_snapshot = json.loads(output_path.read_text()) if output_path.exists() else {}
+    pressure_snapshot = json.loads(pressure_path.read_text()) if pressure_path.exists() else {}
+    plateau = PlateauGuard()
     patch_records = patch_path_records(patch_paths)
     if args.verify_only:
         targets = [
@@ -1381,6 +1423,34 @@ def main() -> int:
                         "ok": result.ok,
                     },
                 )
+                if result.ok and result.lufs_strike is not None and result.lufs_sustain is not None:
+                    stuck = plateau.add(path, result.lufs_strike, result.lufs_sustain)
+                    if stuck:
+                        keys = [
+                            resolve_storage_key(p.stem, patch_path=str(p), patch_dirs=SURGE_PATCH_DIRS)
+                            for p in stuck
+                        ]
+                        roll_back_entries(output_path, norm_snapshot, keys)
+                        roll_back_entries(pressure_path, pressure_snapshot, keys)
+                        msg = (
+                            f"{len(stuck)} patches in a row read the same loudness "
+                            f"({result.lufs_strike:.1f} / {result.lufs_sustain:.1f} LUFS): "
+                            f"the capture is not following the patch. Halted; rolled back "
+                            f"{', '.join(keys)}"
+                        )
+                        print(f"Error: {msg}", file=sys.stderr)
+                        write_failure_report(
+                            patch_index=index,
+                            patch_name=name,
+                            total=len(targets),
+                            reason="plateau",
+                            exit_code=1,
+                        )
+                        emit_progress(args, {"type": "error", "message": msg})
+                        updated -= len(stuck) - 1
+                        light_measurements = [m for m in light_measurements if m[4] not in stuck]
+                        exit_code = 1
+                        break
                 if result.ok:
                     updated += 1
                     if (
