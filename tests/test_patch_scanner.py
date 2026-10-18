@@ -121,6 +121,13 @@ class PatchScannerTests(unittest.TestCase):
         quick = self.scanner.quick_scan_category(self.factory / "Keys")
         self.assertEqual([p["name"] for p in quick], ["Real"])
 
+    def test_tutorials_are_not_patches(self) -> None:
+        self._touch("Keys/Real.fxp")
+        self._touch("Tutorials/Formula Modulator/02 Interacting With LFO Parameters.fxp")
+        self.scanner.scan_patches()
+        names = sorted(p["name"] for ps in self.scanner.patches.values() for p in ps)
+        self.assertEqual(names, ["Real"])
+
     def test_library_dirs_skip_state_captures(self) -> None:
         import os
         from patch_browser.patch_scanner import resolve_library_patch_dirs

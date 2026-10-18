@@ -83,7 +83,9 @@ NON_PATCH_ASSET_DIRS = frozenset(
     {"patches", "user-data", "binaries", "appliance-state", "state"}
 )
 # Directory names pruned wherever the scan meets them, in any patch root.
-NON_PATCH_DIR_NAMES = frozenset({"appliance-state"})
+# Tutorials: Surge's factory teaching patches, not instruments; the files stay
+# on disk, the browser and the calibration just never see them.
+NON_PATCH_DIR_NAMES = frozenset({"appliance-state", "Tutorials"})
 
 
 def resolve_personal_repo(module_repo: Path | None = None) -> Path | None:
