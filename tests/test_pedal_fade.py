@@ -59,9 +59,9 @@ class EnvTests(unittest.TestCase):
         self.assertEqual(pedal_fade_seconds("junk"), DEFAULT_PEDAL_FADE_S)
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertEqual(pedal_fade_seconds(), 3.0)
-            self.assertEqual(release_fade_seconds(), 2.0)
+            self.assertEqual(release_fade_seconds(), 0.0)
             self.assertEqual(release_curve(), RELEASE_CURVES["linear"])
-            self.assertEqual(PedalFade.from_env().release_fade_s, 2.0)
+            self.assertEqual(PedalFade.from_env().release_fade_s, 0.0)
         self.assertEqual(release_fade_seconds("0"), 0.0)
         self.assertEqual(release_curve("Exponential"), RELEASE_CURVES["exponential"])
         with mock.patch.dict(os.environ, {"MPE_PEDAL_FADE_S": "0"}, clear=True):
@@ -149,6 +149,21 @@ class PedalUpWindowTests(unittest.TestCase):
         self.p.filter(_pedal(0, False), 1.0)
         self.assertEqual(self.p.filter(_off(5, 72), 1.1), [_off(5, 72)],
                          "the pedal is up: a release is a release")
+
+
+class PedalUpAllAtOnceTests(unittest.TestCase):
+    def test_default_pedal_up_releases_every_pedal_held_note_at_once(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=True):
+            p = PedalFade.from_env()
+        p.filter(_pedal(0, True), 0.0)
+        p.filter(_on(2, 64), 0.0)
+        p.filter(_on(1, 60), 0.1)
+        p.filter(_on(4, 72), 0.2)
+        p.filter(_off(2, 64), 0.5)
+        p.filter(_off(1, 60), 0.6)
+        sent = p.filter(_pedal(0, False), 1.0)
+        self.assertEqual(_note_offs(sent), Counter({(2, 64): 1, (1, 60): 1}))
+        self.assertEqual(p.due(100.0), [], "nothing left to release later")
 
 
 class PedalFadeTests(unittest.TestCase):
