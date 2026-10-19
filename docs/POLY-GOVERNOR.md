@@ -63,16 +63,18 @@ Lowering Surge's limit does not stop sounding voices (*The limit is lowered but 
 
 Shedding writes no bend, pressure or timbre. The key is still down, so the channel stays the controller's until its own note-off, and its reuse is the same as after any release. `MPE_POLY_SHED=0` turns shedding off for an A/B: the limit then only gates new notes, as before.
 
-### Pedal fade (2026-10-18)
+### Pedal fade (2026-10-18; hold by pitch 2026-10-19)
 
 On organ and pad patches (amp sustain 1.0) a note the sustain pedal holds never decays, so chords added under the pedal stacked from 3 to ~13 voices and the level climbed ~7 dB. Surge has no per-note volume over MIDI, so the remapper owns the pedal instead (`patch_browser/pedal_fade.py`):
 
-- CC 64 is not forwarded to Surge. A key released while the pedal is down gets its own note-off `MPE_PEDAL_FADE_S` later (default 3.0), and the patch's release envelope fades it.
+- CC 64 is not forwarded to Surge. A key released while the pedal is down gets its own note-off a hold time later, and the patch's release envelope fades it.
+- The hold depends on pitch, as on a piano, whose bass strings ring far longer under the damper pedal than its treble: `MPE_PEDAL_FADE_LOW_S` at MIDI note 21/A0 (default 8.0), `MPE_PEDAL_FADE_HIGH_S` at 108/C8 (default 2.0), geometric in between (the same ratio per octave), clamped outside 21..108. With the defaults: C2 (36) 6.30 s, C3 (48) 5.20 s, middle C (60) 4.30 s, C5 (72) 3.55 s, C6 (84) 2.93 s. The note is the one sent to Surge, read at the key's release.
+- Precedence, the one rule: `MPE_PEDAL_FADE_S=0` turns the fade off. If `MPE_PEDAL_FADE_S` is set to a positive value and neither `MPE_PEDAL_FADE_LOW_S` nor `MPE_PEDAL_FADE_HIGH_S` is set, every note holds `MPE_PEDAL_FADE_S` (the flat hold of the first version). Otherwise, including with nothing set, the curve; an end left unset takes its default.
 - Pedal up releases every pedal-held note at once, as a piano's dampers all fall together (`MPE_PEDAL_RELEASE_FADE_S`, default 0). Above 0 it spreads them, oldest note-on first, across that window; the share still held at each step follows the retired `pedal-to-osc.py` CC ramp (`MPE_PEDAL_RELEASE_CURVE`, linear or exponential); a lone note lets go at 0.4 s, where that ramp crossed 64. A pedal press inside the window takes the rest back into the hold, with their original deadlines.
 - A re-struck pitch ends any pedal-held instance of it first. Keys still down are never touched. All-notes-off, a shed, input teardown and process exit (SIGTERM included) release pedal-held notes; each note gets exactly one note-off, and the ledger sees every one.
 - Deadlines are checked in the remapper's existing 2 ms drain loop: no thread, no timer, one float compare when nothing is due.
 
-`MPE_PEDAL_FADE_S=0` restores Surge-owned sustain byte for byte. Restart `mpe-pressure-remap` after changing any of the three.
+`MPE_PEDAL_FADE_S=0` restores Surge-owned sustain byte for byte. Restart `mpe-pressure-remap` after changing any of these settings.
 
 ### `progressive` (threshold-gated A/B)
 

@@ -561,7 +561,7 @@ class PressureRemapDaemon:
             f"MPE pressure remap: output → {out_ports[out_index]!r} "
             f"(offset={self._offset_ms:.1f} ms, quantize={quantize_label}, "
             f"clock_through={'on' if self._pass_clock else 'off'}, "
-            f"pedal_fade={'off' if self._pedal is None else f'{self._pedal.fade_s:g} s, release {self._pedal.release_fade_s:g} s'})",
+            f"pedal_fade={'off' if self._pedal is None else f'{self._pedal.hold_label()}, release {self._pedal.release_fade_s:g} s'})",
             flush=True,
         )
 
