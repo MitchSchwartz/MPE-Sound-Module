@@ -29,6 +29,7 @@ import hashlib
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -551,7 +552,7 @@ class WireFormat(unittest.TestCase):
         _need_compiler(self)
         binary, build = _selftest_binary()
         self.assertEqual(build.returncode, 0, build.stderr)
-        junk = ["gain 0.5", "fx", "fx 0", "fx 0 nan", "fx 0 inf", "fx -1 0.5",
+        junk = ["fx", "fx 0", "fx 0 nan", "fx 0 inf", "fx -1 0.5",
                 "fx 0x1 0.5", "fx 0 0.5 extra", "fx0 0.5", "fx 1e3 0.5", "fx 8 0.5", "",
                 "chain", "chain 5", "chain -1 0.5", "chain 0x5 0.5", "chain 5 nan",
                 "chain 5 0.5 extra", "chain5 0.5", "chain 256 0.5", "chain 5.0 0.5",
@@ -637,6 +638,72 @@ class WireFormat(unittest.TestCase):
         self.assertRegex(text, r"static _Atomic float g_target_bass = 0\.0f;")
         self.assertIn("fx_parse_bass(buf, &bass)", text)
         self.assertIn("fx_engine_set_bass(&g_engine", text)
+
+    def test_gain_encoding(self):
+        self.assertEqual(proto.encode_gain(1.0), b"gain 1.00000000")
+        self.assertEqual(proto.encode_gain(1), b"gain 1.00000000")
+        self.assertEqual(proto.encode_gain(0.0), b"gain 0.00000000")
+        self.assertEqual(proto.encode_gain(10 ** (12 / 20)), b"gain 3.98107171")
+        self.assertEqual(proto.encode_gain(10 ** (-90 / 20)), b"gain 0.00003162")
+        # Above the client's ceiling, held to it, as the client would.
+        top = f"gain {10 ** (proto.GAIN_MAX_DB / 20):.8f}".encode()
+        self.assertEqual(proto.encode_gain(1e6), top)
+        for bad in (float("nan"), float("inf"), -0.5, True, "1.0", None):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                proto.encode_gain(bad)
+
+    def test_the_gain_ceiling_matches_the_c(self):
+        found = re.search(r"#define\s+FX_GAIN_MAX_DB\s+([\d.]+)", (NATIVE / "fx_dsp.h").read_text())
+        self.assertIsNotNone(found, "FX_GAIN_MAX_DB not found in fx_dsp.h")
+        self.assertEqual(float(found.group(1)), proto.GAIN_MAX_DB)
+        self.assertEqual(proto.GAIN_MAX_DB, 48.0)
+
+    def test_gain_round_trips_through_the_real_parser(self):
+        """Every value the encoder writes, read back by the client's parser,
+        and every older message reads as it did beside it."""
+        _need_compiler(self)
+        binary, build = _selftest_binary()
+        self.assertEqual(build.returncode, 0, build.stderr)
+        ones = " ".join(["1.000000"] * proto.MAX_LEVELS)
+        cases = []
+        for db in (-120.0, -90.0, -60.0, -30.0, -12.0, -0.1, 0.0, 0.1, 6.0, 12.0, 30.0, 47.9,
+                   48.0, 60.0):
+            wire = proto.encode_gain(10 ** (db / 20)).decode("ascii")
+            # The client holds a float: the value sent, to float precision.
+            sent = float(wire.split()[1])
+            cases.append((wire, f"gain {struct.unpack('f', struct.pack('f', sent))[0]:.8f}"))
+        cases += [
+            ("gain 0", "gain 0.00000000"),
+            ("  gain\t2.5 ", "gain 2.50000000"),
+            ("gain 1000", "gain 1000.00000000"),   # parsed as sent; the engine clamps
+            (proto.encode_bass(120).decode("ascii"), "bass 120.000000"),
+            (proto.encode_chain(5, 0.5).decode("ascii"), f"ok 5 0.500000 {ones}"),
+        ]
+        got = _parse_lines(binary, [c for c, _ in cases])
+        for (wire, want), answer in zip(cases, got, strict=True):
+            with self.subTest(wire=wire):
+                self.assertEqual(answer, want)
+
+    def test_gain_junk_changes_nothing(self):
+        _need_compiler(self)
+        binary, build = _selftest_binary()
+        self.assertEqual(build.returncode, 0, build.stderr)
+        junk = ["gain", "gain ", "gain -1", "gain -0.5", "gain nan", "gain NaN", "gain inf",
+                "gain 1 x", "gain 1 2", "gainx 1", "gain1", "gain 0x10", "gain 1e3", "gain 1e40",
+                "gain +1", "gain 1,5", "gains 1", "chainl 5 0.5 1 gain 2"]
+        got = _parse_lines(binary, junk)
+        for text, answer in zip(junk, got, strict=True):
+            with self.subTest(junk=text):
+                self.assertEqual(answer, "reject")
+
+    def test_the_client_reads_gain_and_starts_at_unity(self):
+        """The client stores what `gain` says and hands it to the engine every
+        period; with no `gain` it stays at unity, the insert as it was."""
+        text = C_CLIENT.read_text()
+        self.assertRegex(text, r"static _Atomic float g_target_gain = 1\.0f;")
+        self.assertIn("fx_parse_gain(buf, &gain)", text)
+        self.assertIn("fx_engine_set_gain(&g_engine", text)
+        self.assertIn("atomic_is_lock_free(&g_target_gain)", text)
 
     def test_the_level_slots_match_the_c(self):
         found = re.search(r"#define\s+FX_MAX_EFFECTS\s+(\d+)", (NATIVE / "fx_dsp.h").read_text())

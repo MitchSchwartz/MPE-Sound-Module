@@ -110,6 +110,24 @@
  * half. Tabulated like the level curve; per frame it is a max per stage (2
  * ops), a lookup (5) and a multiply per channel (2).
  *
+ * Stage gain. Before anything else, the input is multiplied by one linear
+ * gain, the per-patch normalization (patch_browser/patch_normalization.py
+ * decides it; this applies what it is told):
+ *
+ *   x = s * in,   s one-pole smoothed (FX_GAIN_MS) toward the commanded gain
+ *
+ * Here, at the input, and not after the chain: the effects and every loop
+ * input see the normalized level, as they did when Surge's own volume did the
+ * normalizing, and the drive is driven by it. Unity (the startup state) is
+ * the input bit for bit, so an insert nobody configures stays transparent.
+ * The commanded gain is clamped to FX_GAIN_MAX_DB; NaN, inf and negative
+ * values are ignored. Everything else on this page (bypass, the level curves,
+ * the makeup, the bounds the self-test holds) is about the stage's OUTPUT:
+ * the effects add at most the makeup over what the stage hands them. The
+ * stage itself applies whatever gain it is told, up to FX_GAIN_MAX_DB, and
+ * the clamp to ±1.0 stays the backstop. Per stereo frame: nothing at a
+ * settled unity, 2 multiplies settled elsewhere, 4 more while it moves.
+ *
  * Cost of the engine per enabled stage, per stereo frame: depth smoothing 4
  * (none once it has settled), mix 6, level lookup 5, apply 2, enable crossfade
  * 6 => ~23 ops on top of the effect's own. Before per-effect levels the
@@ -194,6 +212,19 @@ typedef struct {
 /* The chain's makeup at full depth, in dB (see "Makeup" above). The one place
  * it is set: the self-test derives its bounds from it. */
 #define FX_MAKEUP_DB 1.0
+
+/* The stage gain (see "Stage gain" above). The most it will apply: a
+ * commanded gain above it is held to it. The real limit is the sender's
+ * ceiling (the calibrated peak); this only bounds a wrong sender.
+ * patch_browser/fx_host_protocol.py mirrors it (GAIN_MAX_DB), pinned by
+ * tests/test_fx_host.py. */
+#define FX_GAIN_MAX_DB 48.0
+/* Its smoothing time constant: a fader drag or a 30 dB step on a patch change
+ * is a ramp, not a zipper or a click. */
+#define FX_GAIN_MS 25.0
+/* Below this distance the gain lands on its target rather than approaching
+ * forever, so a return to unity is unity, bit for bit. */
+#define FX_GAIN_SNAP 1e-6f
 
 /* Bass bypass (#173). Below a crossover the signal skips the chain: a
  * Linkwitz-Riley 4th-order split (two cascaded Butterworth sections per band,
@@ -316,6 +347,12 @@ typedef struct {
     fx_svf bass_lo;                    /* mono: LP section 2 */
     fx_svf bass_lo_r;                  /* unused but by a self-test mutant */
     fx_svf bass_hi[FX_CHANNELS];       /* per channel: HP section 2 */
+
+    /* The stage gain (see "Stage gain" above), linear. */
+    float gain_target;  /* fx_engine_set_gain; 1.0 at init */
+    float gain;         /* in force, ramping toward the target */
+    float gain_alpha;   /* one-pole coefficient per frame; 0 means "jump" */
+    float gain_max;     /* FX_GAIN_MAX_DB, linear */
 } fx_engine;
 
 /* The effects this build ships. Index = the effect id on the wire. */
@@ -353,6 +390,11 @@ void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
  * it only stores. */
 void fx_engine_set_bass(fx_engine *e, float hz);
 
+/* The stage gain the next period ramps toward, linear (1.0 is unity). NaN,
+ * inf and negative values are ignored (the target stays as it was); anything
+ * above FX_GAIN_MAX_DB is held to it. RT-safe: it only stores. */
+void fx_engine_set_gain(fx_engine *e, float linear);
+
 /* One line of ASCII per datagram:
  *   `chainl <mask> <depth> <l0> <l1> ...`  the enabled effects, the shared
  *                            depth, and a level per effect in effect-id order
@@ -378,6 +420,12 @@ int fx_parse_control(const char *text, uint32_t *mask, float *depth,
  * reads as malformed there, which changes nothing). 0 is Off. Returns 1 and
  * fills `hz` (finite, >= 0, unclamped) on a well-formed message, 0 otherwise. */
 int fx_parse_bass(const char *text, float *hz);
+
+/* `gain <linear>`: the stage gain (see "Stage gain" above), a datagram of its
+ * own for the reason `bass` is one. A plain decimal: no sign, exponent, hex,
+ * NaN or inf. Returns 1 and fills `linear` (finite, >= 0, unclamped: the
+ * engine clamps) on a well-formed message, 0 otherwise. */
+int fx_parse_gain(const char *text, float *linear);
 
 #ifdef FX_SELFTEST
 /* Deliberately broken builds of the shipped effects, compiled only into the
@@ -454,6 +502,17 @@ extern const float *fx_test_bass_fit[FX_MAX_EFFECTS];
  * must). */
 extern int fx_test_no_makeup;
 extern int fx_test_makeup_unsmoothed;
+/* The stage gain broken: not applied at all, a step instead of the ramp,
+ * after the chain instead of before it, its FX_GAIN_MAX_DB clamp gone,
+ * applied twice (an addition, not a deletion: the level check must catch a
+ * stage that does too much), and the ramp with no landing, so it stalls a
+ * float's width short of its target (the unity check must catch it). */
+extern int fx_test_gain_off;
+extern int fx_test_gain_no_ramp;
+extern int fx_test_gain_post_chain;
+extern int fx_test_gain_unclamped;
+extern int fx_test_gain_twice;
+extern int fx_test_gain_no_snap;
 /* A rotary state's rotor speed in Hz (rotor 0 the horn, 1 the drum), for the
  * inertia check: the state is private to fx_dsp.c. */
 float fx_test_rotary_speed(const void *state, int rotor);

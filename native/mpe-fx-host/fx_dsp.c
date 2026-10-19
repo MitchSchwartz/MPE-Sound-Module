@@ -1858,6 +1858,12 @@ int fx_test_level_wobble;
 int fx_test_reverse_order;
 int fx_test_no_makeup;
 int fx_test_makeup_unsmoothed;
+int fx_test_gain_off;
+int fx_test_gain_no_ramp;
+int fx_test_gain_post_chain;
+int fx_test_gain_unclamped;
+int fx_test_gain_twice;
+int fx_test_gain_no_snap;
 static uint32_t g_wobble_t;
 #endif
 
@@ -2113,6 +2119,9 @@ int fx_engine_set_rate(fx_engine *e, float rate)
     }
     e->rate = rate;
     e->depth_alpha = one_pole_alpha(e->depth_ms, rate);
+    /* The stage gain keeps its value across a rate change: only its ramp's
+     * coefficient follows the rate. */
+    e->gain_alpha = one_pole_alpha(FX_GAIN_MS, rate);
     e->xfade_step = xfade_step_for(e->xfade_ms, rate);
     e->bass_glide = (float)(1.0 - exp(-(double)FX_CHUNK / ((FX_BASS_GLIDE_MS / 1000.0) * (double)rate)));
     bass_reset(e);
@@ -2136,6 +2145,9 @@ int fx_engine_init(fx_engine *e, const fx_effect_desc *table, int count, float r
     e->count = count;
     e->depth_ms = depth_ms;
     e->xfade_ms = xfade_ms;
+    e->gain = 1.0f;
+    e->gain_target = 1.0f;
+    e->gain_max = (float)pow(10.0, FX_GAIN_MAX_DB / 20.0);
     /* The run order: FX_CHAIN_ORDER's ids that this table has, then any it
      * does not name, in id order. */
     int n = 0;
@@ -2250,6 +2262,59 @@ static inline void depth_ramp_for(fx_engine *e, int k, float target, float *ramp
     e->depth[k] = d;
 }
 
+void fx_engine_set_gain(fx_engine *e, float linear)
+{
+    if (!isfinite(linear) || linear < 0.0f) {
+        return;   /* NaN, inf, negative: the target stays as it was */
+    }
+#ifdef FX_SELFTEST
+    if (fx_test_gain_unclamped) {
+        e->gain_target = linear;
+        return;
+    }
+#endif
+    e->gain_target = linear > e->gain_max ? e->gain_max : linear;
+}
+
+/* The stage gain (fx_dsp.h, "Stage gain") over `n` frames of `x`, in place.
+ * Settled at unity it touches nothing: the input, bit for bit. */
+static inline void gain_stage(fx_engine *e, float x[FX_CHANNELS][FX_CHUNK], uint32_t n)
+{
+#ifdef FX_SELFTEST
+    if (fx_test_gain_off) {
+        return;
+    }
+#endif
+    float g = e->gain;
+    const float t = e->gain_target;
+    if (g == t) {
+        if (g == 1.0f) {
+            return;
+        }
+        for (int ch = 0; ch < FX_CHANNELS; ch++) {
+            for (uint32_t i = 0; i < n; i++) {
+                x[ch][i] *= g;
+            }
+        }
+        return;
+    }
+    for (uint32_t i = 0; i < n; i++) {
+        const float next = g + e->gain_alpha * (t - g);
+        int land = e->gain_alpha <= 0.0f || fabsf(t - g) <= FX_GAIN_SNAP || next == g;
+#ifdef FX_SELFTEST
+        if (fx_test_gain_no_ramp) {
+            land = 1;
+        } else if (fx_test_gain_no_snap) {
+            land = e->gain_alpha <= 0.0f;
+        }
+#endif
+        g = land ? t : next;
+        x[0][i] *= g;
+        x[1][i] *= g;
+    }
+    e->gain = g;
+}
+
 void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
                        float *const out[FX_CHANNELS], uint32_t nframes,
                        uint32_t mask, float depth)
@@ -2293,6 +2358,23 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
                 memset(x_buf[ch], 0, n * sizeof(float));
             }
         }
+        /* The stage gain, before the chain: everything below sees its output. */
+#ifdef FX_SELFTEST
+        if (!fx_test_gain_post_chain) {
+            gain_stage(e, x_buf, n);
+        }
+        if (fx_test_gain_twice) {
+            /* Applied again with the ramp's last value: twice the dB. */
+            const float g2 = e->gain;
+            for (int ch = 0; ch < FX_CHANNELS; ch++) {
+                for (uint32_t i = 0; i < n; i++) {
+                    x_buf[ch][i] *= g2;
+                }
+            }
+        }
+#else
+        gain_stage(e, x_buf, n);
+#endif
 
         /* Any stage enabled or still fading out, at a depth that is not 0. */
         int live = 0;
@@ -2348,6 +2430,11 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
                 e->depth[k] = target[k];
                 feed_one(e, k, x_in, n);
             }
+#ifdef FX_SELFTEST
+            if (fx_test_gain_post_chain) {
+                gain_stage(e, x_buf, n);
+            }
+#endif
             for (int ch = 0; ch < FX_CHANNELS; ch++) {
                 if (out[ch] == NULL) {
                     continue;
@@ -2521,6 +2608,9 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
         }
 #ifdef FX_SELFTEST
         g_wobble_t += n;
+        if (fx_test_gain_post_chain) {
+            gain_stage(e, x_buf, n);
+        }
 #endif
 
         for (int ch = 0; ch < FX_CHANNELS; ch++) {
@@ -2594,6 +2684,21 @@ static int only_blanks(const char *rest)
     return *rest == '\0';
 }
 
+/* The next token is a plain decimal: digits and a point, no sign, exponent,
+ * hex, NaN or inf. */
+static int plain_decimal(const char *rest)
+{
+    while (*rest == ' ' || *rest == '\t') {
+        rest++;
+    }
+    for (const char *c = rest; *c != '\0' && *c != ' ' && *c != '\t' && *c != '\n' && *c != '\r'; c++) {
+        if ((*c < '0' || *c > '9') && *c != '.') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int fx_parse_bass(const char *text, float *hz)
 {
     while (*text == ' ' || *text == '\t') {
@@ -2606,21 +2711,37 @@ int fx_parse_bass(const char *text, float *hz)
     if (*rest != ' ' && *rest != '\t') {
         return 0;
     }
-    /* A plain decimal: digits and a point, no sign, exponent or hex. */
-    const char *tok = rest;
-    while (*tok == ' ' || *tok == '\t') {
-        tok++;
-    }
-    for (const char *c = tok; *c != '\0' && *c != ' ' && *c != '\t' && *c != '\n' && *c != '\r'; c++) {
-        if ((*c < '0' || *c > '9') && *c != '.') {
-            return 0;
-        }
+    if (!plain_decimal(rest)) {
+        return 0;
     }
     float value = 0.0f;
     if (!parse_float(&rest, &value) || !only_blanks(rest) || value < 0.0f) {
         return 0;
     }
     *hz = value;
+    return 1;
+}
+
+int fx_parse_gain(const char *text, float *linear)
+{
+    while (*text == ' ' || *text == '\t') {
+        text++;
+    }
+    if (strncmp(text, "gain", 4) != 0) {
+        return 0;
+    }
+    const char *rest = text + 4;
+    if (*rest != ' ' && *rest != '\t') {
+        return 0;
+    }
+    if (!plain_decimal(rest)) {
+        return 0;
+    }
+    float value = 0.0f;
+    if (!parse_float(&rest, &value) || !only_blanks(rest) || value < 0.0f) {
+        return 0;
+    }
+    *linear = value;
     return 1;
 }
 

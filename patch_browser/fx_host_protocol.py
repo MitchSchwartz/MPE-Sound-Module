@@ -49,6 +49,16 @@ and fades the split in and out, so a sender may send raw slider steps. The UI
 offers Off and `BASS_STEPS_HZ` (80-300 Hz); the client accepts 20-1000.
 
     bass 120.000000
+
+**Stage gain** (`gain <linear>`, `encode_gain`). One linear gain the client
+applies to its input before the chain, for per-patch normalization. 1.0 is
+unity, which is where a fresh client starts, and nothing sends it yet: a
+client that never receives one plays exactly as before. A datagram of its
+own, for the reason `bass` is one. The client ramps it (~25 ms), clamps it to
+`GAIN_MAX_DB` and ignores NaN, inf and negative values; the value is a plain
+decimal with eight places, so -90 dB still has three significant digits.
+
+    gain 3.98107171
 """
 
 from __future__ import annotations
@@ -132,6 +142,13 @@ BASS_STEPS_HZ: tuple[float, ...] = (
     80.0, 90.0, 100.0, 110.0, 120.0, 130.0, 140.0, 150.0,
     175.0, 200.0, 225.0, 250.0, 275.0, 300.0,
 )
+
+
+#: Must equal FX_GAIN_MAX_DB in native/mpe-fx-host/fx_dsp.h: the most stage
+#: gain the client applies. `tests/test_fx_host.py` reads the C and pins it.
+GAIN_MAX_DB = 48.0
+#: Unity: what a fresh client plays at.
+GAIN_UNITY = 1.0
 
 
 def enabled(value: str | None = None) -> bool:
@@ -326,3 +343,19 @@ def encode_bass(hz: float) -> bytes:
     if value > 0.0:
         value = max(BASS_MIN_HZ, min(BASS_MAX_HZ, value))
     return f"bass {value:.6f}".encode("ascii")
+
+
+def encode_gain(linear: float) -> bytes:
+    """The stage gain's datagram: a linear gain, 1.0 for unity.
+
+    Clamped to GAIN_MAX_DB, as the client clamps, so what is sent is what is
+    applied. Raises ValueError for a non-finite or negative value, for the
+    reason `encode` does.
+    """
+    if isinstance(linear, bool) or not isinstance(linear, (int, float)):
+        raise ValueError(f"gain must be a number, got {linear!r}")
+    value = float(linear)
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError(f"gain must be finite and >= 0, got {linear!r}")
+    value = min(value, 10.0 ** (GAIN_MAX_DB / 20.0))
+    return f"gain {value:.8f}".encode("ascii")
