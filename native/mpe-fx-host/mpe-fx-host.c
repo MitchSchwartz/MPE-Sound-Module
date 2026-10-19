@@ -36,7 +36,8 @@
  *   1. **The effects add at most FX_MAKEUP_DB (1 dB) over the stage output,
  *      scaled by depth.** The stage gain comes first (fx_dsp.h, "Stage
  *      gain"): it applies whatever gain it is commanded, up to
- *      FX_GAIN_MAX_DB, and starts at unity. Everything after it is held to
+ *      FX_GAIN_MAX_DB, and starts at unity, or at the last gain a previous
+ *      process was told (fx_gain_state.h). Everything after it is held to
  *      this bound against its output. Depth mixes toward the wet signal, never on top of it, and
  *      every effect's wet signal is held to its input's level (each says how
  *      in fx_dsp.c; fx_selftest.c measures it at every knob position). What a
@@ -67,6 +68,7 @@
 
 #define _GNU_SOURCE
 #include "fx_dsp.h"
+#include "fx_gain_state.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -165,9 +167,12 @@ static _Atomic float g_target_level[FX_MAX_EFFECTS];
  * as it always was. */
 static _Atomic float g_target_bass = 0.0f;
 /* The stage gain, linear (fx_dsp.h, "Stage gain"). Unity until a `gain`
- * datagram says otherwise: an unconfigured insert is transparent, and a
- * restarted one is back at the sender's value within its resend interval. */
+ * datagram says otherwise, so an unconfigured insert is transparent; but a
+ * restarted one starts at the last gain its predecessor was told, read from
+ * g_gain_state_path in main before activation (fx_gain_state.h). The control
+ * thread writes that file on every change: never the audio callback. */
 static _Atomic float g_target_gain = 1.0f;
+static char g_gain_state_path[4096] = FX_GAIN_STATE_DEFAULT;
 static _Atomic float g_rate = 0.0f;
 
 static int g_control_port = CONTROL_PORT_DEFAULT;
@@ -548,6 +553,10 @@ static void *control_thread(void *arg)
     /* `chainl` with eight levels is ~100 bytes. A datagram that fills the
      * buffer may have been cut short, and a cut number still parses: ignored. */
     char buf[256];
+    /* The gain the state file holds, so a resend of the same value (the
+     * sender's keepalive, once a second) writes nothing. */
+    float written = atomic_load_explicit(&g_target_gain, memory_order_relaxed);
+    int write_failed = 0;
     while (g_running) {
         ssize_t got = recvfrom(sock, buf, sizeof(buf), 0, NULL, NULL);
         if (got <= 0 || (size_t)got >= sizeof(buf)) {
@@ -562,6 +571,16 @@ static void *control_thread(void *arg)
         if (fx_parse_gain(buf, &gain)) {
             /* Range is the engine's (fx_engine_set_gain clamps). */
             atomic_store_explicit(&g_target_gain, gain, memory_order_relaxed);
+            if (gain != written) {
+                if (fx_gain_state_write(g_gain_state_path, gain) == 0) {
+                    written = gain;
+                    write_failed = 0;
+                } else if (!write_failed) {
+                    write_failed = 1;   /* once per run of failures, not once a second */
+                    fprintf(stderr, "mpe-fx-host: cannot keep the stage gain in %s (%s); a "
+                            "restart will start at unity\n", g_gain_state_path, strerror(errno));
+                }
+            }
             continue;
         }
         if (fx_parse_bass(buf, &bass)) {
@@ -603,6 +622,10 @@ static void load_env(void)
         if (end != loops && *end == '\0') {
             g_loops = value < 0 ? 0 : (value > LOOPS_MAX ? LOOPS_MAX : (int)value);
         }
+    }
+    const char *state = getenv("MPE_FX_GAIN_STATE");
+    if (state != NULL && state[0] != '\0') {
+        snprintf(g_gain_state_path, sizeof(g_gain_state_path), "%s", state);
     }
     const char *port = getenv("MPE_FX_HOST_PORT");
     if (port != NULL && port[0] != '\0') {
@@ -669,6 +692,18 @@ int main(int argc, char **argv)
         return 1;
     }
     atomic_store_explicit(&g_rate, rate, memory_order_relaxed);
+
+    /* The last gain the previous process was told, in force from the first
+     * period (no ramp from unity): a restart must not play a cut patch loud
+     * for the second until the sender's next resend. No file: unity, as an
+     * insert nobody has configured. */
+    float restored = 1.0f;
+    if (fx_gain_state_read(g_gain_state_path, &restored)) {
+        fx_engine_start_gain(&g_engine, restored);
+        atomic_store_explicit(&g_target_gain, restored, memory_order_relaxed);
+        fprintf(stderr, "mpe-fx-host: stage gain %.8f restored from %s\n", (double)restored,
+                g_gain_state_path);
+    }
 
     jack_set_process_callback(g_client, process, NULL);
     jack_set_sample_rate_callback(g_client, on_samplerate, NULL);

@@ -50,7 +50,8 @@ START = REPO_ROOT / "scripts" / "start-mpe-fx-host.sh"
 #: depend on besides the compiler. Not the client (mpe-fx-host.c) and not the
 #: Python protocol: the self-test never reads either. Its own switches are in
 #: the key too (_SELFTEST_ENV).
-SELFTEST_INPUTS = ("fx_dsp.c", "fx_dsp.h", "fx_selftest.c", "Makefile")
+SELFTEST_INPUTS = ("fx_dsp.c", "fx_dsp.h", "fx_gain_state.c", "fx_gain_state.h", "fx_selftest.c",
+                   "Makefile")
 _SELFTEST_ENV = ("CC", "CFLAGS", "LDFLAGS", "FX_SELFTEST_FULL")
 
 
@@ -300,7 +301,7 @@ class SelfTestCache(unittest.TestCase):
         rule = re.search(r"^selftest-bin:.*?\n\t(.*?)\n", (NATIVE / "Makefile").read_text(), re.S | re.M)
         self.assertIsNotNone(rule, "no selftest-bin rule in the Makefile")
         compiled = set(re.findall(r"\b([\w-]+\.c)\b", rule.group(1)))
-        self.assertEqual(compiled, {"fx_selftest.c", "fx_dsp.c"})
+        self.assertEqual(compiled, {"fx_selftest.c", "fx_dsp.c", "fx_gain_state.c"})
         self.assertLessEqual(compiled, set(SELFTEST_INPUTS))
         for source in compiled:
             for header in re.findall(r'#include "([^"]+)"', (NATIVE / source).read_text()):
@@ -781,6 +782,68 @@ class Gate(unittest.TestCase):
         proc = subprocess.run(["bash", str(START), "--check"], env=env,
                               capture_output=True, text=True, timeout=30)
         self.assertNotEqual(proc.returncode, 0)
+
+
+class GainStateRestart(unittest.TestCase):
+    """A restarted client starts at the last stage gain, not at unity for up to
+    the sender's resend interval. The file's round trip, its refusals and the
+    first-frame level are fx_selftest's "stage gain state file" and "stage gain
+    restart" checks; these read the client's C, since there is no jackd here."""
+
+    def _function(self, source: str, signature: str) -> str:
+        start = source.index(signature)
+        end = source.index("\n}\n", start)
+        return source[start:end]
+
+    def test_main_restores_before_activating(self):
+        main = self._function(C_CLIENT.read_text(), "int main(")
+        read = main.index("fx_gain_state_read(g_gain_state_path, &restored)")
+        self.assertLess(read, main.index("jack_activate(g_client)"))
+        self.assertLess(main.index("fx_engine_init("), read)
+        restore = main[read:main.index("jack_activate(g_client)")]
+        self.assertIn("fx_engine_start_gain(&g_engine, restored)", restore)
+        self.assertIn("atomic_store_explicit(&g_target_gain, restored", restore)
+
+    def test_the_control_thread_writes_and_the_callback_does_not(self):
+        source = C_CLIENT.read_text()
+        control = self._function(source, "static void *control_thread(")
+        self.assertIn("fx_gain_state_write(g_gain_state_path, gain)", control)
+        self.assertIn("if (gain != written)", control, "a resend of the same value writes nothing")
+        process = self._function(source, "static int process(")
+        self.assertNotIn("fx_gain_state", process)
+
+    def test_the_path_matches_the_python_and_the_unit(self):
+        header = (NATIVE / "fx_gain_state.h").read_text()
+        match = re.search(r'#define FX_GAIN_STATE_DEFAULT "([^"]+)"', header)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), proto.GAIN_STATE_DEFAULT)
+        self.assertIn('getenv("MPE_FX_GAIN_STATE")', C_CLIENT.read_text())
+        # /run/mpe is the unit's RuntimeDirectory, kept across its restarts.
+        self.assertTrue(proto.GAIN_STATE_DEFAULT.startswith("/run/mpe/"))
+        lines = {line.strip() for line in UNIT.read_text().splitlines()}
+        self.assertIn("RuntimeDirectory=mpe", lines)
+        self.assertIn("RuntimeDirectoryPreserve=yes", lines)
+
+    def test_python_reads_what_the_client_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state"
+            self.assertIsNone(proto.read_gain_state(str(path)))
+            for text, want in (("gain 0.10000000\n", 0.1), ("gain 1.00000000", 1.0)):
+                path.write_text(text)
+                self.assertEqual(proto.read_gain_state(str(path)), want)
+            for bad in ("", "gain -1\n", "gain 1e3\n", "gain nan\n", "gain 1\ngain 2\n", "x 1\n",
+                        "gain " + "0" * 70):
+                path.write_text(bad)
+                self.assertIsNone(proto.read_gain_state(str(path)), bad)
+            old = os.environ.get("MPE_FX_GAIN_STATE")
+            os.environ["MPE_FX_GAIN_STATE"] = str(path)
+            try:
+                self.assertEqual(proto.gain_state_path(), str(path))
+            finally:
+                if old is None:
+                    os.environ.pop("MPE_FX_GAIN_STATE", None)
+                else:
+                    os.environ["MPE_FX_GAIN_STATE"] = old
 
 
 class Unit(unittest.TestCase):

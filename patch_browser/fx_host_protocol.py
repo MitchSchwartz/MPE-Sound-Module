@@ -59,6 +59,11 @@ own, for the reason `bass` is one. The client ramps it (~25 ms), clamps it to
 decimal with eight places, so -90 dB still has three significant digits.
 
     gain 3.98107171
+
+The client keeps the last gain it was told in a file (`gain_state_path`,
+`/run/mpe/fx-stage-gain` unless `MPE_FX_GAIN_STATE` says otherwise; one line in
+the datagram's own format) and a restarted client starts at it, with no ramp
+from unity (`native/mpe-fx-host/fx_gain_state.h`). No file: unity.
 """
 
 from __future__ import annotations
@@ -170,6 +175,45 @@ def resolve_port() -> int:
     except (TypeError, ValueError):
         return DEFAULT_PORT
     return port if 1 <= port <= 65535 else DEFAULT_PORT
+
+
+#: Must equal FX_GAIN_STATE_DEFAULT in native/mpe-fx-host/fx_gain_state.h
+#: (`tests/test_fx_host.py` reads the C).
+GAIN_STATE_DEFAULT = "/run/mpe/fx-stage-gain"
+
+
+def gain_state_path() -> str:
+    """Where the client keeps the last stage gain it was told (MPE_FX_GAIN_STATE)."""
+    return os.environ.get("MPE_FX_GAIN_STATE", "").strip() or GAIN_STATE_DEFAULT
+
+
+def read_gain_state(path: str | None = None) -> float | None:
+    """The last stage gain the client applied, from its state file; None if the
+    file is missing or is not one well-formed `gain` line. Only a client that is
+    running and was told a new value writes it, so a reader that sees the value
+    it just sent knows the client took it."""
+    try:
+        with open(path or gain_state_path(), "rb") as handle:
+            raw = handle.read(65)
+    except OSError:
+        return None
+    if len(raw) > 64:
+        return None
+    try:
+        text = raw.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    parts = text.split()
+    if len(parts) != 2 or parts[0] != "gain" or not text.startswith("gain "):
+        return None
+    number = parts[1]
+    if not number or any(c not in "0123456789." for c in number):
+        return None
+    try:
+        value = float(number)
+    except ValueError:
+        return None
+    return value if math.isfinite(value) else None
 
 
 def encode(effect_id: int, depth: float) -> bytes:

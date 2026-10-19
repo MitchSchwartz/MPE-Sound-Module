@@ -1862,6 +1862,7 @@ int fx_test_gain_off;
 int fx_test_gain_no_ramp;
 int fx_test_gain_post_chain;
 int fx_test_gain_unclamped;
+int fx_test_gain_start_ramps;
 int fx_test_gain_twice;
 int fx_test_gain_no_snap;
 static uint32_t g_wobble_t;
@@ -2274,6 +2275,17 @@ void fx_engine_set_gain(fx_engine *e, float linear)
     }
 #endif
     e->gain_target = linear > e->gain_max ? e->gain_max : linear;
+}
+
+void fx_engine_start_gain(fx_engine *e, float linear)
+{
+    fx_engine_set_gain(e, linear);   /* refuses NaN, inf, negative; clamps */
+#ifdef FX_SELFTEST
+    if (fx_test_gain_start_ramps) {
+        return;
+    }
+#endif
+    e->gain = e->gain_target;
 }
 
 /* The stage gain (fx_dsp.h, "Stage gain") over `n` frames of `x`, in place.

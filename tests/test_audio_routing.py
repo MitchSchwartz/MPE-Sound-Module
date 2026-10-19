@@ -310,7 +310,7 @@ class NativeMirrorTests(unittest.TestCase):
         _build_driver("METER", "native/mpe-peak-meter/mpe-peak-meter.c", cls.meter)
         cls.fx = cls.tmp / "fx"
         _build_driver("FX", "native/mpe-fx-host/mpe-fx-host.c", cls.fx,
-                      extra=("native/mpe-fx-host/fx_dsp.c",))
+                      extra=("native/mpe-fx-host/fx_dsp.c", "native/mpe-fx-host/fx_gain_state.c"))
         cls.cases = list(scenarios())
 
     @classmethod

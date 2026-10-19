@@ -395,6 +395,13 @@ void fx_engine_set_bass(fx_engine *e, float hz);
  * above FX_GAIN_MAX_DB is held to it. RT-safe: it only stores. */
 void fx_engine_set_gain(fx_engine *e, float linear);
 
+/* The stage gain in force from the first frame, with no ramp from unity: for
+ * a restarted host taking up the gain its predecessor last played at
+ * (fx_gain_state.h), before the client is activated. The same refusals and
+ * clamp as fx_engine_set_gain. Not for the audio callback's use: a jump
+ * mid-stream is the click the ramp exists to prevent. */
+void fx_engine_start_gain(fx_engine *e, float linear);
+
 /* One line of ASCII per datagram:
  *   `chainl <mask> <depth> <l0> <l1> ...`  the enabled effects, the shared
  *                            depth, and a level per effect in effect-id order
@@ -513,6 +520,9 @@ extern int fx_test_gain_post_chain;
 extern int fx_test_gain_unclamped;
 extern int fx_test_gain_twice;
 extern int fx_test_gain_no_snap;
+/* fx_engine_start_gain ramping from unity like fx_engine_set_gain: the
+ * restart check must catch it. */
+extern int fx_test_gain_start_ramps;
 /* A rotary state's rotor speed in Hz (rotor 0 the horn, 1 the drum), for the
  * inertia check: the state is private to fx_dsp.c. */
 float fx_test_rotary_speed(const void *state, int rotor);

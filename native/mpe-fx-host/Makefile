@@ -7,8 +7,8 @@ CFLAGS ?= -O2 -Wall -Wextra -std=c11
 LDFLAGS ?=
 
 BIN := mpe-fx-host
-SRC := mpe-fx-host.c fx_dsp.c
-HDR := fx_dsp.h
+SRC := mpe-fx-host.c fx_dsp.c fx_gain_state.c
+HDR := fx_dsp.h fx_gain_state.h
 
 # Overridable so the unit tests can build into a temp dir, not the tree.
 SELFTEST_BIN ?= fx-selftest
@@ -31,7 +31,7 @@ $(BIN): $(SRC) $(HDR)
 # DSP checks); `selftest` builds and runs every check, one worker per core
 # (FX_SELFTEST_JOBS=1 for the serial run).
 selftest-bin:
-	$(CC) $(CFLAGS) -Werror -DFX_SELFTEST -o $(SELFTEST_BIN) fx_selftest.c fx_dsp.c $(LDFLAGS) -lm
+	$(CC) $(CFLAGS) -Werror -DFX_SELFTEST -o $(SELFTEST_BIN) fx_selftest.c fx_dsp.c fx_gain_state.c $(LDFLAGS) -lm
 
 selftest: selftest-bin
 	$(abspath $(SELFTEST_BIN))

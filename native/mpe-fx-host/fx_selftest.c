@@ -53,7 +53,9 @@
 
 #define _GNU_SOURCE
 #include "fx_dsp.h"
+#include "fx_gain_state.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <math.h>
 #include <sched.h>
@@ -4981,6 +4983,129 @@ static void test_stage_before_chain(void)
     CHECK(c < 0.5, "control (stage after the chain) moved the harmonics %.2f dB", c);
 }
 
+/* A restarted host takes up the last gain (fx_gain_state.h). The file: what is
+ * written reads back to the datagram's precision, a second write replaces the
+ * first, and nothing is left beside it (the write goes through a rename).
+ * Refused, so the host starts at unity as it always did: a missing file, an
+ * empty one, one the datagram parser refuses (a sign, an exponent, nan, a
+ * second line, a word), and one too long to be ours. The writer refuses what
+ * the engine would ignore. */
+static int dir_entries(const char *dir)
+{
+    DIR *d = opendir(dir);
+    int n = 0;
+    if (d == NULL) {
+        return -1;
+    }
+    for (struct dirent *ent; (ent = readdir(d)) != NULL;) {
+        if (strcmp(ent->d_name, ".") != 0 && strcmp(ent->d_name, "..") != 0) {
+            n++;
+        }
+    }
+    closedir(d);
+    return n;
+}
+
+static int write_raw(const char *path, const char *text)
+{
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        return -1;
+    }
+    fputs(text, f);
+    return fclose(f);
+}
+
+static void test_stage_gain_state_file(void)
+{
+    const char *base = getenv("TMPDIR");
+    char dir[512], path[600];
+    snprintf(dir, sizeof(dir), "%s/fx-gain-state-XXXXXX", (base != NULL && base[0]) ? base : "/tmp");
+    CHECK(mkdtemp(dir) != NULL, "mkdtemp %s: %s", dir, strerror(errno));
+    snprintf(path, sizeof(path), "%s/fx-stage-gain", dir);
+    float got = -1.0f;
+    CHECK(!fx_gain_state_read(path, &got), "a missing file read as a gain");
+    CHECK(fx_gain_state_write(path, db_lin(-20.0)) == 0, "write failed: %s", strerror(errno));
+    CHECK(fx_gain_state_write(path, db_lin(12.0)) == 0, "second write failed");
+    CHECK(fx_gain_state_read(path, &got) && fabsf(got - db_lin(12.0)) <= 1e-7f,
+          "read back %.8f, wanted the second write %.8f", (double)got, (double)db_lin(12.0));
+    CHECK(dir_entries(dir) == 1, "%d files beside the state (a temporary left behind?)",
+          dir_entries(dir) - 1);
+    CHECK(fx_gain_state_write(path, NAN) != 0 && fx_gain_state_write(path, -1.0f) != 0 &&
+          fx_gain_state_write(path, INFINITY) != 0, "the writer kept NaN, -1 or inf");
+    CHECK(fx_gain_state_read(path, &got) && fabsf(got - db_lin(12.0)) <= 1e-7f,
+          "a refused write changed the file: %.8f", (double)got);
+    static const char *const bad[] = {
+        "", "gain -1.0\n", "gain 1e3\n", "gain nan\n", "gain 0.5\ngain 4.0\n", "hello\n",
+        "gain\n", "gain 0.5 0.5\n",
+        "gain 0.50000000000000000000000000000000000000000000000000000000000000\n",
+    };
+    int refused = 0;
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        CHECK(write_raw(path, bad[i]) == 0, "fixture write");
+        got = -1.0f;
+        if (!fx_gain_state_read(path, &got)) {
+            refused++;
+        } else {
+            CHECK(0, "state file %zu read as gain %.8f; wanted refused", i, (double)got);
+        }
+    }
+    /* Control: the reader is not refusing everything. */
+    CHECK(write_raw(path, "gain 0.25000000\n") == 0, "fixture write");
+    const int control = fx_gain_state_read(path, &got) && got == 0.25f;
+    if (g_verbose) {
+        printf("  stage gain file: round trip ok, %d of %zu malformed files refused; control "
+               "(well-formed) %s\n", refused, sizeof(bad) / sizeof(bad[0]), control ? "read" : "REFUSED");
+    }
+    CHECK(control, "control (a well-formed file) was refused");
+    unlink(path);
+    rmdir(dir);
+}
+
+/* The restored gain is in force from the first frame: an engine started at
+ * -20 dB plays its very first sample at -20 dB (within float rounding), and
+ * +12 dB likewise. Refused values leave it at unity; 1e6 starts at the clamp.
+ * Control: started through the ramp (fx_engine_set_gain's path), the first
+ * frame is within 1 dB of unity, 19 dB loud. */
+static double first_frame_db(float start)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    fx_engine_start_gain(&e, start);
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    for (uint32_t i = 0; i < PERIOD; i++) {
+        l[i] = r[i] = 1e-4f;
+    }
+    const float *const in[FX_CHANNELS] = { l, r };
+    float *const out[FX_CHANNELS] = { ol, or_ };
+    fx_engine_process(&e, in, out, PERIOD, BIT(0), 0.0f);
+    fx_engine_free(&e);
+    return 20.0 * log10((double)ol[0] / 1e-4);
+}
+
+static void test_stage_gain_restart(void)
+{
+    const double cut = first_frame_db(db_lin(-20.0));
+    const double boost = first_frame_db(db_lin(12.0));
+    const double nan_start = first_frame_db(NAN);
+    const double neg_start = first_frame_db(-1.0f);
+    const double top = first_frame_db(1e6f);
+    fx_test_gain_start_ramps = 1;
+    const double ramped = first_frame_db(db_lin(-20.0));
+    fx_test_gain_start_ramps = 0;
+    if (g_verbose) {
+        printf("  restart at -20 dB: first frame %+.4f dB; at +12: %+.4f; NaN %+.4f, -1 %+.4f, "
+               "1e6 %+.3f; control (ramped from unity) %+.4f dB\n", cut, boost, nan_start,
+               neg_start, top, ramped);
+    }
+    CHECK(fabs(cut + 20.0) <= STAGE_TOL_DB, "restart at -20 dB played its first frame at %+.4f", cut);
+    CHECK(fabs(boost - 12.0) <= STAGE_TOL_DB, "restart at +12 dB played its first frame at %+.4f",
+          boost);
+    CHECK(fabs(nan_start) <= STAGE_TOL_DB && fabs(neg_start) <= STAGE_TOL_DB,
+          "a refused start moved the stage: NaN %+.4f, -1 %+.4f", nan_start, neg_start);
+    CHECK(fabs(top - FX_GAIN_MAX_DB) <= STAGE_TOL_DB, "a start at 1e6 played at %+.3f dB", top);
+    CHECK(fabs(ramped) <= 1.0, "control (start ramped from unity) passed: %+.4f dB", ramped);
+}
 
 /* ========================================================================= */
 /* The runner                                                                 */
@@ -5109,6 +5234,8 @@ CASE0(test_stage_gain_ramp)
 CASE0(test_stage_gain_unity)
 CASE0(test_stage_gain_clamp)
 CASE0(test_stage_before_chain)
+CASE0(test_stage_gain_state_file)
+CASE0(test_stage_gain_restart)
 
 /* The pack's level bound: part arg = (k * LB_N + v) * N_LEVEL_SIGNALS + sgi. */
 static int g_lb_case[N_FX][LB_N][N_LEVEL_SIGNALS];
@@ -5269,6 +5396,8 @@ static void build_cases(void)
     add_case("stage gain unity", 0, case_test_stage_gain_unity, NULL, 1);
     add_case("stage gain clamp", 0, case_test_stage_gain_clamp, NULL, 1);
     add_case("stage before chain", 0, case_test_stage_before_chain, NULL, 1);
+    add_case("stage gain state file", 0, case_test_stage_gain_state_file, NULL, 1);
+    add_case("stage gain restart", 0, case_test_stage_gain_restart, NULL, 1);
 }
 
 static int selftest_jobs(void)
