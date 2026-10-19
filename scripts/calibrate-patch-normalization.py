@@ -94,7 +94,10 @@ from patch_browser.patch_pressure import (  # noqa: E402
     resolve_light_touch_target,
 )
 from patch_browser.patch_loader import PatchLoader
-from patch_browser.patch_sidecar_key import resolve_storage_key
+from patch_browser.patch_sidecar_key import (
+    resolve_storage_key,
+    stable_key_from_absolute_path,
+)
 from patch_browser.surge_audio import DEFAULT_BUFFER, DEFAULT_SAMPLE_RATE  # noqa: E402
 from patch_browser.patch_scanner import (
     FAVORITES_NAME,
@@ -195,7 +198,7 @@ def parse_args() -> argparse.Namespace:
         "--limit",
         type=int,
         default=0,
-        help="Max patches to process (0 = all)",
+        help="Max patches to process, counted after the missing/--force filter (0 = all)",
     )
     parser.add_argument(
         "--force",
@@ -375,11 +378,7 @@ def collect_patch_paths(args: argparse.Namespace) -> list[Path]:
                         continue  # a view of a patch listed under its own category
                     paths.append(Path(patch["path"]))
 
-    # Deduplicate by patch stem (favorites copies share calibration key)
-    by_name: dict[str, Path] = {}
-    for path in paths:
-        by_name[path.stem] = path
-    result = [by_name[k] for k in sorted(by_name)]
+    result = dedupe_by_patch_key(paths, SURGE_PATCH_DIRS)
 
     if args.patch:
         needle = args.patch.strip()
@@ -388,6 +387,65 @@ def collect_patch_paths(args: argparse.Namespace) -> list[Path]:
             print(f"Warning: no patches matched --patch {needle!r}", file=sys.stderr)
 
     return result
+
+
+def patch_target_key(path: Path, patch_dirs) -> str:
+    """The key a calibration of ``path`` is stored under: its stable key.
+
+    A path outside every root has no stable key; its resolved path stands in, so
+    two such files never collapse just because their names match.
+    """
+    key = stable_key_from_absolute_path(path, patch_dirs)
+    return key if key else str(path.resolve())
+
+
+def dedupe_by_patch_key(paths: list[Path], patch_dirs) -> list[Path]:
+    """One target per stable key, sorted by name.
+
+    Same-named patches in different roots or folders (factory ``Keys/Church`` and
+    a third-party ``Church``) are different patches with different store entries,
+    so both stay.
+    """
+    by_key: dict[str, Path] = {}
+    for path in paths:
+        by_key.setdefault(patch_target_key(path, patch_dirs), path)
+    return sorted(by_key.values(), key=lambda p: (p.stem, patch_target_key(p, patch_dirs)))
+
+
+def select_targets(
+    patch_paths: list[Path],
+    store: PatchNormalizationStore,
+    *,
+    verify_only: bool,
+    force: bool,
+    limit: int,
+    patch_dirs=SURGE_PATCH_DIRS,
+) -> list[Path]:
+    """Patches this run will measure, decided per stable key, then capped.
+
+    ``store`` must have ``patch_dirs`` set too, so each lookup is by the stable
+    key derived from the path. ``limit`` counts targets after the filter, so a pilot
+    of N on a mostly calibrated library still measures N patches.
+    """
+    if verify_only:
+        targets = [
+            p
+            for p in patch_paths
+            if store.get_calibrated_gain_db(p.stem, patch_path=str(p)) is not None
+        ]
+    elif force:
+        targets = list(patch_paths)
+    else:
+        missing_keys = set(store.list_missing(patch_path_records(patch_paths)))
+        targets = [
+            p
+            for p in patch_paths
+            if resolve_storage_key(p.stem, patch_path=str(p), patch_dirs=patch_dirs)
+            in missing_keys
+        ]
+    if limit > 0:
+        targets = targets[:limit]
+    return targets
 
 
 def patch_path_records(paths: list[Path]) -> list[dict]:
@@ -1010,7 +1068,7 @@ def calibrate_patch(
 ) -> CalibrateResult:
     name = patch_path.stem
     if dry_run:
-        existing = store.get_entry(name)
+        existing = store.get_entry(name, patch_path=str(patch_path))
         status = "skip (has entry)" if existing and existing.get("gain_db") is not None else "would calibrate"
         print(f"  [{status}] {name}")
         return CalibrateResult(ok=False)
@@ -1146,8 +1204,6 @@ def main() -> int:
         audio_device = None  # filled in setup below
 
     patch_paths = collect_patch_paths(args)
-    if args.limit > 0:
-        patch_paths = patch_paths[: args.limit]
 
     if not patch_paths:
         msg = "No patches matched the selection."
@@ -1164,24 +1220,14 @@ def main() -> int:
     pressure_snapshot = json.loads(pressure_path.read_text()) if pressure_path.exists() else {}
     plateau = PlateauGuard()
     patch_records = patch_path_records(patch_paths)
-    if args.verify_only:
-        targets = [
-            p
-            for p in patch_paths
-            if store.get_calibrated_gain_db(p.stem, patch_path=str(p)) is not None
-        ]
-    elif args.force or args.mock_lufs is not None:
-        targets = patch_paths
-    else:
-        missing_keys = set(store.list_missing(patch_records))
-        targets = [
-            p
-            for p in patch_paths
-            if resolve_storage_key(
-                p.stem, patch_path=str(p), patch_dirs=SURGE_PATCH_DIRS
-            )
-            in missing_keys
-        ]
+    targets = select_targets(
+        patch_paths,
+        store,
+        verify_only=args.verify_only,
+        force=args.force or args.mock_lufs is not None,
+        limit=args.limit,
+        patch_dirs=SURGE_PATCH_DIRS,
+    )
 
     print(f"Output: {output_path}")
     capture_label = audio_device if audio_device else "(resolved after Surge restart)"
@@ -1200,7 +1246,8 @@ def main() -> int:
     print(
         f"Targets: {len(targets)} patch(es) ({len(patch_paths)} in scope, "
         f"{missing_count} missing entries"
-        f"{', force overwrite' if args.force else ''})"
+        f"{', force overwrite' if args.force else ''}"
+        f"{f', limit {args.limit}' if args.limit > 0 else ''})"
     )
 
     scope_label = (
