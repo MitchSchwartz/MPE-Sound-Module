@@ -219,6 +219,9 @@ class Controls(unittest.TestCase):
         ):
             results = cal.run_controls(loader, object(), "dev", Path("/p/Ref.fxp"), stage_sender=stage)
         self.assertEqual([r.name for r in results], ["positive", "repeatability", "isolation"])
+        # The control patch is measured only once Surge confirms it loaded (#198).
+        self.assertEqual(loader.load_patch.call_args.kwargs["confirm_timeout_s"],
+                         cal.PATCH_LOAD_CONFIRM_TIMEOUT_S)
         self.assertTrue(all(r.ok for r in results), results)
         padded = pn.padded_volume(0.8, cal.CONTROL_PAD_DB)
         self.assertEqual(line, [
