@@ -19,6 +19,7 @@ import math
 import os
 import re
 import signal
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -93,7 +94,7 @@ from patch_browser.patch_pressure import (  # noqa: E402
     default_pressure_path,
     resolve_light_touch_target,
 )
-from patch_browser.patch_loader import PatchLoader
+from patch_browser.patch_loader import OSC_OUT_PORT, PatchLoader
 from patch_browser.patch_sidecar_key import (
     resolve_storage_key,
     stable_key_from_absolute_path,
@@ -130,6 +131,11 @@ DEFAULT_PI_CAPTURE = "plughw:1,0"
 MIN_VALID_LUFS = -39.0  # legacy reference only — validity uses peak floor below
 MIN_VALID_TRUE_PEAK_DBTP = -45.0  # reject captures with no audible Surge output
 PATCH_LOAD_SETTLE_SECONDS = 0.75
+# A measurement starts only once Surge reports the patch's own path as loaded.
+# Large wavetable patches take a while on the Pi; past this the load has failed.
+PATCH_LOAD_CONFIRM_TIMEOUT_S = 10.0
+# Loads failing back to back mean Surge is not loading anything: stop the run.
+LOAD_FAILURES_TO_HALT = 3
 MEASURE_RETRY_INTERVAL_SECONDS = 3.0
 MEASURE_MAX_ATTEMPTS = len(GESTURE_DURATIONS_SECONDS)  # ~0, 3, 8, 16s within ~27s total
 
@@ -141,6 +147,7 @@ FAILURE_REPORT_PATH = Path("/tmp/calibration-last-failure.json")
 class CalibrateResult:
     ok: bool
     verify_failed: bool = False
+    load_failed: bool = False
     lufs_light: float | None = None
     lufs_strike: float | None = None
     lufs_sustain: float | None = None
@@ -281,8 +288,10 @@ def emit_progress(args: argparse.Namespace, payload: dict) -> None:
 
 # A run whose readings stop depending on the patch is measuring something
 # else: a patch load that no longer takes, or a note that never released.
-# Distinct patches reading within PLATEAU_DB of each other on both anchors,
-# PLATEAU_PATCHES in a row, halt the run and roll those entries back.
+# The last PLATEAU_PATCHES distinct patches all reading within PLATEAU_DB of
+# their own median, on both anchors, halt the run and roll those entries back.
+# The median, not the first reading: measured against the first, one jittery
+# reading 0.32 dB off it restarted the count and a 5-patch plateau got through.
 PLATEAU_PATCHES = 4
 PLATEAU_DB = 0.3
 
@@ -291,17 +300,21 @@ class PlateauGuard:
     def __init__(self, patches: int = PLATEAU_PATCHES, tolerance_db: float = PLATEAU_DB) -> None:
         self.patches = patches
         self.tolerance_db = tolerance_db
-        self._run: list[tuple[Path, float, float]] = []
+        self._recent: list[tuple[Path, float, float]] = []
+
+    def _flat(self, values: list[float]) -> bool:
+        centre = statistics.median(values)
+        return all(abs(v - centre) <= self.tolerance_db for v in values)
 
     def add(self, path: Path, strike: float, sustain: float) -> list[Path] | None:
         """Record one reading; the plateau's patches once it is long enough to halt."""
-        if self._run:
-            _first, s0, u0 = self._run[0]
-            if abs(strike - s0) > self.tolerance_db or abs(sustain - u0) > self.tolerance_db:
-                self._run = []
-        self._run.append((path, strike, sustain))
-        if len(self._run) >= self.patches:
-            return [p for p, _s, _u in self._run]
+        self._recent = (self._recent + [(path, strike, sustain)])[-self.patches :]
+        if len(self._recent) < self.patches:
+            return None
+        if self._flat([s for _p, s, _u in self._recent]) and self._flat(
+            [u for _p, _s, u in self._recent]
+        ):
+            return [p for p, _s, _u in self._recent]
         return None
 
 
@@ -563,6 +576,8 @@ def start_surge_loopback() -> str:
                 f"--buffer-size={buffer_size}",
                 f"--sample-rate={sample_rate}",
                 f"--osc-in-port={OSC_PORT}",
+                # Replies to /q/patch, which confirms each load (PatchLoader).
+                f"--osc-out-port={OSC_OUT_PORT}",
                 "--no-stdin",
             ],
             stdout=log,
@@ -598,6 +613,8 @@ def start_surge_standalone() -> str:
                 f"--buffer-size={buffer_size}",
                 f"--sample-rate={sample_rate}",
                 f"--osc-in-port={OSC_PORT}",
+                # Replies to /q/patch, which confirms each load (PatchLoader).
+                f"--osc-out-port={OSC_OUT_PORT}",
                 "--no-stdin",
             ],
             stdout=log,
@@ -996,6 +1013,18 @@ def measure_lufs(wav_path: Path) -> tuple[float, float]:
     return lufs, true_peak
 
 
+def load_patch_confirmed(loader: PatchLoader, patch_path: Path) -> bool:
+    """Load by full path; True only once Surge reports that same path loaded."""
+    return bool(
+        loader.load_patch(
+            str(patch_path),
+            apply_normalization=False,
+            capture_hold=False,
+            confirm_timeout_s=PATCH_LOAD_CONFIRM_TIMEOUT_S,
+        )
+    )
+
+
 def verify_patch(
     patch_path: Path,
     loader: PatchLoader,
@@ -1009,9 +1038,9 @@ def verify_patch(
     if not entry or entry.get("gain_db") is None:
         return VerifyResult(ok=False, skipped=True, reason="not calibrated")
     gain_db = float(entry["gain_db"])
-    if not loader.load_patch(str(patch_path), apply_normalization=False, capture_hold=False):
-        print(f"  [fail] OSC load failed: {name}", file=sys.stderr)
-        return VerifyResult(ok=False, reason="OSC load failed")
+    if not load_patch_confirmed(loader, patch_path):
+        print(f"  [fail] load not confirmed: {patch_path}", file=sys.stderr)
+        return VerifyResult(ok=False, reason="load not confirmed")
     loader.user_volume_trim = 1.0
     apply_measurement_gain(loader, gain_db)
     time.sleep(PATCH_LOAD_SETTLE_SECONDS)
@@ -1081,9 +1110,10 @@ def calibrate_patch(
         peak_sustain = true_peak
         lufs_light = (mock_lufs - 12.0) if touch_cal else None
     else:
-        if not loader.load_patch(str(patch_path), apply_normalization=False, capture_hold=False):
-            print(f"  [fail] OSC load failed: {name}", file=sys.stderr)
-            return CalibrateResult(ok=False)
+        if not load_patch_confirmed(loader, patch_path):
+            # Nothing is measured: the patch playing may not be this one.
+            print(f"  [fail] load not confirmed: {patch_path}", file=sys.stderr)
+            return CalibrateResult(ok=False, load_failed=True)
 
         if midi_out is None:
             return CalibrateResult(ok=False)
@@ -1306,6 +1336,7 @@ def main() -> int:
     updated = 0
     exit_code = 0
     peak_verify_failed = 0
+    load_failures_in_a_row = 0
     cal_attempted = 0
     verify_failed_count = 0
     cal_route = "loopback" if use_loopback else "soundblaster"
@@ -1447,6 +1478,9 @@ def main() -> int:
                     )
                     if result.verify_failed:
                         peak_verify_failed += 1
+                    load_failures_in_a_row = (
+                        load_failures_in_a_row + 1 if result.load_failed else 0
+                    )
                 except Exception as exc:
                     msg = f"{name}: {exc}"
                     print(f"  [fail] {msg}", file=sys.stderr)
@@ -1470,6 +1504,22 @@ def main() -> int:
                         "ok": result.ok,
                     },
                 )
+                if load_failures_in_a_row >= LOAD_FAILURES_TO_HALT:
+                    msg = (
+                        f"{load_failures_in_a_row} patch loads in a row were not confirmed "
+                        f"by Surge: it is not loading what is asked. Halted."
+                    )
+                    print(f"Error: {msg}", file=sys.stderr)
+                    write_failure_report(
+                        patch_index=index,
+                        patch_name=name,
+                        total=len(targets),
+                        reason="load not confirmed",
+                        exit_code=1,
+                    )
+                    emit_progress(args, {"type": "error", "message": msg})
+                    exit_code = 1
+                    break
                 if result.ok and result.lufs_strike is not None and result.lufs_sustain is not None:
                     stuck = plateau.add(path, result.lufs_strike, result.lufs_sustain)
                     if stuck:
