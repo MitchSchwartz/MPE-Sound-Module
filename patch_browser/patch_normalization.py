@@ -1,4 +1,17 @@
-"""Per-patch volume normalization — static calibration store and helpers."""
+"""Per-patch volume normalization — static calibration store and helpers.
+
+The one place the level of the trunk is decided (`stage_db`). Surge plays
+every patch at its authored volume; normalization, the Norm trim, device
+mode's headroom and the trim-mode Vol fader are one linear gain, applied by
+mpe-fx-host before its effects (`native/mpe-fx-host/fx_dsp.h`, "Stage gain")
+and sent by `PatchLoader`. Nothing sets Surge's `/param/*/amp/volume`: that
+parameter is read as a cube law (dB = 60·log10 v) and clamped to 0..1, so
+gains converted with 10^(dB/20) were cut three times too deep and boosts were
+lost (2026-10-19). `tests/test_stage_gain_guard.py` refuses a second site.
+
+When mpe-fx-host is not running, patches play as authored: the boosts are
+missing, the level never exceeds what Surge itself produces.
+"""
 
 from __future__ import annotations
 
@@ -18,20 +31,30 @@ TARGET_LUFS = -18.0
 # Sound-engineer spec: normalize close to 0 with headroom, not open-ended LUFS boost.
 SAFE_PEAK_DBTP = -3.0
 
-# Surge OSC /param/*/amp/volume ceiling (Pi headroom / xrun guard).
-MAX_AMP_VOLUME_LINEAR = 1.5
+# The calibration gesture may be trimmed up to this true peak and no further: the
+# Norm trim's ceiling (`norm_ceiling_db`). No limiter follows the stage.
+PEAK_CEILING_DBTP = 0.0
 
-# Runtime cap when per-patch normalization is active. Was 0.85 — but that clamped away
-# almost all of the calibrated gain for genuinely quiet patches (e.g. Acid needs +16.6dB /
-# 6.78x linear; 0.85 capped it to roughly unity, giving <1.5dB difference between norm on
-# and off). Raised to match the norm-off ceiling (MAX_AMP_VOLUME_LINEAR) — same Surge
-# amp/volume range either way, pending Pi xrun/CPU test under dense MPE polyphony
-# (2026-08-01, see PATCH_NORMALIZATION.md).
-NORM_MAX_AMP_VOLUME_LINEAR = MAX_AMP_VOLUME_LINEAR
+# Norm fader: trim offset from calibrated gain_db, symmetric so 0 (the calibrated
+# baseline) sits at the fader's centre. Double-tap clears it.
+NORM_TRIM_DB_MIN = -30.0
+NORM_TRIM_DB_MAX = 30.0
 
-# v2 Norm fader: trim offset from calibrated gain_db (-24..+12 dB; 0 = cal baseline).
-NORM_TRIM_DB_MIN = -24.0
-NORM_TRIM_DB_MAX = 12.0
+# Entries measured for the stage: Surge alone at its authored volume, the gain applied
+# arithmetically. An entry without it is uncalibrated: gain 0, trim 0, the patch plays
+# as authored until it is re-measured (its numbers were taken through amp/volume's
+# cube law and are in the wrong units).
+CAL_PATH = "fx-stage-v1"
+
+# Calibration captures whose sample peak reaches this are clipped: re-measured with
+# CAPTURE_PAD_DB applied through Surge's own volume law (`padded_volume`).
+CLIP_SAMPLE_PEAK_DBFS = -0.1
+CAPTURE_PAD_DB = 12.0
+
+# A patch whose amp/volume now reads differently from the calibration's was edited
+# since: its entry is stale and plays uncalibrated. Surge reports the value as text
+# with a few digits, so the tolerance is a display step, not float equality.
+AUTHORED_VOLUME_TOLERANCE = 0.002
 
 # Legacy aliases -- NormControl uses trim range; keep names for import stability.
 NORM_GAIN_DB_MIN = NORM_TRIM_DB_MIN
@@ -64,7 +87,7 @@ def repo_starter_path() -> Path:
 
 
 def db_to_linear(gain_db: float) -> float:
-    """Convert dB gain to Surge amp/volume linear scale (1.0 = unity)."""
+    """dB to a linear gain (1.0 = unity, -inf dB = 0)."""
     return 10.0 ** (gain_db / 20.0)
 
 
@@ -184,33 +207,178 @@ def volume_fader_display_pct(
     return round(max(0.0, min(1.0, ratio)) * 100)
 
 
-def volume_fader_to_amp_linear(
-    trim: float,
+def volume_fader_db_to_trim(
+    db: float | None,
     *,
-    patch_gain_linear: float,
-    cap: float,
     fader_min: float,
     fader_max: float,
-    norm_active: bool = False,
     floor_db: float = VOLUME_FADER_FLOOR_DB,
+    law: str | None = None,
 ) -> float:
-    """Map Vol fader to Surge amp/volume: mute at bottom, 0 dB trim at top."""
-    if trim <= fader_min:
-        return 0.0
-    if norm_active:
-        # Peak-safe gain_db is computed at calibration — do not re-clamp here (#31 Stage 1).
-        eff_max = max(0.0, float(patch_gain_linear))
-    else:
-        eff_max = min(patch_gain_linear, cap)
-    if eff_max <= 0:
-        return 0.0
+    """The fader position whose `volume_fader_trim_to_db` is `db` (None: mute).
 
-    db = volume_fader_trim_to_db(
-        trim, fader_min=fader_min, fader_max=fader_max, floor_db=floor_db
-    )
+    Below the floor is mute: the fader has no position quieter than its floor
+    other than the bottom.
+    """
+    if db is None or not math.isfinite(db) or db < floor_db:
+        return fader_min
+    if db >= 0.0:
+        return fader_max
+    if (law or volume_fader_law()) == VOL_FADER_LAW_LINEAR:
+        t = 1.0 - db / floor_db
+    else:
+        target = db * (_IEC_FADER_BOTTOM_DB / floor_db)
+        t = 1.0
+        for (t_lo, db_lo), (t_hi, db_hi) in zip(_IEC_FADER_POINTS, _IEC_FADER_POINTS[1:]):
+            if db_lo <= target <= db_hi:
+                t = t_lo + (t_hi - t_lo) * ((target - db_lo) / (db_hi - db_lo))
+                break
+    return fader_min + t * (fader_max - fader_min)
+
+
+def legacy_vol_fader_to_stage(trim: float, *, fader_min: float, fader_max: float) -> float:
+    """A trim-mode Vol fader position saved before the stage, moved so it sounds the same.
+
+    Until 2026-10-19 the fader's dB went to Surge's amp/volume through 10^(dB/20),
+    which Surge reads as a cube law: a fader labelled -10 dB cut 30. The stage
+    applies the label, so the saved position moves to the label that cuts what
+    was heard. Anything below the floor goes to mute: never louder than before.
+    """
+    db = volume_fader_trim_to_db(trim, fader_min=fader_min, fader_max=fader_max)
     if db is None:
+        return fader_min
+    return volume_fader_db_to_trim(3.0 * db, fader_min=fader_min, fader_max=fader_max)
+
+
+def is_calibrated(entry: dict[str, Any] | None) -> bool:
+    """An entry measured for the stage (CAL_PATH) with a gain. Anything else plays as authored."""
+    return (
+        isinstance(entry, dict)
+        and entry.get("cal_path") == CAL_PATH
+        and isinstance(entry.get("gain_db"), (int, float))
+        and math.isfinite(float(entry["gain_db"]))
+    )
+
+
+def norm_ceiling_db(entry: dict[str, Any] | None) -> float | None:
+    """The most gain_db + user_trim_db may be: the gesture's peak at PEAK_CEILING_DBTP.
+
+    None when the entry has no measured unity peak (no ceiling known). The
+    peak is the louder of the two anchors.
+    """
+    if not is_calibrated(entry):
+        return None
+    peaks = entry.get("true_peak_unity_dbtp")
+    if isinstance(peaks, dict):
+        values = [float(v) for v in peaks.values() if isinstance(v, (int, float))]
+    elif isinstance(peaks, (int, float)):
+        values = [float(peaks)]
+    else:
+        values = []
+    values = [v for v in values if math.isfinite(v)]
+    if not values:
+        return None
+    return PEAK_CEILING_DBTP - max(values)
+
+
+def stage_db(
+    *,
+    norm_db: float,
+    ceiling_db: float | None,
+    headroom_db: float,
+    vol_db: float | None,
+) -> float:
+    """The stage gain, in dB: the one formula for the level of the trunk.
+
+    `norm_db` is gain_db + user_trim_db (0 when normalization is off or the patch is
+    uncalibrated), held to `ceiling_db`. `headroom_db` is device mode's fixed cut (0 in
+    trim mode); `vol_db` is the trim-mode Vol fader (0 in device mode, None at mute).
+    Headroom and Vol only attenuate, so the ceiling applies to the norm part alone.
+    """
+    if vol_db is None:
+        return -math.inf
+    norm = float(norm_db)
+    if ceiling_db is not None:
+        norm = min(norm, float(ceiling_db))
+    return norm + min(0.0, float(headroom_db)) + min(0.0, float(vol_db))
+
+
+def norm_at_ceiling(norm_db: float, ceiling_db: float | None) -> bool:
+    """True when the ceiling is holding the norm part down (the fader has stopped acting)."""
+    return ceiling_db is not None and float(norm_db) > float(ceiling_db) + 1e-9
+
+
+def padded_volume(authored_volume: float, pad_db: float) -> float:
+    """Surge's amp/volume for a cut of `pad_db` below `authored_volume` (cube law)."""
+    return float(authored_volume) * 10.0 ** (-float(pad_db) / 60.0)
+
+
+def legacy_level_db(gain_db_old: float, trim_db_old: float) -> float:
+    """The level a pre-stage entry played at, in dB re amp/volume 1.0.
+
+    It sent amp/volume = g·t (gain and trim as 10^(dB/20)); Surge clamps that to
+    1.0 and reads it as 60·log10.
+    """
+    return 60.0 * math.log10(min(1.0, db_to_linear(float(gain_db_old) + float(trim_db_old))))
+
+
+def authored_level_db(authored_volume: float | None) -> float:
+    """60·log10 of the authored amp/volume. Unknown (or 0) reads as 1.0: 0 dB, the
+    loudest it can be, so a gain worked out against it errs quiet."""
+    if authored_volume is None or not math.isfinite(authored_volume) or authored_volume <= 0.0:
         return 0.0
-    return eff_max * db_to_linear(db)
+    return 60.0 * math.log10(min(1.0, float(authored_volume)))
+
+
+def migrate_trim_to_stage(
+    *,
+    gain_db_old: float,
+    trim_db_old: float,
+    gain_db_new: float,
+    authored_volume: float | None,
+) -> tuple[float, bool]:
+    """A pre-stage Norm trim, re-chosen so the new stage gives the level heard before.
+
+    `legacy_level_db` less the authored level is what the stage must apply; the new
+    trim is that less gain_db_new. An unknown authored volume errs quiet
+    (`authored_level_db`). Returns (trim, clamped): clamped when the trim fader's
+    range could not hold it.
+    """
+    wanted = (
+        legacy_level_db(gain_db_old, trim_db_old)
+        - authored_level_db(authored_volume)
+        - float(gain_db_new)
+    )
+    trim = clamp_user_trim_db(wanted)
+    return trim, abs(trim - wanted) > 1e-9
+
+
+def legacy_norm_db(entry: dict[str, Any] | None, authored_volume: float | None) -> float | None:
+    """For an entry calibrated before the stage: the stage gain that plays it at the
+    level it played at then. None when the entry carries no gain.
+
+    Bridges the deploy and the re-measurement (`CAL_PATH` entries replace these):
+    until then a cut patch stays cut. An unknown authored volume errs quiet.
+    """
+    if not isinstance(entry, dict) or is_calibrated(entry):
+        return None
+    gain = entry.get("gain_db")
+    if not isinstance(gain, (int, float)) or not math.isfinite(float(gain)):
+        return None
+    trim = entry.get("user_trim_db")
+    trim = float(trim) if isinstance(trim, (int, float)) else 0.0
+    return legacy_level_db(float(gain), trim) - authored_level_db(authored_volume)
+
+
+def is_stale(entry: dict[str, Any] | None, authored_volume: float | None) -> bool:
+    """A calibrated entry whose patch now has a different authored volume (edited
+    since): it plays as authored until re-measured. Unknown now: not stale."""
+    if not is_calibrated(entry) or authored_volume is None:
+        return False
+    was = entry.get("authored_volume")
+    if not isinstance(was, (int, float)):
+        return False
+    return abs(float(was) - float(authored_volume)) > AUTHORED_VOLUME_TOLERANCE
 
 
 def compute_gain_db(
@@ -447,16 +615,13 @@ class PatchNormalizationStore(SidecarKeyMixin):
         patch_path: str | None = None,
         stable_key: str | None = None,
     ) -> float | None:
-        """System-calibrated gain_db only (double-tap slider reset target)."""
+        """Stage-calibrated gain_db only; None for an uncalibrated entry."""
         entry = self.get_entry(
             patch_name, patch_path=patch_path, stable_key=stable_key
         )
-        if not entry:
+        if not is_calibrated(entry):
             return None
-        gain = entry.get("gain_db")
-        if gain is None:
-            return None
-        return float(gain)
+        return float(entry["gain_db"])
 
     def get_user_trim_db(
         self,
@@ -479,19 +644,45 @@ class PatchNormalizationStore(SidecarKeyMixin):
         patch_path: str | None = None,
         stable_key: str | None = None,
     ) -> float | None:
-        """Runtime gain: calibrated gain_db + user_trim_db offset (v2)."""
+        """Calibrated gain_db + user_trim_db, or None for an uncalibrated entry."""
         entry = self.get_entry(
             patch_name, patch_path=patch_path, stable_key=stable_key
         )
-        if not entry:
+        if not is_calibrated(entry):
             return None
-        calibrated = entry.get("gain_db")
         trim = entry.get("user_trim_db")
-        if calibrated is None and trim is None:
-            return None
-        base = float(calibrated) if calibrated is not None else 0.0
         offset = float(trim) if trim is not None else 0.0
-        return base + offset
+        return float(entry["gain_db"]) + offset
+
+    def stage_norm(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+        authored_volume: float | None = None,
+    ) -> tuple[float, float | None]:
+        """(norm_db, ceiling_db) for `stage_db`, given the patch's amp/volume as Surge
+        reports it after the load (None if it did not answer).
+
+        (0, None) when normalization is off, globally or for this patch, when the
+        patch has no calibration, or when it is stale (`is_stale`). An entry from
+        before the stage plays at its old level (`legacy_norm_db`).
+        """
+        kw = {"patch_path": patch_path, "stable_key": stable_key}
+        if not self.is_effectively_enabled(patch_name, **kw):
+            return 0.0, None
+        entry = self.get_entry(patch_name, **kw)
+        if is_calibrated(entry):
+            if is_stale(entry, authored_volume):
+                return 0.0, None
+            trim = entry.get("user_trim_db")
+            norm = float(entry["gain_db"]) + (float(trim) if trim is not None else 0.0)
+            return norm, norm_ceiling_db(entry)
+        legacy = legacy_norm_db(entry, authored_volume)
+        if legacy is None:
+            return 0.0, None
+        return legacy, None
 
     def get_slider_default_gain_db(
         self,
@@ -637,20 +828,6 @@ class PatchNormalizationStore(SidecarKeyMixin):
             patch_name, patch_path=patch_path, stable_key=stable_key
         )
 
-    def get_gain_linear(
-        self,
-        patch_name: str,
-        *,
-        patch_path: str | None = None,
-        stable_key: str | None = None,
-    ) -> float:
-        gain_db = self.get_gain_db(
-            patch_name, patch_path=patch_path, stable_key=stable_key
-        )
-        if gain_db is None:
-            return 1.0
-        return db_to_linear(gain_db)
-
     def set_calibration(
         self,
         patch_name: str,
@@ -664,9 +841,16 @@ class PatchNormalizationStore(SidecarKeyMixin):
         cal_route: str | None = None,
         strike_lufs: float | None = None,
         sustain_lufs: float | None = None,
+        cal_path: str | None = CAL_PATH,
+        lufs_unity: dict[str, float] | None = None,
+        true_peak_unity_dbtp: dict[str, float] | None = None,
+        authored_volume: float | None = None,
+        capture_padded_db: float | None = None,
         patch_path: str | None = None,
         stable_key: str | None = None,
-    ) -> None:
+    ) -> dict[str, Any] | None:
+        """Write a calibration. Returns the trim migration's record when this replaced a
+        pre-stage entry that had a user trim (`migrate_trim_to_stage`), else None."""
         key = self._storage_key(
             patch_name, patch_path=patch_path, stable_key=stable_key
         )
@@ -697,16 +881,47 @@ class PatchNormalizationStore(SidecarKeyMixin):
             entry["strike_lufs"] = round(float(strike_lufs), 2)
         if sustain_lufs is not None:
             entry["sustain_lufs"] = round(float(sustain_lufs), 2)
+        if cal_path is not None:
+            entry["cal_path"] = cal_path
+        if lufs_unity is not None:
+            entry["lufs_unity"] = {k: round(float(v), 2) for k, v in lufs_unity.items()}
+        if true_peak_unity_dbtp is not None:
+            entry["true_peak_unity_dbtp"] = {
+                k: round(float(v), 2) for k, v in true_peak_unity_dbtp.items()
+            }
+        if authored_volume is not None:
+            entry["authored_volume"] = round(float(authored_volume), 6)
+        if capture_padded_db is not None:
+            entry["capture_padded_db"] = round(float(capture_padded_db), 2)
+        migration: dict[str, Any] | None = None
         if existing:
+            if "user_gain_db" in existing and "user_trim_db" not in existing:
+                existing = _migrate_legacy_user_gain(existing)
             if "user_trim_db" in existing:
                 entry["user_trim_db"] = existing["user_trim_db"]
-            elif "user_gain_db" in existing:
-                entry = _migrate_legacy_user_gain(
-                    {**entry, "user_gain_db": existing["user_gain_db"]}
-                )
+                for carried in ("user_trim_db_legacy",):
+                    if carried in existing:
+                        entry[carried] = existing[carried]
+                if (
+                    entry.get("cal_path") == CAL_PATH
+                    and not is_calibrated(existing)
+                    and existing.get("gain_db") is not None
+                ):
+                    old_trim = float(existing["user_trim_db"])
+                    trim, clamped = migrate_trim_to_stage(
+                        gain_db_old=float(existing["gain_db"]),
+                        trim_db_old=old_trim,
+                        gain_db_new=float(gain_db),
+                        authored_volume=authored_volume,
+                    )
+                    entry["user_trim_db"] = round(trim, 3)
+                    entry["user_trim_db_legacy"] = old_trim
+                    migration = {"key": key, "old": old_trim, "new": round(trim, 3),
+                                 "clamped": clamped}
         if matched and matched != key:
             self._data.pop(matched, None)
         self._data[key] = entry
+        return migration
 
     def list_missing(self, patches: list[dict]) -> list[str]:
         missing: list[str] = []
@@ -725,7 +940,7 @@ class PatchNormalizationStore(SidecarKeyMixin):
                 patch_path=patch.get("path"),
                 stable_key=patch.get("stable_key"),
             )
-            if not entry or entry.get("gain_db") is None:
+            if not is_calibrated(entry):
                 missing.append(key)
         return sorted(missing)
 

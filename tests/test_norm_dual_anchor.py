@@ -7,10 +7,8 @@ import unittest
 from patch_browser.patch_normalization import (
     compute_gain_db,
     compute_gain_db_dual_anchor,
-    db_to_linear,
-    volume_fader_to_amp_linear,
+    stage_db,
 )
-from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 
 
 class DualAnchorGainTests(unittest.TestCase):
@@ -29,27 +27,11 @@ class DualAnchorGainTests(unittest.TestCase):
         self.assertGreater(sustain_gain, 0.0)
         self.assertAlmostEqual(dual, strike_gain)
 
-    def test_norm_active_applies_full_calibrated_linear_gain(self) -> None:
-        gain_linear = db_to_linear(18.0)
-        capped = volume_fader_to_amp_linear(
-            1.0,
-            patch_gain_linear=gain_linear,
-            cap=1.5,
-            fader_min=VOLUME_MIN,
-            fader_max=VOLUME_MAX,
-            norm_active=False,
+    def test_norm_active_applies_the_full_calibrated_gain(self) -> None:
+        """No cap between the calibration and the stage: +18 dB is +18 dB."""
+        self.assertEqual(
+            stage_db(norm_db=18.0, ceiling_db=None, headroom_db=0.0, vol_db=0.0), 18.0
         )
-        full = volume_fader_to_amp_linear(
-            1.0,
-            patch_gain_linear=gain_linear,
-            cap=1.5,
-            fader_min=VOLUME_MIN,
-            fader_max=VOLUME_MAX,
-            norm_active=True,
-        )
-        self.assertLess(capped, full)
-        self.assertAlmostEqual(full, gain_linear)
-
 
 if __name__ == "__main__":
     unittest.main()

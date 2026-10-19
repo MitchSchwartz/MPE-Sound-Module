@@ -2,10 +2,12 @@
 """Load a Surge patch the way the touch UI does. Usage: load-patch-osc.py PATCH.fxp
 
 Measurement harnesses load patches through here (scripts/lib/measure-run-as-user.sh
-mpe_load_patch_osc). Surge's level goes through the UI's volume authority before
+mpe_load_patch_osc). The stage gain goes through the UI's volume authority before
 the load: device mode keeps DEVICE_MODE_SURGE_TRIM_DB, trim mode uses the saved
 fader. A fresh PatchLoader would otherwise send unity, 6 dB above the UI in
-device mode (2026-10-12 capacity run). The DAC is read, never written.
+device mode (2026-10-12 capacity run). The DAC is read, never written. A running
+touch UI re-sends its own stage gain within a second (STAGE_KEEPALIVE_S), so
+measure with the UI stopped or on the patch it has loaded.
 """
 import sys
 from pathlib import Path
@@ -24,9 +26,9 @@ def main() -> None:
     if not path.is_file():
         print(f"not found: {path}", file=sys.stderr)
         sys.exit(1)
-    from patch_browser.patch_loader import PatchLoader
+    from patch_browser.patch_loader import PatchLoader, UdpStageSender
 
-    if not load_patch_like_ui(PatchLoader(), path):
+    if not load_patch_like_ui(PatchLoader(stage_sender=UdpStageSender()), path):
         sys.exit(1)
     print(f"loaded {path.name}", flush=True)
 

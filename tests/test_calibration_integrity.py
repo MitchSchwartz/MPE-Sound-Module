@@ -6,10 +6,9 @@ Each test here pins down a specific failure mode discovered while debugging
 1. is_invalid_measurement must reject silent captures (low true peak / -inf)
    even when integrated LUFS looks parseable — but accept quiet real patches
    (healthy peak, low LUFS) so compute_gain_db can boost them.
-2. NORM_MAX_AMP_VOLUME_LINEAR must not silently regress back to a value that
-   clamps away most calibrated gain (the norm-cap bug).
-3. End-to-end: a patch with a large real-world gain_db must have that gain
-   actually reach the OSC send (within the cap), not get clamped to ~unity.
+2. End-to-end: a patch with a large real-world gain_db must have that gain
+   actually reach the stage, not get clamped to ~unity (the norm-cap bug; the
+   amp/volume cap it came from is gone with amp/volume).
 """
 
 from __future__ import annotations
@@ -30,8 +29,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from patch_browser.patch_loader import PatchLoader  # noqa: E402
 from patch_browser.patch_normalization import (  # noqa: E402
-    MAX_AMP_VOLUME_LINEAR,
-    NORM_MAX_AMP_VOLUME_LINEAR,
+    CAL_PATH,
     PatchNormalizationStore,
     db_to_linear,
 )
@@ -106,41 +104,37 @@ class CalibrationDurationHintTests(unittest.TestCase):
 
 
 class NormCapIntegrityTests(unittest.TestCase):
-    """Pins the norm-cap fix — calibrated gain must actually reach Surge."""
+    """Pins the norm-cap fix — calibrated gain must actually reach the stage."""
 
-    def test_norm_cap_matches_off_cap(self) -> None:
-        # If this ever regresses to a value well below MAX_AMP_VOLUME_LINEAR,
-        # norm-on vs norm-off becomes inaudible again for any patch needing a
-        # real boost — exactly the "no change with norm on or off" bug.
-        self.assertEqual(NORM_MAX_AMP_VOLUME_LINEAR, MAX_AMP_VOLUME_LINEAR)
+    def _sent_linear(self, sent: list[bytes]) -> float:
+        word, value = sent[-1].decode().split()
+        self.assertEqual(word, "gain")
+        return float(value)
 
-    def test_norm_cap_is_not_a_near_unity_clamp(self) -> None:
-        # Guardrail independent of the equality above: whatever the cap is,
-        # it must allow meaningfully more than unity gain, or normalization
-        # can't correct any patch that's genuinely quiet by design.
-        self.assertGreater(NORM_MAX_AMP_VOLUME_LINEAR, 1.2)
-
-    def test_large_calibrated_gain_reaches_osc_send_within_cap(self) -> None:
+    def test_large_calibrated_gain_reaches_the_stage(self) -> None:
         """End-to-end regression for the exact Acid bug shape."""
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
             gain_db = 16.61  # measured standalone-route gain for Acid, 2026-08-01
             user_path.write_text(
-                json.dumps({"Acid": {"gain_db": gain_db, "enabled": True, "lufs_measured": -51.2}})
+                json.dumps({"Acid": {"gain_db": gain_db, "cal_path": CAL_PATH, "enabled": True,
+                                     "lufs_measured": -51.2}})
             )
             store = PatchNormalizationStore(user_path)
-            loader = PatchLoader(normalization_store=store)
+            payloads: list[bytes] = []
+            loader = PatchLoader(normalization_store=store, stage_sender=payloads.append)
             loader.osc_client = FakeOscClient()
             loader.osc_enabled = True
             loader.user_volume_trim = 1.0
 
             loader.refresh_patch_volume("Acid")
-            sent = loader.osc_client.messages[-1][1]
+            sent = self._sent_linear(payloads)
 
             expected_linear = db_to_linear(gain_db)
             # Stage 1 (#31): norm-on sends full calibrated gain — peak safety is at cal time.
-            self.assertAlmostEqual(sent, expected_linear)
+            self.assertAlmostEqual(sent, expected_linear, places=6)
             self.assertGreaterEqual(sent, 1.5)  # meaningfully above unity, not clamped away
+            self.assertEqual(loader.osc_client.messages, [])
 
     def test_modest_gain_is_not_clamped_at_all(self) -> None:
         """Typical Quick Select gains (+4 to +18dB per docs) should pass through untouched
@@ -149,17 +143,18 @@ class NormCapIntegrityTests(unittest.TestCase):
             user_path = Path(tmp) / "user.json"
             gain_db = 3.0  # 3dB -> ~1.41x, comfortably under any reasonable cap
             user_path.write_text(
-                json.dumps({"Lead": {"gain_db": gain_db, "enabled": True, "lufs_measured": -21.0}})
+                json.dumps({"Lead": {"gain_db": gain_db, "cal_path": CAL_PATH, "enabled": True,
+                                     "lufs_measured": -21.0}})
             )
             store = PatchNormalizationStore(user_path)
-            loader = PatchLoader(normalization_store=store)
+            payloads: list[bytes] = []
+            loader = PatchLoader(normalization_store=store, stage_sender=payloads.append)
             loader.osc_client = FakeOscClient()
             loader.osc_enabled = True
             loader.user_volume_trim = 1.0
 
             loader.refresh_patch_volume("Lead")
-            sent = loader.osc_client.messages[-1][1]
-            self.assertAlmostEqual(sent, db_to_linear(gain_db))
+            self.assertAlmostEqual(self._sent_linear(payloads), db_to_linear(gain_db), places=6)
 
 
 class CalibrationPipelineDoesNotSilentlySaveGarbageTests(unittest.TestCase):
@@ -177,6 +172,7 @@ class CalibrationPipelineDoesNotSilentlySaveGarbageTests(unittest.TestCase):
             fake_loader.load_patch.return_value = True
             fake_loader.osc_enabled = True
             fake_loader.osc_client = mock.Mock()
+            fake_loader._authored_volume = 0.9
 
             if self.cal.is_invalid_measurement(lufs, true_peak):
                 strike_return = None
@@ -247,7 +243,7 @@ class CalibrateListMissingContractTests(unittest.TestCase):
 
             store_path = Path(tmp) / "normalization.json"
             store_path.write_text(
-                json.dumps({calibrated_key: {"gain_db": -2.0, "enabled": True}}),
+                json.dumps({calibrated_key: {"gain_db": -2.0, "cal_path": CAL_PATH, "enabled": True}}),
                 encoding="utf-8",
             )
             store = PatchNormalizationStore(store_path)
@@ -295,18 +291,6 @@ class MockLufsRefusesSaveTests(unittest.TestCase):
             self.assertIsNone(store.get_raw_gain_db("Mock"))
 
 
-class ClosedLoopThresholdTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.cal = load_cal_module()
-
-    def test_finalize_loop_uses_same_gate_as_save(self) -> None:
-        from patch_browser.patch_normalization import POST_GAIN_VERIFY_PEAK_MAX_DBTP
-
-        src = Path(self.cal.__file__).read_text()
-        self.assertIn("post_gain_verify_passes(last_peak)", src)
-        self.assertNotIn("SAFE_PEAK_DBTP + 0.5", src.split("def finalize_gain_with_closed_loop")[1].split("def is_invalid_measurement")[0])
-
-
 class PostGainVerifyGateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.cal = load_cal_module()
@@ -322,6 +306,7 @@ class PostGainVerifyGateTests(unittest.TestCase):
             fake_loader.load_patch.return_value = True
             fake_loader.osc_enabled = True
             fake_loader.osc_client = mock.Mock()
+            fake_loader._authored_volume = 0.9
             with (
                 mock.patch.object(
                     self.cal, "measure_strike_anchor_lufs", return_value=(-18.0, -6.0)
@@ -330,11 +315,8 @@ class PostGainVerifyGateTests(unittest.TestCase):
                     self.cal, "measure_sustain_anchor_lufs", return_value=(-18.0, -6.0)
                 ),
                 mock.patch.object(self.cal, "measure_light_touch_lufs", return_value=None),
-                mock.patch.object(
-                    self.cal,
-                    "finalize_gain_with_closed_loop",
-                    return_value=(2.0, -16.0, -1.5),
-                ),
+                # A gain the gate must refuse: peak -6 + 4.5 = -1.5 dBTP.
+                mock.patch.object(self.cal, "compute_gain_db_dual_anchor", return_value=4.5),
                 mock.patch.object(self.cal.time, "sleep"),
             ):
                 result = self.cal.calibrate_patch(

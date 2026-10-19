@@ -5,6 +5,14 @@ Offline per-patch loudness calibration for Surge XT patches.
 Renders a fixed MPE performance gesture per patch, measures integrated LUFS via
 ffmpeg loudnorm, and writes gain offsets to patch_normalization.json.
 
+Surge is measured alone, at the patch's authored volume, outside mpe-fx-host:
+the stage gain is linear, so the gain is applied arithmetically (LUFS and true
+peak move by exactly gain_db) and the entry is marked CAL_PATH. A capture that
+clips is measured again with CAPTURE_PAD_DB taken off through Surge's own
+volume law (`set_capture_volume`, the one place this tool touches amp/volume).
+`--controls PATCH` runs the instrument controls first: a known pad must read as
+that pad, a repeat must read the same, and muting the stage must change nothing.
+
 Requires: Surge XT CLI running with OSC on port 53280, ffmpeg, python-osc,
 python-rtmidi (for live calibration). Use --dry-run to list targets without
 Surge/ffmpeg.
@@ -75,16 +83,20 @@ from patch_browser.calibration_teardown import (  # noqa: E402
     unload_snd_aloop_if_idle,
 )
 from patch_browser.patch_normalization import (  # noqa: E402
+    CAL_PATH,
+    CAPTURE_PAD_DB,
+    CLIP_SAMPLE_PEAK_DBFS,
     POST_GAIN_VERIFY_PEAK_MAX_DBTP,
     PatchNormalizationStore,
     post_gain_verify_passes,
     SAFE_PEAK_DBTP,
     compute_gain_db,
     compute_gain_db_dual_anchor,
-    db_to_linear,
     default_normalization_path,
+    padded_volume,
     repo_starter_path,
 )
+from patch_browser import calibration_controls  # noqa: E402
 from patch_browser.patch_pressure import (  # noqa: E402
     PatchPressureStore,
     LIGHT_TOUCH_GESTURE_SECONDS,
@@ -126,7 +138,10 @@ SUSTAIN_ANCHOR_PRESSURE = 127
 ANCHOR_HOLD_SECONDS = 1.5
 ANCHOR_GESTURE_SECONDS = 2.5
 SUSTAIN_ANCHOR_GESTURE_SECONDS = (2.5, 4.0, 6.0, 8.0)
-CLOSED_LOOP_VERIFY_PASSES = 3
+# Surge's volume parameters: written only by `set_capture_volume`.
+AMP_VOLUME_PATHS = ("/param/a/amp/volume", "/param/b/amp/volume")
+CONTROL_PAD_DB = 6.0
+STORE_BACKUP_DIR = Path.home() / ".patch_browser_calibration_backups"
 DEFAULT_PI_CAPTURE = "plughw:1,0"
 MIN_VALID_LUFS = -39.0  # legacy reference only — validity uses peak floor below
 MIN_VALID_TRUE_PEAK_DBTP = -45.0  # reject captures with no audible Surge output
@@ -151,6 +166,7 @@ class CalibrateResult:
     lufs_light: float | None = None
     lufs_strike: float | None = None
     lufs_sustain: float | None = None
+    trim_migration: dict | None = None
 
 
 @dataclass
@@ -184,6 +200,30 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Output JSON path (default: MPE_NORMALIZATION_FILE or ~/.patch_browser_normalization.json)",
+    )
+    parser.add_argument(
+        "--audit",
+        nargs=2,
+        type=Path,
+        metavar=("PATCH", "WAV"),
+        default=None,
+        help="Stage audit: judge WAV, the live mpe-fx-host output at depth 0 while the "
+        "sustain anchor gesture played PATCH, against the stored calibration. "
+        "Touches nothing; exit 0 on pass.",
+    )
+    parser.add_argument(
+        "--audit-headroom-db",
+        type=float,
+        default=0.0,
+        help="Device mode's stage headroom during the --audit capture (0 in trim mode)",
+    )
+    parser.add_argument(
+        "--controls",
+        type=Path,
+        metavar="PATCH",
+        default=None,
+        help="Run the instrument controls on this reference patch (pad, repeat, stage "
+        "isolation) and exit; 0 only if all pass. Run before a full calibration.",
     )
     parser.add_argument(
         "--verify-only",
@@ -852,6 +892,43 @@ def capture_anchor_wav(
     return wav
 
 
+class Anchor(tuple):
+    """(lufs, true_peak_dbtp), with the capture's sample peak as `.sample_peak_dbfs`
+    (None when it could not be read)."""
+
+    def __new__(cls, lufs: float, true_peak: float, sample_peak_dbfs: float | None = None):
+        reading = super().__new__(cls, (lufs, true_peak))
+        reading.sample_peak_dbfs = sample_peak_dbfs
+        return reading
+
+
+def wav_sample_peak_dbfs(wav_path: Path) -> float | None:
+    """Largest sample magnitude in a 16-bit PCM WAV, in dBFS; None if unreadable."""
+    import array
+    import wave
+
+    try:
+        with wave.open(str(wav_path), "rb") as wav:
+            if wav.getsampwidth() != 2:
+                return None
+            samples = array.array("h", wav.readframes(wav.getnframes()))
+    except (OSError, EOFError, wave.Error):
+        return None
+    if sys.byteorder == "big":
+        samples.byteswap()
+    peak = max((abs(v) for v in samples), default=0)
+    return 20.0 * math.log10(peak / 32768.0) if peak else -math.inf
+
+
+def is_clipped(anchor) -> bool:
+    """A capture at or past CLIP_SAMPLE_PEAK_DBFS. Without a sample peak, the true
+    peak stands in: it is never below the sample peak, so this errs toward a pad."""
+    peak = getattr(anchor, "sample_peak_dbfs", None)
+    if peak is None:
+        peak = anchor[1]
+    return peak >= CLIP_SAMPLE_PEAK_DBFS
+
+
 def measure_anchor_lufs(
     midi_out: object,
     audio_device: str,
@@ -860,7 +937,7 @@ def measure_anchor_lufs(
     pressure: int,
     gesture_seconds: float = ANCHOR_GESTURE_SECONDS,
     hold_seconds: float = ANCHOR_HOLD_SECONDS,
-) -> tuple[float, float] | None:
+) -> Anchor | None:
     wav: Path | None = None
     try:
         wav = capture_anchor_wav(
@@ -872,6 +949,7 @@ def measure_anchor_lufs(
             hold_seconds=hold_seconds,
         )
         lufs, true_peak = measure_lufs(wav)
+        sample_peak = wav_sample_peak_dbfs(wav)
     except RuntimeError:
         return None
     finally:
@@ -879,7 +957,7 @@ def measure_anchor_lufs(
             wav.unlink(missing_ok=True)
     if is_invalid_measurement(lufs, true_peak):
         return None
-    return lufs, true_peak
+    return Anchor(lufs, true_peak, sample_peak)
 
 
 def measure_strike_anchor_lufs(midi_out: object, audio_device: str) -> tuple[float, float] | None:
@@ -907,41 +985,70 @@ def measure_sustain_anchor_lufs(midi_out: object, audio_device: str) -> tuple[fl
     return None
 
 
-def apply_measurement_gain(loader: PatchLoader, gain_db: float) -> None:
-    linear = db_to_linear(gain_db)
-    loader.user_volume_trim = 1.0
+def set_capture_volume(loader: PatchLoader, volume: float) -> bool:
+    """Set Surge's amp/volume (both scenes) for a capture: the pad, and putting the
+    authored value back after it. The only amp/volume write in the product
+    (tests/test_stage_gain_guard.py), here because the measured Surge is the
+    standalone one, outside the stage."""
     if not loader.osc_enabled or loader.osc_client is None:
-        return
-    loader.osc_client.send_message("/param/a/amp/volume", linear)
-    loader.osc_client.send_message("/param/b/amp/volume", linear)
+        return False
+    value = max(0.0, min(1.0, float(volume)))
+    for path in AMP_VOLUME_PATHS:
+        loader.osc_client.send_message(path, value)
+    return True
 
 
-def finalize_gain_with_closed_loop(
+@dataclass
+class UnityMeasurement:
+    """Both anchors at the authored volume, with any capture pad added back."""
+
+    strike: tuple[float, float]
+    sustain: tuple[float, float]
+    padded_db: float = 0.0
+
+
+def measure_unity_anchors(
     loader: PatchLoader,
     midi_out: object,
     audio_device: str,
-    gain_db: float,
-) -> tuple[float, float, float]:
-    trial = float(gain_db)
-    last_lufs = float("-inf")
-    last_peak = float("-inf")
-    for _ in range(CLOSED_LOOP_VERIFY_PASSES):
-        apply_measurement_gain(loader, trial)
+    authored_volume: float | None,
+    *,
+    name: str = "",
+) -> UnityMeasurement | None:
+    """Strike and sustain at authored volume. A clipped capture is re-measured with
+    CAPTURE_PAD_DB off through Surge's volume law, and the pad added back."""
+    strike = measure_strike_anchor_lufs(midi_out, audio_device)
+    if strike is None:
+        print(f"  [fail] {name}: strike anchor inaudible", file=sys.stderr)
+        return None
+    sustain = measure_sustain_anchor_lufs(midi_out, audio_device)
+    if sustain is None:
+        print(f"  [fail] {name}: sustain anchor inaudible", file=sys.stderr)
+        return None
+    if not (is_clipped(strike) or is_clipped(sustain)):
+        return UnityMeasurement(tuple(strike), tuple(sustain))
+    if authored_volume is None:
+        print(f"  [fail] {name}: capture clipped and Surge did not report its volume "
+              f"(no pad possible)", file=sys.stderr)
+        return None
+    pad = CAPTURE_PAD_DB
+    print(f"  [pad] {name}: capture clipped, measuring again {pad:.0f} dB down")
+    set_capture_volume(loader, padded_volume(authored_volume, pad))
+    try:
         time.sleep(0.35)
         strike = measure_strike_anchor_lufs(midi_out, audio_device)
         sustain = measure_sustain_anchor_lufs(midi_out, audio_device)
-        if strike is None or sustain is None:
-            break
-        lufs_strike, peak_strike = strike
-        lufs_sustain, peak_sustain = sustain
-        last_lufs = lufs_sustain
-        last_peak = max(peak_strike, peak_sustain)
-        if post_gain_verify_passes(last_peak):
-            return trial, last_lufs, last_peak
-        trial = compute_gain_db_dual_anchor(
-            lufs_strike, peak_strike, lufs_sustain, peak_sustain
-        )
-    return trial, last_lufs, last_peak
+    finally:
+        set_capture_volume(loader, authored_volume)
+    if strike is None or sustain is None:
+        print(f"  [fail] {name}: padded capture inaudible", file=sys.stderr)
+        return None
+    if is_clipped(strike) or is_clipped(sustain):
+        print(f"  [fail] {name}: capture still clipped {pad:.0f} dB down", file=sys.stderr)
+        return None
+    return UnityMeasurement(
+        (strike[0] + pad, strike[1] + pad), (sustain[0] + pad, sustain[1] + pad), pad
+    )
 
 
 def is_invalid_measurement(lufs: float, true_peak: float) -> bool:
@@ -1034,24 +1141,20 @@ def verify_patch(
     midi_out: object,
 ) -> VerifyResult:
     name = patch_path.stem
-    entry = store.get_entry(name, patch_path=str(patch_path))
-    if not entry or entry.get("gain_db") is None:
+    gain_db = store.get_calibrated_gain_db(name, patch_path=str(patch_path))
+    if gain_db is None:
         return VerifyResult(ok=False, skipped=True, reason="not calibrated")
-    gain_db = float(entry["gain_db"])
     if not load_patch_confirmed(loader, patch_path):
         print(f"  [fail] load not confirmed: {patch_path}", file=sys.stderr)
         return VerifyResult(ok=False, reason="load not confirmed")
-    loader.user_volume_trim = 1.0
-    apply_measurement_gain(loader, gain_db)
     time.sleep(PATCH_LOAD_SETTLE_SECONDS)
-    strike = measure_strike_anchor_lufs(midi_out, audio_device)
-    sustain = measure_sustain_anchor_lufs(midi_out, audio_device)
-    if strike is None or sustain is None:
-        print(f"  [fail] {name}: verify capture inaudible", file=sys.stderr)
+    unity = measure_unity_anchors(
+        loader, midi_out, audio_device, loader._authored_volume, name=name
+    )
+    if unity is None:
         return VerifyResult(ok=False, reason="verify capture inaudible")
-    _lufs_s, peak_strike = strike
-    _lufs_u, peak_sustain = sustain
-    peak = max(peak_strike, peak_sustain)
+    # The stage is linear: the stored gain moves the peak by exactly gain_db.
+    peak = max(unity.strike[1], unity.sustain[1]) + gain_db
     ok = post_gain_verify_passes(peak)
     return VerifyResult(ok=ok, peak_dbtp=peak)
 
@@ -1097,8 +1200,8 @@ def calibrate_patch(
 ) -> CalibrateResult:
     name = patch_path.stem
     if dry_run:
-        existing = store.get_entry(name, patch_path=str(patch_path))
-        status = "skip (has entry)" if existing and existing.get("gain_db") is not None else "would calibrate"
+        calibrated = store.get_calibrated_gain_db(name, patch_path=str(patch_path)) is not None
+        status = "skip (has entry)" if calibrated else "would calibrate"
         print(f"  [{status}] {name}")
         return CalibrateResult(ok=False)
 
@@ -1118,22 +1221,18 @@ def calibrate_patch(
         if midi_out is None:
             return CalibrateResult(ok=False)
 
-        loader.user_volume_trim = 1.0
-        loader._patch_gain_linear = 1.0
-        loader._send_combined_volume()
+        # Surge plays the patch at its authored volume: nothing here sets it.
+        authored_volume = loader._authored_volume
         time.sleep(PATCH_LOAD_SETTLE_SECONDS)
 
-        strike = measure_strike_anchor_lufs(midi_out, audio_device)
-        if strike is None:
-            print(f"  [fail] {name}: strike anchor inaudible", file=sys.stderr)
+        unity = measure_unity_anchors(
+            loader, midi_out, audio_device, authored_volume, name=name
+        )
+        if unity is None:
             return CalibrateResult(ok=False)
-        lufs_strike, peak_strike = strike
-
-        sustain = measure_sustain_anchor_lufs(midi_out, audio_device)
-        if sustain is None:
-            print(f"  [fail] {name}: sustain anchor inaudible", file=sys.stderr)
-            return CalibrateResult(ok=False)
-        lufs_sustain, peak_sustain = sustain
+        lufs_strike, peak_strike = unity.strike
+        lufs_sustain, peak_sustain = unity.sustain
+        capture_padded_db = unity.padded_db
 
         true_peak = max(peak_strike, peak_sustain)
         lufs = lufs_sustain
@@ -1166,30 +1265,23 @@ def calibrate_patch(
             file=sys.stderr,
         )
 
-    post_gain_peak: float | None = None
     if mock_lufs is not None:
         print(
-            f"  [fail] {name}: --mock-lufs cannot save cal entries (no post-gain verify)",
+            f"  [fail] {name}: --mock-lufs cannot save cal entries (no capture)",
             file=sys.stderr,
         )
         return CalibrateResult(ok=False)
-    if mock_lufs is None and midi_out is not None:
-        gain_db, verify_lufs, verify_peak = finalize_gain_with_closed_loop(
-            loader, midi_out, audio_device, gain_db
+    # The stage is linear, so the peak it will play at is the unity peak + gain.
+    post_gain_peak = true_peak + gain_db
+    if not post_gain_verify_passes(post_gain_peak):
+        print(
+            f"  [fail] {name}: post-gain peak {post_gain_peak:.1f} dBTP "
+            f"exceeds {POST_GAIN_VERIFY_PEAK_MAX_DBTP:.1f} — not saved",
+            file=sys.stderr,
         )
-        post_gain_peak = verify_peak
-        if not post_gain_verify_passes(verify_peak):
-            print(
-                f"  [fail] {name}: post-gain verify peak {verify_peak:.1f} dBTP "
-                f"exceeds {POST_GAIN_VERIFY_PEAK_MAX_DBTP:.1f} — not saved",
-                file=sys.stderr,
-            )
-            return CalibrateResult(ok=False, verify_failed=True)
-        if math.isfinite(verify_lufs):
-            lufs = verify_lufs
-            true_peak = verify_peak
+        return CalibrateResult(ok=False, verify_failed=True)
 
-    store.set_calibration(
+    migration = store.set_calibration(
         name,
         gain_db,
         lufs,
@@ -1198,9 +1290,17 @@ def calibrate_patch(
         cal_route=cal_route,
         strike_lufs=lufs_strike,
         sustain_lufs=lufs_sustain,
+        cal_path=CAL_PATH,
+        lufs_unity={"strike": lufs_strike, "sustain": lufs_sustain},
+        true_peak_unity_dbtp={"strike": peak_strike, "sustain": peak_sustain},
+        authored_volume=authored_volume,
+        capture_padded_db=capture_padded_db,
         patch_path=str(patch_path),
     )
     store.save()
+    if migration is not None:
+        clamp_note = " (CLAMPED: level not reproduced)" if migration["clamped"] else ""
+        print(f"  [trim] {name}: {migration['old']:+.1f} -> {migration['new']:+.1f} dB{clamp_note}")
     touch_note = ""
     if lufs_light is not None:
         touch_note = f", light {lufs_light:.1f} LUFS"
@@ -1216,12 +1316,113 @@ def calibrate_patch(
         lufs_light=lufs_light,
         lufs_strike=lufs_strike,
         lufs_sustain=lufs_sustain,
+        trim_migration=migration,
     )
+
+
+def run_controls(
+    loader: PatchLoader,
+    midi_out: object,
+    audio_device: str,
+    patch_path: Path,
+    *,
+    stage_sender=None,
+) -> list[calibration_controls.ControlResult]:
+    """The instrument controls on one reference patch, in the order to trust them.
+
+    Positive: CONTROL_PAD_DB taken off through Surge's volume law reads as that pad.
+    Repeatability: the same capture twice reads the same. Isolation: the stage gain
+    muted during a capture changes nothing, so the stage is outside this path. The
+    mute is the safe direction for the live trunk; the touch UI puts its level back
+    within STAGE_KEEPALIVE_S of starting again.
+    """
+    from patch_browser import fx_host_protocol
+    from patch_browser.patch_loader import UdpStageSender
+
+    if not load_patch_confirmed(loader, patch_path):
+        raise RuntimeError(f"Surge did not confirm the control patch loaded: {patch_path}")
+    authored = loader._authored_volume
+    if authored is None:
+        raise RuntimeError("Surge did not report the control patch's volume")
+    time.sleep(PATCH_LOAD_SETTLE_SECONDS)
+
+    def sustain() -> tuple[float, float]:
+        reading = measure_sustain_anchor_lufs(midi_out, audio_device)
+        if reading is None:
+            raise RuntimeError("control capture inaudible")
+        if is_clipped(reading):
+            raise RuntimeError("control capture clipped: choose a quieter control patch")
+        return reading[0], reading[1]
+
+    first = sustain()
+    set_capture_volume(loader, padded_volume(authored, CONTROL_PAD_DB))
+    try:
+        time.sleep(0.35)
+        padded = sustain()
+    finally:
+        set_capture_volume(loader, authored)
+    time.sleep(0.35)
+    second = sustain()
+    send = stage_sender or UdpStageSender()
+    send(fx_host_protocol.encode_gain(0.0))
+    isolated = sustain()
+    return [
+        calibration_controls.positive_control(first, padded, pad_db=CONTROL_PAD_DB),
+        calibration_controls.repeatability_control(first, second),
+        calibration_controls.isolation_control(second, isolated),
+    ]
+
+
+def audit_patch(
+    store: PatchNormalizationStore,
+    patch_path: Path,
+    wav: Path,
+    *,
+    headroom_db: float = 0.0,
+) -> calibration_controls.ControlResult:
+    """The stage audit for one capture: predicted = the calibration's unity sustain
+    LUFS + the stage gain the loader applies to it at full fader."""
+    from patch_browser.patch_normalization import stage_db
+
+    name = patch_path.stem
+    entry = store.get_entry(name, patch_path=str(patch_path))
+    lufs_unity = (entry or {}).get("lufs_unity") or {}
+    if store.get_calibrated_gain_db(name, patch_path=str(patch_path)) is None or "sustain" not in lufs_unity:
+        return calibration_controls.ControlResult("stage audit", False, f"{name}: not calibrated for the stage")
+    norm_db, ceiling_db = store.stage_norm(
+        name, patch_path=str(patch_path), authored_volume=entry.get("authored_volume")
+    )
+    predicted = float(lufs_unity["sustain"]) + stage_db(
+        norm_db=norm_db, ceiling_db=ceiling_db, headroom_db=headroom_db, vol_db=0.0
+    )
+    return calibration_controls.stage_audit(predicted, measure_lufs(wav))
+
+
+def backup_store(*paths: Path, root: Path = STORE_BACKUP_DIR) -> Path | None:
+    """Copy the stores into root/<timestamp>/ before a run writes them."""
+    import shutil
+
+    existing = [p for p in paths if p.is_file()]
+    if not existing:
+        return None
+    dest = root / datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest.mkdir(parents=True, exist_ok=True)
+    for path in existing:
+        shutil.copy2(path, dest / path.name)
+    return dest
 
 
 def main() -> int:
     args = parse_args()
     output_path = args.output or default_normalization_path()
+    if args.audit is not None:
+        audit_store = PatchNormalizationStore(output_path)
+        audit_store.set_patch_dirs(SURGE_PATCH_DIRS)
+        result = audit_patch(
+            audit_store, args.audit[0], args.audit[1], headroom_db=args.audit_headroom_db
+        )
+        print(f"  [{'pass' if result.ok else 'FAIL'}] {args.audit[0].stem}: {result.detail}")
+        return 0 if result.ok else 1
     use_loopback = should_use_loopback(args.use_loopback)
     standalone_restart = should_restart_surge_for_standalone(
         use_loopback=use_loopback,
@@ -1235,7 +1436,7 @@ def main() -> int:
 
     patch_paths = collect_patch_paths(args)
 
-    if not patch_paths:
+    if not patch_paths and args.controls is None:
         msg = "No patches matched the selection."
         print(msg, file=sys.stderr)
         emit_progress(args, {"type": "error", "message": msg})
@@ -1290,7 +1491,7 @@ def main() -> int:
         {"type": "start", "total": len(targets), "scope": scope_label},
     )
 
-    if not targets:
+    if not targets and args.controls is None:
         if args.verify_only:
             print("No calibrated patches in scope to verify.", file=sys.stderr)
         else:
@@ -1403,6 +1604,20 @@ def main() -> int:
         try:
             if args.mock_lufs is None:
                 midi_out = open_midi_out(midi_port)
+            if args.controls is not None:
+                if midi_out is None:
+                    print("Error: Surge MIDI required for --controls", file=sys.stderr)
+                    return 1
+                results = run_controls(loader, midi_out, audio_device, args.controls)
+                for result in results:
+                    print(f"  [{'pass' if result.ok else 'FAIL'}] {result.name}: {result.detail}")
+                exit_code = 0 if all(r.ok for r in results) else 1
+                emit_progress(args, {"type": "done", "updated": 0, "exit_code": exit_code})
+                return exit_code
+            if not args.verify_only and args.mock_lufs is None:
+                backup = backup_store(output_path, pressure_path)
+                if backup is not None:
+                    print(f"Stores backed up to {backup}")
             if args.verify_only:
                 if midi_out is None:
                     msg = "Surge MIDI required for --verify-only"

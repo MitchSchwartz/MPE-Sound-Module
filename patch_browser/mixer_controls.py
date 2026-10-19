@@ -116,7 +116,7 @@ class VolumeControl:
         )
 
     def format_for(self, browser, value: float) -> str:
-        """Device mode shows the DAC's own dB; trim mode shows the Surge trim."""
+        """Device mode shows the DAC's own dB; trim mode shows the stage trim."""
         device = getattr(browser, "device_volume", None)
         if device is not None and device.active:
             return device.format_db()
@@ -252,6 +252,21 @@ class NormControl:
 
     def format(self, value: float) -> str:
         return f"{value:+.1f}"
+
+    def format_for(self, browser, value: float) -> str:
+        """"max" while the loaded patch's peak ceiling holds the trim, so a fader
+        that has stopped acting does not look broken."""
+        patch = browser.detail_patch
+        loaded = browser.loaded_patch_info
+        store = browser.loader.normalization
+        if (
+            patch
+            and loaded
+            and store.refs_match(loaded, patch)
+            and getattr(browser.loader, "norm_at_ceiling", False) is True
+        ):
+            return "max"
+        return self.format(value)
 
     def persist(self, browser) -> None:
         browser.loader.normalization.save()

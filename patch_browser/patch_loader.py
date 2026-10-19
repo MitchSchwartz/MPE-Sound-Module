@@ -1,4 +1,9 @@
-"""Load Surge patches and volume via OSC (no GPIO / OLED dependencies)."""
+"""Load Surge patches via OSC, and send the trunk's stage gain (no GPIO / OLED dependencies).
+
+Level is the stage gain in mpe-fx-host (`patch_normalization.stage_db`), sent
+here and nowhere else as a `gain` datagram. Surge's amp/volume is never set:
+patches play at their authored volume.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +14,7 @@ import struct
 import time
 from pathlib import Path
 
+from patch_browser import fx_host_protocol
 from patch_browser.fx_policy import FxPolicy
 from patch_browser.patch_fx import PatchFxStore
 from patch_browser.patch_hold import (
@@ -18,11 +24,11 @@ from patch_browser.patch_hold import (
 )
 from patch_browser.patch_pressure import PatchPressureStore
 from patch_browser.patch_normalization import (
-    MAX_AMP_VOLUME_LINEAR,
-    NORM_MAX_AMP_VOLUME_LINEAR,
     PatchNormalizationStore,
     db_to_linear,
-    volume_fader_to_amp_linear,
+    norm_at_ceiling,
+    stage_db,
+    volume_fader_trim_to_db,
 )
 from patch_browser.surge_playback import (
     effective_poly_on_load,
@@ -38,10 +44,14 @@ from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 
 OSC_OUT_PORT = 53270
 OSC_QUERY_TIMEOUT_S = 0.08
-PATCH_LOAD_SETTLE_S = 0.06
 # Waiting for Surge's /patch reply (the last patch it finished loading).
 PATCH_QUERY_TIMEOUT_S = 0.25
 PATCH_CONFIRM_POLL_S = 0.1
+# A browse load waits this long for Surge to report the new patch before the
+# stage raises to it. Past it the load goes on and the raise is held back (the
+# keepalive asks again), so a slow load never plays the old patch at the new
+# patch's boost. Replaces the blind 60 ms settle timer of the amp/volume days.
+BROWSE_CONFIRM_TIMEOUT_S = 0.3
 
 
 def same_patch_path(reported: str | None, expected: str) -> bool:
@@ -53,6 +63,29 @@ def same_patch_path(reported: str | None, expected: str) -> bool:
     if not reported:
         return False
     return os.path.normpath(reported) == os.path.normpath(expected)
+# The stage gain is re-sent this often, so a restarted mpe-fx-host (which starts
+# at unity) is back at the right level within it. One sendto per second.
+STAGE_KEEPALIVE_S = 1.0
+# Surge's amp/volume, read after each load: what the patch was authored at.
+AUTHORED_VOLUME_PATH = "/param/a/amp/volume"
+
+
+class UdpStageSender:
+    """Sends one `gain` datagram to mpe-fx-host. A missing listener is not an error:
+    with no insert running, the trunk plays as authored."""
+
+    def __init__(self, host: str = fx_host_protocol.DEFAULT_HOST, port: int | None = None):
+        self.address = (host, fx_host_protocol.resolve_port() if port is None else port)
+        self._sock: socket.socket | None = None
+
+    def __call__(self, payload: bytes) -> bool:
+        try:
+            if self._sock is None:
+                self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self._sock.sendto(payload, self.address)
+            return True
+        except OSError:
+            return False
 
 
 class PatchLoader:
@@ -68,6 +101,7 @@ class PatchLoader:
         osc_out_port: int = OSC_OUT_PORT,
         fx_policy: FxPolicy | None = None,
         fx_store: PatchFxStore | None = None,
+        stage_sender=None,
     ):
         try:
             from pythonosc import udp_client
@@ -92,12 +126,26 @@ class PatchLoader:
         self.fx_policy.bind_store(self.fx_store)
         self.osc_host = osc_host
         self.osc_out_port = osc_out_port
+        # The trim-mode Vol fader position (VOLUME_MIN..VOLUME_MAX).
         self.user_volume_trim = 1.0
-        # Fixed attenuation after the fader law, in dB. 0 in trim mode; device
-        # mode passes device_volume.DEVICE_MODE_SURGE_TRIM_DB.
+        # Device mode's fixed cut, in dB; 0 in trim mode
+        # (device_volume.DEVICE_MODE_SURGE_TRIM_DB).
         self._headroom_db = 0.0
-        self._patch_gain_linear = 1.0
-        self._norm_active = False
+        # The loaded patch's normalization: gain + trim, and its ceiling.
+        self._norm_db = 0.0
+        self._ceiling_db: float | None = None
+        self._authored_volume: float | None = None
+        # Where the stage gain goes. None sends nothing: the default, so a
+        # loader that is not the instrument's (calibration, tests) can never
+        # move a live insert. The UI and the harness that loads like it pass
+        # UdpStageSender() (tests/test_stage_gain_guard.py checks they do).
+        self._stage_sender = stage_sender
+        self._stage_sent_db: float | None = None
+        self._stage_next_keepalive = 0.0
+        # A browse load Surge has not yet reported: (path, normalize?, the
+        # outgoing patch's (norm_db, ceiling_db)). Until it is confirmed the
+        # stage plays the quieter of the two levels.
+        self._pending_raise: tuple[str, bool, tuple[float, float | None]] | None = None
         self._loaded_patch_name: str | None = None
         self._loaded_patch_path: str | None = None
         self._loaded_stable_key: str | None = None
@@ -105,40 +153,91 @@ class PatchLoader:
         self._effective_poly_limit: int | None = None
 
     def set_volume(self, volume=1.0, *, headroom_db: float = 0.0):
-        """Set user volume trim (stacks on per-patch normalization baseline).
+        """Set the Vol fader position and device mode's headroom, and send the stage.
 
-        `headroom_db` is a fixed gain applied after the fader law; every call
-        states it, so leaving device mode for trim mode returns it to 0.
+        Every call states `headroom_db`, so leaving device mode for trim mode
+        returns it to 0.
         """
         self.user_volume_trim = float(volume)
         self._headroom_db = float(headroom_db)
-        return self._send_combined_volume()
+        return self._send_stage()
 
-    def _volume_cap(self) -> float:
-        if self._norm_active:
-            return NORM_MAX_AMP_VOLUME_LINEAR
-        return MAX_AMP_VOLUME_LINEAR
+    def _stage_db_for(self, norm_db: float, ceiling_db: float | None) -> float:
+        return stage_db(
+            norm_db=norm_db,
+            ceiling_db=ceiling_db,
+            headroom_db=self._headroom_db,
+            vol_db=volume_fader_trim_to_db(
+                self.user_volume_trim, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX
+            ),
+        )
 
-    def _send_combined_volume(self):
-        if not self.osc_enabled:
+    @property
+    def stage_db(self) -> float:
+        """The stage gain now, in dB (-inf at mute)."""
+        return self._stage_db_for(*self._effective_norm())
+
+    @property
+    def norm_at_ceiling(self) -> bool:
+        """The loaded patch's gain + trim is being held at its peak ceiling."""
+        return norm_at_ceiling(self._norm_db, self._ceiling_db)
+
+    def _send_stage_db(self, db: float) -> bool:
+        if self._stage_sender is None:
             return False
+        linear = 0.0 if db == -float("inf") else db_to_linear(
+            min(db, fx_host_protocol.GAIN_MAX_DB)
+        )
+        self._stage_sent_db = db
+        return bool(self._stage_sender(fx_host_protocol.encode_gain(linear)))
 
-        cap = self._volume_cap()
-        combined = volume_fader_to_amp_linear(
-            self.user_volume_trim,
-            patch_gain_linear=self._patch_gain_linear,
-            cap=cap,
-            fader_min=VOLUME_MIN,
-            fader_max=VOLUME_MAX,
-            norm_active=self._norm_active,
-        ) * db_to_linear(self._headroom_db)
-        try:
-            self.osc_client.send_message("/param/a/amp/volume", combined)
-            self.osc_client.send_message("/param/b/amp/volume", combined)
-            return True
-        except Exception as e:
-            print(f"Error setting volume via OSC: {e}")
-            return False
+    def _effective_norm(self) -> tuple[float, float | None]:
+        """The (norm_db, ceiling_db) the stage is playing: the loaded patch's, or
+        while its load is unconfirmed, the quieter of it and the outgoing patch's."""
+        pair = (self._norm_db, self._ceiling_db)
+        if self._pending_raise is not None:
+            held = self._pending_raise[2]
+            if self._stage_db_for(*held) < self._stage_db_for(*pair):
+                return held
+        return pair
+
+    def _send_stage(self) -> bool:
+        return self._send_stage_db(self.stage_db)
+
+    def _set_norm(self, patch_name: str, apply_normalization: bool) -> None:
+        if apply_normalization:
+            self._apply_patch_normalization(patch_name)
+        else:
+            self._norm_db, self._ceiling_db = 0.0, None
+
+    def _settle_patch_level(self, patch_name: str, apply_normalization: bool) -> None:
+        """The loaded patch is confirmed: read its authored volume and take its level."""
+        self._authored_volume = self._query_osc_float(AUTHORED_VOLUME_PATH)
+        self._set_norm(patch_name, apply_normalization)
+
+    def _retry_pending_raise(self) -> None:
+        """Ask Surge once more whether the held-back load has landed."""
+        path_no_ext, apply_normalization, _outgoing = self._pending_raise
+        if not same_patch_path(self.query_loaded_patch_path(), path_no_ext):
+            return
+        self._pending_raise = None
+        if self._loaded_patch_name is not None:
+            self._settle_patch_level(self._loaded_patch_name, apply_normalization)
+
+    def keep_stage_alive(self, now: float | None = None) -> None:
+        """Re-send the stage gain once every STAGE_KEEPALIVE_S. Call from the UI loop.
+
+        A raise held back by an unconfirmed load is released here, once Surge
+        reports the patch.
+        """
+        now = time.monotonic() if now is None else now
+        if now < self._stage_next_keepalive:
+            return
+        self._stage_next_keepalive = now + STAGE_KEEPALIVE_S
+        if self._stage_sent_db is not None:
+            if self._pending_raise is not None:
+                self._retry_pending_raise()
+            self._send_stage()
 
     def _sidecar_kw(self) -> dict[str, str | None]:
         return {
@@ -146,30 +245,30 @@ class PatchLoader:
             "stable_key": self._loaded_stable_key,
         }
 
-    def _apply_patch_normalization(self, patch_name: str) -> None:
-        store = self.normalization
-        kw = self._sidecar_kw()
-        if not store.is_effectively_enabled(patch_name, **kw):
-            self._patch_gain_linear = 1.0
-            self._norm_active = False
-            return
+    def _norm_for(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None,
+        stable_key: str | None,
+        authored_volume: float | None,
+    ) -> tuple[float, float | None]:
+        return self.normalization.stage_norm(
+            patch_name,
+            patch_path=patch_path,
+            stable_key=stable_key,
+            authored_volume=authored_volume,
+        )
 
-        self._norm_active = True
-        gain_db = store.get_effective_gain_db(patch_name, **kw)
-        if gain_db is not None:
-            self._patch_gain_linear = db_to_linear(gain_db)
-        else:
-            self._patch_gain_linear = 1.0
+    def _apply_patch_normalization(self, patch_name: str) -> None:
+        self._norm_db, self._ceiling_db = self._norm_for(
+            patch_name, authored_volume=self._authored_volume, **self._sidecar_kw()
+        )
 
     def refresh_patch_volume(self, patch_name: str) -> bool:
-        """Re-apply normalization baseline + user trim (e.g. after toggling enabled)."""
+        """Re-apply normalization and trim (e.g. after toggling enabled, or a trim drag)."""
         self._apply_patch_normalization(patch_name)
-        if not self._send_combined_volume():
-            return False
-        # Headless Surge sometimes ignores the first amp/volume OSC after re-enabling norm.
-        if self._norm_active:
-            return self._send_combined_volume()
-        return True
+        return self._send_stage()
 
     @staticmethod
     def _parse_surge_param_query(data: bytes) -> float | None:
@@ -410,6 +509,12 @@ class PatchLoader:
         With ``confirm_timeout_s``, wait until Surge reports this exact path as
         loaded (``/q/patch``, which needs Surge's ``--osc-out-port``) before
         sending anything else, and return False if it does not in that time.
+
+        Without it (a browse), wait up to BROWSE_CONFIRM_TIMEOUT_S and load either
+        way. The stage gain moves in two steps: a cut goes out before
+        ``/patch/load``, a raise only once Surge has confirmed the patch. An
+        unconfirmed raise is held back, the stage staying at the quieter of the
+        outgoing and incoming levels, until keep_stage_alive sees the patch.
         """
         if not self.osc_enabled:
             print(f"OSC disabled, cannot load: {patch_path}")
@@ -421,30 +526,48 @@ class PatchLoader:
             if path_no_ext.endswith(".fxp") or path_no_ext.endswith(".FXP"):
                 path_no_ext = path_no_ext[:-4]
 
+            patch_name = Path(patch_path).stem
+            # A cut lands before the load, so the outgoing patch's tail ducks
+            # rather than playing at the new patch's boost; a raise waits until
+            # Surge confirms the load below. Before the load the authored volume
+            # is unknown, which errs quiet.
+            early = (0.0, None)
+            if apply_normalization:
+                early = self._norm_for(
+                    patch_name, patch_path=str(patch_path), stable_key=stable_key,
+                    authored_volume=None,
+                )
+            early_db = self._stage_db_for(*early)
+            if early_db < (self._stage_sent_db if self._stage_sent_db is not None else 0.0):
+                self._send_stage_db(early_db)
+            outgoing = self._effective_norm()
             self.osc_client.send_message("/patch/load", [path_no_ext])
             # Surge loads in the background and refuses a missing file without
             # a word, so unconfirmed, the old patch can still be the one
-            # playing, and a volume sent now can land before the new patch
-            # replaces it.
-            if confirm_timeout_s is not None and not self._confirm_patch_loaded(
-                path_no_ext, confirm_timeout_s
-            ):
-                return False
-            patch_name = Path(patch_path).stem
+            # playing, and a level raised now would play it at the new boost.
+            if confirm_timeout_s is not None:
+                if not self._confirm_patch_loaded(path_no_ext, confirm_timeout_s):
+                    return False
+                confirmed = True
+            else:
+                # A browse never fails on a slow answer; only the raise waits.
+                confirmed = self._confirm_patch_loaded(path_no_ext, BROWSE_CONFIRM_TIMEOUT_S)
             self._loaded_patch_path = str(patch_path)
             self._loaded_stable_key = stable_key
             print(f"Loaded patch: {Path(patch_path).name}")
 
-            if apply_normalization:
-                self._apply_patch_normalization(patch_name)
-            else:
-                self._patch_gain_linear = 1.0
-                self._norm_active = False
-            self._send_combined_volume()
             self._loaded_patch_name = patch_name
-            time.sleep(PATCH_LOAD_SETTLE_S)
             self._apply_playback_policy(patch_name)
-            self._send_combined_volume()
+            if confirmed:
+                self._pending_raise = None
+                self._settle_patch_level(patch_name, apply_normalization)
+            else:
+                # The authored volume read now could be the old patch's.
+                self._authored_volume = None
+                self._set_norm(patch_name, apply_normalization)
+                self._pending_raise = (path_no_ext, apply_normalization, outgoing)
+                print("Level held at the quieter of the two patches until Surge confirms")
+            self._send_stage()
             # Calibration measures the patch as authored and must not write
             # the Hold store: its loads carry no stable key.
             if capture_hold:

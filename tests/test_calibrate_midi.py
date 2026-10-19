@@ -59,6 +59,7 @@ class CalibrateMidiReuseTests(unittest.TestCase):
             mock.patch.object(cal, "open_midi_out", return_value=fake_out),
             mock.patch.object(cal, "close_midi_out") as close_mock,
             mock.patch.object(cal, "calibrate_patch", return_value=cal.CalibrateResult(ok=True)),
+            mock.patch.object(cal, "backup_store", return_value=None),
         ):
             store = store_cls.return_value
             store.list_missing.return_value = ["Fake"]
@@ -74,6 +75,8 @@ class CalibrateMidiReuseTests(unittest.TestCase):
                 limit=0,
                 force=False,
                 verify_only=False,
+                audit=None,
+                controls=None,
                 no_touch_cal=False,
                 patch=None,
                 mock_lufs=None,

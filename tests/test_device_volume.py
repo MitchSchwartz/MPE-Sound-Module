@@ -109,20 +109,52 @@ class TestBinding(unittest.TestCase):
         return dv.DeviceVolume(runner=runner, state_file=self.state,
                                asound_root=self.asound, env_path=self.env)
 
-    def test_new_device_gets_default_minus_12(self):
+    def test_new_device_gets_default_minus_30(self):
+        """An env written before the stage still says -12: held to DEFAULT_DB, which
+        is -12 less the stage's cut, so a new card starts no louder than it did."""
         amixer = FakeAmixer(_contents("KA1"))
         vol = self._dv(amixer)
         self.assertTrue(vol.rebind({"started": "1", "device": "hw:4"}))
         self.assertEqual(vol.mode, dv.DEVICE_MODE)
-        self.assertEqual(amixer.csets(), [["-c", "4", "cset", "numid=3", "103"]])
-        self.assertEqual(vol.db(), -12.0)
+        self.assertEqual(amixer.csets(), [["-c", "4", "cset", "numid=3", "67"]])
+        self.assertEqual(vol.db(), -30.0)
+        self.assertEqual(dv.DEFAULT_DB, -12.0 + dv.STAGE_LAW_DAC_CUT_DB)
+
+    def test_the_env_may_set_a_quieter_default_never_a_louder_one(self):
+        for env, want in (("-40", -40.0), ("-30", -30.0), ("-6", -30.0), ("0", -30.0),
+                          ("nan", -30.0), ("junk", -30.0)):
+            with self.subTest(env=env):
+                self.env.write_text(f"MPE_DAC_VOLUME_DB={env}\n")
+                self.assertEqual(dv.default_db(self.env), want)
 
     def test_known_device_gets_its_saved_level(self):
-        self.state.write_text(json.dumps({"usb:2972:0051": -3.0}))
+        self.state.write_text(json.dumps({"usb:2972:0051": -3.0, dv.STAGE_LAW_KEY: dv.STAGE_LAW}))
         amixer = FakeAmixer(_contents("KA1"))
         vol = self._dv(amixer)
         vol.rebind({"started": "1", "device": "hw:4"})
         self.assertEqual(amixer.csets()[-1][-1], "121")
+
+    def test_a_level_saved_before_the_stage_is_cut_once(self):
+        """-9 dB used to reach Surge as about -27 (cube law); the stage applies -9.
+        The saved DAC level drops by the 18 dB difference, once, so device mode
+        comes up exactly as loud as it was."""
+        self.assertEqual(dv.STAGE_LAW_DAC_CUT_DB, -18.0)
+        self.state.write_text(json.dumps({"usb:2972:0051": -3.0, "usb:1:2": -50.0}))
+        amixer = FakeAmixer(_contents("KA1"))
+        vol = self._dv(amixer)
+        vol.rebind({"started": "1", "device": "hw:4"})
+        self.assertEqual(vol.db(), -21.0)
+        self.assertEqual(amixer.csets()[-1][-1], "85")
+        saved = json.loads(self.state.read_text())
+        self.assertEqual(saved, {"usb:2972:0051": -21.0, "usb:1:2": -68.0,
+                                 dv.STAGE_LAW_KEY: dv.STAGE_LAW})
+        # Never twice: a second process start reads the marked file as it is.
+        self.assertEqual(dv.load_levels(self.state), {"usb:2972:0051": -21.0, "usb:1:2": -68.0})
+        self.assertEqual(json.loads(self.state.read_text()), saved)
+
+    def test_no_file_is_not_a_migration(self):
+        self.assertEqual(dv.load_levels(self.state), {})
+        self.assertFalse(self.state.exists())
 
     def test_rebind_is_a_noop_until_the_graph_restarts(self):
         amixer = FakeAmixer(_contents("KA1"))
@@ -153,7 +185,8 @@ class TestBinding(unittest.TestCase):
         vol.set_position(1.0)
         vol.flush()
         self.assertEqual(amixer.csets()[-1][-1], "127")
-        self.assertEqual(json.loads(self.state.read_text()), {"usb:2972:0051": 0.0})
+        self.assertEqual(json.loads(self.state.read_text()),
+                         {"usb:2972:0051": 0.0, dv.STAGE_LAW_KEY: dv.STAGE_LAW})
 
     def test_failed_write_reports_device_value_not_the_request(self):
         amixer = FakeAmixer(_contents("KA1"), fail_cset=True)
