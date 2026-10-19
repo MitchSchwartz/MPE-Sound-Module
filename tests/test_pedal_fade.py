@@ -23,6 +23,8 @@ from patch_browser.pedal_fade import (
     DEFAULT_PEDAL_FADE_S,
     RELEASE_CURVES,
     PedalFade,
+    hold_register,
+    register_hold_seconds,
     pedal_fade_seconds,
     release_curve,
     release_fade_seconds,
@@ -66,6 +68,102 @@ class EnvTests(unittest.TestCase):
         self.assertEqual(release_curve("Exponential"), RELEASE_CURVES["exponential"])
         with mock.patch.dict(os.environ, {"MPE_PEDAL_FADE_S": "0"}, clear=True):
             self.assertIsNone(PedalFade.from_env())
+
+
+# Closed form with the defaults, 8 * (2/8) ** ((n - 21) / 87), worked by hand
+# so a wrong formula in the module cannot also be the expected value.
+CURVE = {21: 8.0, 36: 6.2992, 48: 5.2029, 60: 4.2974, 72: 3.5494, 84: 2.9317,
+         108: 2.0}
+
+
+class RegisterCurveTests(unittest.TestCase):
+    """Hold time by pitch: long in the bass, short in the treble."""
+
+    def test_curve_values(self) -> None:
+        for note, hold in CURVE.items():
+            self.assertAlmostEqual(register_hold_seconds(note, 8.0, 2.0), hold,
+                                   places=3, msg=f"note {note}")
+
+    def test_middle_c(self) -> None:
+        # Geometric, not linear: linear would give 5.31 s here.
+        self.assertAlmostEqual(register_hold_seconds(60, 8.0, 2.0), 4.2974, places=3)
+
+    def test_equal_ratio_per_octave(self) -> None:
+        ratios = {round(register_hold_seconds(n + 12, 8.0, 2.0)
+                        / register_hold_seconds(n, 8.0, 2.0), 9)
+                  for n in (24, 36, 48, 60, 72, 84)}
+        self.assertEqual(len(ratios), 1)
+
+    def test_clamped_outside_the_piano(self) -> None:
+        for note in (0, 1, 20):
+            self.assertEqual(register_hold_seconds(note, 8.0, 2.0), 8.0)
+        for note in (109, 120, 127):
+            self.assertEqual(register_hold_seconds(note, 8.0, 2.0), 2.0)
+
+    def test_precedence(self) -> None:
+        self.assertEqual(hold_register("", "", ""), (8.0, 2.0),
+                         "nothing set: the curve, at its defaults")
+        self.assertIsNone(hold_register("3", "", ""),
+                          "only MPE_PEDAL_FADE_S set: the flat hold, as before")
+        self.assertEqual(hold_register("3", "10", ""), (10.0, 2.0))
+        self.assertEqual(hold_register("3", "", "1.5"), (8.0, 1.5))
+        self.assertEqual(hold_register("", "0", "junk"), (8.0, 2.0),
+                         "a bad end takes its default")
+
+    def test_from_env(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=True):
+            p = PedalFade.from_env()
+            self.assertEqual(p.register, (8.0, 2.0))
+            self.assertAlmostEqual(p.hold_s(60), 4.2974, places=3)
+        with mock.patch.dict(os.environ, {"MPE_PEDAL_FADE_S": "3"}, clear=True):
+            p = PedalFade.from_env()
+            self.assertIsNone(p.register)
+            self.assertEqual({p.hold_s(n) for n in (0, 21, 60, 108, 127)}, {3.0})
+        with mock.patch.dict(os.environ, {"MPE_PEDAL_FADE_S": "0",
+                                          "MPE_PEDAL_FADE_LOW_S": "8",
+                                          "MPE_PEDAL_FADE_HIGH_S": "2"}, clear=True):
+            self.assertIsNone(PedalFade.from_env(), "0 is off whatever else is set")
+
+
+class RegisterHoldTests(unittest.TestCase):
+    """The curve on the fake clock: the deadline comes from the note-off's note."""
+
+    def setUp(self) -> None:
+        self.p = PedalFade(FADE, register=(8.0, 2.0))
+        self.p.filter(_pedal(0, True), 0.0)
+
+    def _release(self, ch: int, note: int, at: float) -> None:
+        self.p.filter(_on(ch, note), 0.0)
+        self.assertEqual(self.p.filter(_off(ch, note), at), [])
+
+    def test_bass_rings_longer_than_treble(self) -> None:
+        self._release(1, 36, 1.0)
+        self._release(2, 84, 1.0)
+        self.assertEqual(self.p.due(1.0 + CURVE[84] - 0.001), [])
+        self.assertEqual(self.p.due(1.0 + CURVE[84] + 0.001), [_off(2, 84)],
+                         "treble first")
+        self.assertEqual(self.p.due(1.0 + CURVE[36] - 0.001), [])
+        self.assertEqual(self.p.due(1.0 + CURVE[36] + 0.001), [_off(1, 36)])
+        self.assertEqual(self.p.due(100.0), [])
+
+    def test_middle_c_deadline(self) -> None:
+        self._release(1, 60, 1.0)
+        self.assertAlmostEqual(self.p.next_deadline(), 1.0 + 4.2974, places=3)
+
+    def test_clamped_deadlines(self) -> None:
+        self._release(1, 5, 0.0)
+        self._release(2, 120, 0.0)
+        self.assertAlmostEqual(self.p.next_deadline(), 2.0)
+        self.assertEqual(self.p.due(2.0), [_off(2, 120)])
+        self.assertAlmostEqual(self.p.next_deadline(), 8.0)
+        self.assertEqual(self.p.due(8.0), [_off(1, 5)])
+
+    def test_pedal_up_still_releases_everything_at_once(self) -> None:
+        self._release(1, 36, 1.0)
+        self._release(2, 84, 1.0)
+        sent = self.p.filter(_pedal(0, False), 1.5)
+        self.assertEqual(_note_offs(sent), Counter({(1, 36): 1, (2, 84): 1}))
+        self.assertEqual(self.p.due(100.0), [])
 
 
 class ReleaseScheduleTests(unittest.TestCase):
@@ -445,6 +543,40 @@ class RemapperPedalUpWindowTests(RemapperPedalTests):
         self._tick(100.0)
         self.assertEqual(set(_note_offs(self.sent).values()), {1})
         self.assertEqual(len(_note_offs(self.sent)), 3)
+
+
+class RemapperRegisterTests(unittest.TestCase):
+    """Nothing set in the env: the daemon holds by pitch, bass longest."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        tmp = Path(self._tmp.name)
+        self.module = _load_remap_module()
+        self.patches = [
+            mock.patch("patch_browser.poly_voice_tracker.VOICE_TRACKER_FILE",
+                       tmp / "poly-voice-tracker.json"),
+            mock.patch("builtins.print"),
+            mock.patch.dict(os.environ, {}, clear=True),
+        ]
+        for patch in self.patches:
+            patch.start()
+        self.daemon = self.module.PressureRemapDaemon()
+        self.daemon._clock = lambda: 0.0  # every key released at t=0
+        self.sent: list[list[int]] = []
+        self.daemon._out = mock.Mock(send_message=lambda msg: self.sent.append(list(msg)))
+
+    def tearDown(self) -> None:
+        for patch in reversed(self.patches):
+            patch.stop()
+        self._tmp.cleanup()
+
+    def test_bass_note_off_reaches_surge_after_treble(self) -> None:
+        for msg in (_pedal(0, True), _on(1, 36), _on(2, 84), _off(1, 36), _off(2, 84)):
+            self.daemon._send(msg)
+        self.daemon._process_pedal_deadlines(CURVE[84] + 0.01)
+        self.assertEqual(_note_offs(self.sent), Counter({(2, 84): 1}))
+        self.daemon._process_pedal_deadlines(CURVE[36] + 0.01)
+        self.assertEqual(_note_offs(self.sent), Counter({(2, 84): 1, (1, 36): 1}))
 
 
 class RemapperPedalOffTests(unittest.TestCase):

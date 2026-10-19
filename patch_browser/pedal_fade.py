@@ -4,9 +4,17 @@ Surge's own sustain holds a note until the pedal comes up. On an organ or pad
 patch (amp sustain 1.0) that is forever, so chords added under the pedal stack
 voices and the level climbs: measured 3 -> ~13 voices, about +7 dB. Surge has
 no per-note volume over MIDI, so the remapper stops forwarding CC 64 and keeps
-the pedal itself. A key released under the pedal is held for
-``MPE_PEDAL_FADE_S`` seconds, then gets its note-off and the patch's release
-envelope fades it.
+the pedal itself. A key released under the pedal is held for a while, then
+gets its note-off and the patch's release envelope fades it.
+
+How long depends on the pitch, as on a piano, whose bass strings ring far
+longer under the damper pedal than its treble: ``MPE_PEDAL_FADE_LOW_S`` at
+MIDI note 21 (A0), ``MPE_PEDAL_FADE_HIGH_S`` at 108 (C8), geometric in
+between, clamped outside. With the defaults (8 s, 2 s) middle C holds 4.30 s.
+
+Precedence (``hold_register``): ``MPE_PEDAL_FADE_S=0`` turns the fade off. If
+``MPE_PEDAL_FADE_S`` is set and neither LOW nor HIGH is, every note holds that
+long (the flat hold this module had first). Otherwise the curve.
 
 Pedal up does not drop everything at once either. The retired 3-pedal setup
 (``SustainFadeController`` in scripts/pedal-to-osc.py) ramped CC 64 down a
@@ -36,6 +44,12 @@ from patch_browser.midi_sync import is_note_off, is_note_on
 
 PEDAL_FADE_ENV = "MPE_PEDAL_FADE_S"
 DEFAULT_PEDAL_FADE_S = 3.0
+FADE_LOW_ENV = "MPE_PEDAL_FADE_LOW_S"
+FADE_HIGH_ENV = "MPE_PEDAL_FADE_HIGH_S"
+DEFAULT_FADE_LOW_S = 8.0
+DEFAULT_FADE_HIGH_S = 2.0
+LOW_NOTE = 21  # A0, the piano's lowest key
+HIGH_NOTE = 108  # C8, its highest
 RELEASE_FADE_ENV = "MPE_PEDAL_RELEASE_FADE_S"
 # 0: pedal up releases every pedal-held note at once, as a piano's dampers
 # all fall together. >0 spreads them (pedal-to-osc.py's old CC 64 ramp).
@@ -74,6 +88,36 @@ def pedal_fade_seconds(raw: str | None = None) -> float:
     """``MPE_PEDAL_FADE_S``: seconds a released key rings under the pedal."""
     return _seconds(os.environ.get(PEDAL_FADE_ENV) if raw is None else raw,
                     DEFAULT_PEDAL_FADE_S)
+
+
+def register_hold_seconds(note: int, low_s: float, high_s: float) -> float:
+    """Hold for ``note``: ``low_s`` at A0, ``high_s`` at C8, log-linear
+    between (equal ratio per semitone), clamped outside 21..108."""
+    n = min(max(note, LOW_NOTE), HIGH_NOTE)
+    return low_s * (high_s / low_s) ** ((n - LOW_NOTE) / (HIGH_NOTE - LOW_NOTE))
+
+
+def hold_register(
+    fade_raw: str | None = None,
+    low_raw: str | None = None,
+    high_raw: str | None = None,
+) -> tuple[float, float] | None:
+    """``(low_s, high_s)`` for the pitch curve, or None for a flat hold.
+
+    Flat only when ``MPE_PEDAL_FADE_S`` is set and neither LOW nor HIGH is,
+    so a config written for the flat hold keeps it. A LOW or HIGH that is
+    unset, unparseable or not positive takes its default.
+    """
+    env = os.environ
+    fade_raw = env.get(PEDAL_FADE_ENV) if fade_raw is None else fade_raw
+    low_raw = env.get(FADE_LOW_ENV) if low_raw is None else low_raw
+    high_raw = env.get(FADE_HIGH_ENV) if high_raw is None else high_raw
+    if (fade_raw or "").strip() and not (low_raw or "").strip() \
+            and not (high_raw or "").strip():
+        return None
+    low_s = _seconds(low_raw, DEFAULT_FADE_LOW_S) or DEFAULT_FADE_LOW_S
+    high_s = _seconds(high_raw, DEFAULT_FADE_HIGH_S) or DEFAULT_FADE_HIGH_S
+    return (low_s, high_s)
 
 
 def release_fade_seconds(raw: str | None = None) -> float:
@@ -115,7 +159,7 @@ def release_schedule(
 class _PedalHeld:
     note_off: list[int]  # the key's own note-off, sent as-is when it is due
     started_at: float  # its note-on: "oldest first" in the pedal-up window
-    deadline: float  # release + MPE_PEDAL_FADE_S
+    deadline: float  # release + hold_s(note)
     release_at: float | None = None  # set while the pedal-up window runs
 
     def due_at(self) -> float:
@@ -130,8 +174,12 @@ class PedalFade:
         fade_s: float,
         release_fade_s: float = 0.0,
         curve: tuple[int, ...] = RELEASE_CURVES["linear"],
+        register: tuple[float, float] | None = None,
     ) -> None:
+        # fade_s: the flat hold, used when register is None.
+        # register: (hold at A0, hold at C8); see register_hold_seconds.
         self.fade_s = float(fade_s)
+        self.register = register
         self.release_fade_s = float(release_fade_s)
         self.curve = tuple(curve)
         self._pedals: set[int] = set()
@@ -149,7 +197,20 @@ class PedalFade:
         fade_s = pedal_fade_seconds()
         if fade_s <= 0:
             return None
-        return cls(fade_s, release_fade_seconds(), release_curve())
+        return cls(fade_s, release_fade_seconds(), release_curve(),
+                   hold_register())
+
+    def hold_s(self, note: int) -> float:
+        """Seconds a key released under the pedal keeps sounding."""
+        if self.register is None:
+            return self.fade_s
+        return register_hold_seconds(note, *self.register)
+
+    def hold_label(self) -> str:
+        if self.register is None:
+            return f"{self.fade_s:g} s"
+        low_s, high_s = self.register
+        return f"{low_s:g} s at A0 to {high_s:g} s at C8"
 
     # -- queries -------------------------------------------------------------
     def pedal_held(self) -> frozenset[Key]:
@@ -214,7 +275,7 @@ class PedalFade:
                 held = _PedalHeld(
                     note_off=list(message),
                     started_at=started_at,
-                    deadline=now + self.fade_s,
+                    deadline=now + self.hold_s(key[1]),
                 )
                 self._pedal_held[key] = held
                 if self._next_deadline is None or held.deadline < self._next_deadline:
