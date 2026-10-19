@@ -1,6 +1,6 @@
 # Per-patch volume normalization
 
-Static loudness matching for Surge XT patches on the MPE appliance. Calibrate once offline; apply a cheap JSON lookup + OSC volume send on every `load_patch()`.
+Static loudness matching for Surge XT patches on the MPE appliance. Calibrate once offline; apply a cheap JSON lookup and one `gain` datagram to mpe-fx-host's stage on every `load_patch()`.
 
 **Issue:** [MPE-Sound-Module #5](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/5)
 
@@ -10,10 +10,10 @@ Static loudness matching for Surge XT patches on the MPE appliance. Calibrate on
 
 ### v2 Norm trim (2026-08-18)
 
-- **Norm fader** adjusts `user_trim_db` — an offset from calibrated `gain_db` (−24…+12 dB). **0** = calibrated baseline; double-tap clears trim.
+- **Norm fader** adjusts `user_trim_db` — an offset from calibrated `gain_db` (−30…+30 dB since 2026-10-19, so 0 sits at the centre). **0** = calibrated baseline; double-tap clears trim. `gain_db + user_trim_db` is held to the calibration gesture's 0 dBTP (`norm_ceiling_db`); the fader reads **max** while that holds.
 - **Legacy `user_gain_db`** rows migrate on store load to `user_trim_db` (absolute → offset) and persist.
-- **Cal save gate:** post-gain closed-loop verify must report peak ≤ −2.8 dBTP or the patch is **not saved**.
-- **Audit:** `scripts/calibrate-patch-normalization.py --verify-only --favorites-only` replays at stored `gain_db` only.
+- **Cal save gate:** the predicted post-gain peak (unity peak + `gain_db`) must be ≤ −2.8 dBTP or the patch is **not saved**.
+- **Audit:** `scripts/calibrate-patch-normalization.py --verify-only --favorites-only` re-measures at authored volume and checks the predicted post-gain peak.
 - **OUT meter** floor: −24 dBFS (was −48).
 - **Vol fader law:** `MPE_VOL_FADER_LAW=console|linear` in `/etc/mpe/mpe.env` (default **console**).
 
@@ -22,7 +22,7 @@ Static loudness matching for Surge XT patches on the MPE appliance. Calibrate on
 |------|------|
 | **Scan** | Log count of patches missing calibration — no rendering during scan |
 | **Offline / SSH** | Render gesture → measure LUFS → write gain to JSON |
-| **Load** | Lookup by patch name (stem) → set amp/volume baseline → user trim stacks on top |
+| **Load** | Lookup by patch → `stage_db` (gain + trim + headroom + Vol) → `gain` datagram to mpe-fx-host. A cut is sent before `/patch/load`, a raise after the settle |
 
 **Gain matching only** — velocity and pressure curves stay untouched (no dynamic compression at play time).
 
@@ -41,12 +41,17 @@ File: `patch_normalization.json` keyed by **patch name** (stem). Favorites copie
   "My Patch": {
     "gain_db": -2.5,
     "enabled": true,
-    "lufs_measured": -15.5,
-    "true_peak_dbtp": -3.2,
-    "calibrated_at": "2026-07-30T17:00:00+00:00"
+    "cal_path": "fx-stage-v1",
+    "lufs_unity": {"strike": -14.0, "sustain": -15.5},
+    "true_peak_unity_dbtp": {"strike": -1.0, "sustain": -0.7},
+    "authored_volume": 0.89,
+    "capture_padded_db": 0.0,
+    "calibrated_at": "2026-10-20T17:00:00+00:00"
   }
 }
 ```
+
+An entry without `cal_path: "fx-stage-v1"` was measured through Surge's amp/volume and is in the wrong units: it counts as uncalibrated (listed missing, re-measured by the next run) and, until then, plays at the level it played at before the stage (`legacy_norm_db`). An entry whose patch now reports a different `authored_volume` was edited since and plays as authored. Re-measuring a pre-stage entry that had a trim converts the trim so the level heard stays the same (`migrate_trim_to_stage`), keeps the old value as `user_trim_db_legacy`, and prints `[trim]`, with `CLAMPED` when ±30 dB could not hold it.
 
 | Path | Purpose |
 |------|---------|
@@ -77,15 +82,16 @@ The touch UI **Norm.** checkbox writes only the `enabled` flag for that patch st
 - **Re-enable** after turning Norm off restores the stored gain immediately — no re-calibration.
 - **Disable** with no prior entry creates a minimal `{"enabled": false}` row; enabling again without calibration shows *Normalize on (no calibration)* and leaves volume at the user trim only.
 
-### Runtime volume
+### Runtime level: the stage gain (2026-10-19)
 
-Surge OSC `/param/a/amp/volume` and `/param/b/amp/volume` use a linear scale (`1.0` = unity). Stored `gain_db` converts via `10^(gain_db/20)`.
+Surge's `/param/*/amp/volume` is never set. Surge reads it as a cube law (dB = 60·log10 v) clamped to 0..1, so the `10^(gain_db/20)` this file used to send cut three times too deep and lost every boost above unity. The level is one linear gain at mpe-fx-host's input, before the effects (`native/mpe-fx-host/fx_dsp.h`, "Stage gain"):
 
-On load:
+`stage_db = min(gain_db + user_trim_db, ceiling) + headroom_db + vol_db` (`patch_normalization.stage_db`)
 
-1. Normalization sets `_patch_gain_linear` baseline
-2. User volume slider (`set_volume`) maps fader travel **linearly in dB** from **mute** (−∞ display) to **0 dB** at the top (`eff_max` = capped norm baseline when Norm on, else the **1.5** ceiling). Display shows **dB attenuation** (−∞…0), not 0–100.
-3. When **Norm.** is on or off, `eff_max` never exceeds **1.5** linear on Surge amp/volume. (The norm-on cap was **0.85** until 2026-08-01 — see below. A 2026-08-02 fix stopped product-then-cap from flattening the Vol fader; a follow-up switched to dB-linear mapping so the top of the fader is not compressed into the last ~20%.)
+- `gain_db + user_trim_db`: 0 when normalization is off or the patch has no stage calibration.
+- `headroom_db`: device mode's −9 dB, 0 in trim mode. `vol_db`: the trim-mode Vol fader (console law, mute at the bottom), 0 in device mode.
+- `PatchLoader` sends it as `gain <linear>` on UDP 9958, re-sends it once a second (a restarted mpe-fx-host is back within 1 s), and is the only sender. Norm off plays the patch at its authored level.
+- With mpe-fx-host down, patches play as authored: boosts are missing and the level never exceeds what Surge produces, but cuts and the trim-mode Vol fader are lost too. mpe-fx-host therefore runs whatever `MPE_FX_HOST` says; the flag gates only the effects.
 
 ### Polyphony and static/crackle (Pi)
 
@@ -93,8 +99,8 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 
 | Factor | Effect |
 |--------|--------|
-| **Norm ON** | Quiet patches get large `gain_db` boosts; runtime cap now matches norm-off (**1.5**, was 0.85 — see 2026-08-01 fix below). |
-| **Norm OFF** | Unity baseline; user trim up to **1.5** — more headroom for solo, less for dense chords. |
+| **Norm ON** | Quiet patches get large `gain_db` boosts in the stage, after Surge: they no longer change Surge's own load. |
+| **Norm OFF** | The authored level; the Vol fader only attenuates. |
 | **Audio buffer** | **CORRECTED 2026-08-14.** This row read: *"`surge-xt-cli` starts with `MPE_SURGE_BUFFER_SIZE` (default 1024 ≈ 21 ms). 768 drops voices under heavy MPE polyphony and 512 caused choppery/governor on heavy Pi 4 patches — 1024 is the stability floor."* **Falsified on the bench:** the appliance runs **`MPE_JACK_BUFFER=512 × 3 periods @ 48 kHz` with 0 xruns** (`mpe jack status`, 2026-08-14). Those numbers were measured on the pre-JACK **ALSA** path, which PR #50 deleted; under the JACK graph server Surge does not own a buffer at all — **jackd's period governs every client**. The live knob is `MPE_JACK_BUFFER` / `MPE_JACK_PERIODS`, not `MPE_SURGE_BUFFER_SIZE`. |
 | **snd-aloop** | Loaded only during calibration loopback. Unloaded on Surge start and after `calibrate-with-loader.sh` if refcount is 0. |
 
@@ -106,7 +112,7 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 
 **Progressive gesture retry.** Instead of retrying a below-threshold patch with the same fixed 3s gesture and giving up, each retry holds the note longer: `GESTURE_DURATIONS_SECONDS = (3.0, 5.0, 8.0, 12.0)` (`MEASURE_MAX_ATTEMPTS` now derives from this tuple). Note-hold time scales with gesture length via `hold_seconds_for_gesture()`, capped by pre-roll/tail overhead. This targets slow-attack/filter-sweep patches (long acid filter opens, slow pads) that never reach real loudness in a short gesture — they now get up to ~27s total across 4 attempts before being skipped for real.
 
-**Root cause of "Acid is quiet, no change with norm on/off" (2026-08-01):** not a capture or measurement bug — the patch's own `.fxp` routing (`a_vca_velsense=-5.14`, inverted velocity: harder hits are quieter; scene `volume=-15.7dB`) makes it genuinely quiet by design. Calibration correctly computed a large corrective `gain_db` (+16 to +26 dB depending on capture route), but `_send_combined_volume()` clamped the norm-on send to **`NORM_MAX_AMP_VOLUME_LINEAR=0.85`** — below unity — so almost the entire calibrated gain was thrown away before it ever reached Surge. Norm-on (0.85) vs norm-off (1.0, capped at `MAX_AMP_VOLUME_LINEAR=1.5`) differed by only ~1.4 dB, which is inaudible. Every patch needing more than a ~-1.4dB correction was silently under-corrected the same way — `Acid` just made the gap obvious.
+**Root cause of "Acid is quiet, no change with norm on/off" (2026-08-01; history — the amp/volume caps below are gone):** not a capture or measurement bug — the patch's own `.fxp` routing (`a_vca_velsense=-5.14`, inverted velocity: harder hits are quieter; scene `volume=-15.7dB`) makes it genuinely quiet by design. Calibration correctly computed a large corrective `gain_db` (+16 to +26 dB depending on capture route), but `_send_combined_volume()` clamped the norm-on send to **`NORM_MAX_AMP_VOLUME_LINEAR=0.85`** — below unity — so almost the entire calibrated gain was thrown away before it ever reached Surge. Norm-on (0.85) vs norm-off (1.0, capped at `MAX_AMP_VOLUME_LINEAR=1.5`) differed by only ~1.4 dB, which is inaudible. Every patch needing more than a ~-1.4dB correction was silently under-corrected the same way — `Acid` just made the gap obvious.
 
 **Fix:** raised `NORM_MAX_AMP_VOLUME_LINEAR` to match `MAX_AMP_VOLUME_LINEAR` (1.5) — same Surge `amp/volume` ceiling either way, pending the Pi xrun/CPU stress test (dense MPE polyphony) that motivated the lower cap originally. If that test shows real xrun/CPU regression, the next lever is reducing max voice count for heavily-boosted patches rather than re-lowering the global cap.
 
@@ -122,16 +128,16 @@ Record the result as a bench command and its output, not a sentence. Every prior
 
 **Live diagnosis:** the touch browser header **CPU** meter (see [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md)) tracks `surge-xt-cli` process load while you play — use it to see when dense polyphony is pushing the Pi toward xrun territory. Norm on should keep typical Quick Select patches lower on that meter than uncapped gain would.
 
-**Quick Select reference (2026-07-30):** calibrated `gain_db` spans about +4 to +18 dB. Without a runtime cap that would map to **~1.6–8.0** linear OSC — too hot for dense MPE on the Pi. With Norm on, combined amp/volume is capped at **1.5** linear (same as norm off).
+**Quick Select reference (2026-07-30):** calibrated `gain_db` spanned about +4 to +18 dB (amp/volume units; re-measured for the stage, the numbers change). The stage applies them in full up to `FX_GAIN_MAX_DB` (+48); the real limit is the Norm trim's 0 dBTP ceiling, and there is no limiter after it.
 
-### Norm toggle behavior (2026-08-02 fixes)
+### Norm toggle behavior (2026-08-02 fixes; history — amp/volume is no longer sent)
 
-Headless Surge keeps `amp/volume` **sticky** across patch loads — it is not reset by `/patch/load`. Two bugs made norm on/off sound identical:
+This section recorded that headless Surge keeps `amp/volume` **sticky** across patch loads. If that holds, a patch loaded after the stage shipped plays at whatever amp/volume was last set until Surge restarts, not at its authored level: the first deploy restarts Surge, and the authored-volume read after each load (`AUTHORED_VOLUME_PATH`) is what to compare against the `.fxp`. Two bugs made norm on/off sound identical:
 
 1. **Stale OSC when norm off.** An early pass skipped the OSC send when norm was off at unity trim, leaving the parameter stuck at whatever a prior norm-on session set (e.g. 1.5). **Fix:** `_send_combined_volume()` always asserts `trim × baseline` via OSC for both on and off.
 2. **Global/per-patch re-enable.** Toggling global norm back on did not reload the patch or re-apply stored calibration. **Fix:** reload loaded patch after global toggle; per-patch toggle reloads when needed.
 
-When norm is off at unity user trim, OSC sends **1.0** (not "skip send").
+When norm is off at unity user trim, the stage is sent **gain 1.00000000** (not "skip send").
 
 ## Calibration script
 
@@ -146,6 +152,8 @@ Patch discovery scans all folders under the Surge patch symlink roots (`SURGE_PA
 | `--patch "Stem"` | Single patch by name |
 | `--dry-run` | List targets; no Surge/ffmpeg |
 | `--limit N` | Process at most N patches |
+| `--controls PATCH` | Instrument controls on one reference patch before trusting a run: a 6 dB pad must read 6 ± 0.3 dB, two captures must agree within 0.3 dB, and muting the stage must not move the reading (calibration captures Surge before the stage). Nothing is written |
+| `--audit PATCH WAV` | Check a capture taken after the stage against the store: LUFS within ±0.5 of the prediction, true peak ≤ −2.8 dBTP. `--audit-headroom-db` for device mode (−9) |
 | `--progress-json` | Machine-readable progress on stdout (loader UI) |
 
 The loader progress line shows **`patch index / total · saved N`**. On cancel, **saved** is the count of patches that measured successfully and were written to JSON — not the attempt index. If capture fails for every patch, cancel reads *saved 0 calibrations (N attempted; none measured successfully)* even after a long run.
@@ -208,6 +216,8 @@ Running the raw calibrator over SSH without the loader still works; the display 
 - **ffmpeg** (capture + `loudnorm` measurement)
 - **python-osc**, **python-rtmidi** (gesture MIDI into Surge)
 - Default capture is **loopback** (`snd-aloop`, dynamic card-index resolution); `--audio-device` to override. `MPE_CAL_ROUTE=standalone` / `--no-use-loopback` falls back to **`dsnoop:CARD=S3,DEV=0`** Sound Blaster capture (`arecord -L`) if loopback breaks.
+
+A run copies the stores to `~/.patch_browser_calibration_backups/<timestamp>/` before writing. Each patch is measured once, at its authored volume, with Surge alone; `gain_db` is arithmetic on that measurement. A capture whose sample peak reaches −0.1 dBFS is re-measured with Surge 12 dB down (`padded_volume`) and the pad added back, the one amp/volume write in the tree (`AMP_VOLUME_PATHS`), restored before the next patch.
 
 Keep Surge alive for the whole batch — one load + **two gestures** + capture per patch when Touch calibration is enabled (full pressure sweep for **Norm**, fixed low pressure for **Touch**).
 

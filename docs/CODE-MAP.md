@@ -322,7 +322,7 @@ stateDiagram-v2
 | `mpe_patch_browser_unit()` | :11 | restart helpers | touch vs oled unit name |
 | `mpe_source_appliance_env()` | :28 | service scripts | Load `/etc/mpe/mpe.env` |
 | `_run_on_pi()` | configure-pi-paths.sh:26 | --local | Write mpe.env, install units |
-| `DeviceVolume.rebind()` | patch_browser/device_volume.py | touch UI loop on new jack.state | Bound DAC hardware level (device) or Surge trim (trim) |
+| `DeviceVolume.rebind()` | patch_browser/device_volume.py | touch UI loop on new jack.state | Bound DAC hardware level (device) or the stage gain's Vol term (trim) |
 
 **External CLI (separate repo):** `mpe` from [mpe-cli](https://github.com/MitchSchwartz/mpe-cli) — `ping`, `status`, `logs`, `osc-check`, `restart`, `looper sl-*`.
 

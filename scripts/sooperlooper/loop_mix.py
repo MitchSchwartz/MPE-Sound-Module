@@ -130,9 +130,8 @@ def fader_taper(raw: int, *, floor_db: float, ceil_db: float) -> float:
     """CC 0–127 → linear 0.0–1.0, even dB per unit of travel.
 
     Same shape as the touch browser's Vol fader
-    (patch_browser/patch_normalization.py::volume_fader_to_amp_linear) but not
-    the same function: that one is bound to Surge amp/volume, patch gain and a
-    normalisation cap. Only the law is shared, deliberately duplicated rather
+    (patch_browser/patch_normalization.py::volume_fader_trim_to_db) but not
+    the same function: that one is a term of the per-patch stage gain. Only the law is shared, deliberately duplicated rather
     than coupling the looper control path to the patch browser.
     """
     if raw <= SILENCE_CC:

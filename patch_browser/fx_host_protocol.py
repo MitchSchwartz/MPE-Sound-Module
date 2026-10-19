@@ -52,8 +52,9 @@ offers Off and `BASS_STEPS_HZ` (80-300 Hz); the client accepts 20-1000.
 
 **Stage gain** (`gain <linear>`, `encode_gain`). One linear gain the client
 applies to its input before the chain, for per-patch normalization. 1.0 is
-unity, which is where a fresh client starts, and nothing sends it yet: a
-client that never receives one plays exactly as before. A datagram of its
+unity, which is where a fresh client starts, and a client that never
+receives one plays exactly as before. `PatchLoader` is its only sender
+(`tests/test_stage_gain_guard.py`). A datagram of its
 own, for the reason `bass` is one. The client ramps it (~25 ms), clamps it to
 `GAIN_MAX_DB` and ignores NaN, inf and negative values; the value is a plain
 decimal with eight places, so -90 dB still has three significant digits.
