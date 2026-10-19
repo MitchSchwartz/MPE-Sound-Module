@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import socket
 import struct
@@ -38,6 +39,20 @@ from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 OSC_OUT_PORT = 53270
 OSC_QUERY_TIMEOUT_S = 0.08
 PATCH_LOAD_SETTLE_S = 0.06
+# Waiting for Surge's /patch reply (the last patch it finished loading).
+PATCH_QUERY_TIMEOUT_S = 0.25
+PATCH_CONFIRM_POLL_S = 0.1
+
+
+def same_patch_path(reported: str | None, expected: str) -> bool:
+    """True when Surge's reported patch is the file that was asked for.
+
+    The whole path decides, never the name: factory ``Basses/Bass 1`` and a
+    third-party ``Bass 1`` share a stem and are different patches.
+    """
+    if not reported:
+        return False
+    return os.path.normpath(reported) == os.path.normpath(expected)
 
 
 class PatchLoader:
@@ -225,6 +240,68 @@ class PatchLoader:
             sock.close()
         return None
 
+    @staticmethod
+    def _parse_patch_path_reply(data: bytes) -> str | None:
+        """The path in a Surge ``/patch`` message; None for any other message."""
+        try:
+            from pythonosc.osc_message import OscMessage
+
+            message = OscMessage(data)
+        except Exception:
+            return None
+        if message.address != "/patch":
+            return None
+        for param in message.params:
+            if isinstance(param, str):
+                return param
+        return None
+
+    def query_loaded_patch_path(self, timeout_s: float = PATCH_QUERY_TIMEOUT_S) -> str | None:
+        """The patch Surge last finished loading, without extension; None if no reply.
+
+        Surge's OSC out also carries parameter echoes, so datagrams are read
+        until the deadline and only a ``/patch`` message is taken.
+        """
+        if not self.osc_enabled or self.osc_client is None:
+            return None
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.bind((self.osc_host, self.osc_out_port))
+            self.osc_client.send_message("/q/patch", [])
+            deadline = time.monotonic() + timeout_s
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                sock.settimeout(remaining)
+                try:
+                    data, _addr = sock.recvfrom(65536)
+                except socket.timeout:
+                    return None
+                path = self._parse_patch_path_reply(data)
+                if path is not None:
+                    return path
+        except OSError:
+            return None
+        finally:
+            sock.close()
+
+    def _confirm_patch_loaded(self, expected: str, timeout_s: float) -> bool:
+        """Poll Surge until it reports ``expected`` loaded, or give up."""
+        deadline = time.monotonic() + timeout_s
+        while True:
+            reported = self.query_loaded_patch_path()
+            if same_patch_path(reported, expected):
+                return True
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(PATCH_CONFIRM_POLL_S)
+        print(
+            f"Patch load not confirmed: asked for {expected!r}, "
+            f"Surge reports {reported!r}"
+        )
+        return False
+
     def _capture_hold_baseline(self, patch_name: str) -> bool:
         """Read AEG sustain/decay/release from Surge after patch load."""
         kw = self._sidecar_kw()
@@ -326,7 +403,14 @@ class PatchLoader:
         apply_normalization: bool = True,
         stable_key: str | None = None,
         capture_hold: bool = True,
+        confirm_timeout_s: float | None = None,
     ):
+        """Load ``patch_path`` into Surge by its full path.
+
+        With ``confirm_timeout_s``, wait until Surge reports this exact path as
+        loaded (``/q/patch``, which needs Surge's ``--osc-out-port``) before
+        sending anything else, and return False if it does not in that time.
+        """
         if not self.osc_enabled:
             print(f"OSC disabled, cannot load: {patch_path}")
             return False
@@ -338,6 +422,14 @@ class PatchLoader:
                 path_no_ext = path_no_ext[:-4]
 
             self.osc_client.send_message("/patch/load", [path_no_ext])
+            # Surge loads in the background and refuses a missing file without
+            # a word, so unconfirmed, the old patch can still be the one
+            # playing, and a volume sent now can land before the new patch
+            # replaces it.
+            if confirm_timeout_s is not None and not self._confirm_patch_loaded(
+                path_no_ext, confirm_timeout_s
+            ):
+                return False
             patch_name = Path(patch_path).stem
             self._loaded_patch_path = str(patch_path)
             self._loaded_stable_key = stable_key
