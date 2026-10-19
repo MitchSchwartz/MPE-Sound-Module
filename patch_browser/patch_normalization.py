@@ -9,8 +9,9 @@ parameter is read as a cube law (dB = 60·log10 v) and clamped to 0..1, so
 gains converted with 10^(dB/20) were cut three times too deep and boosts were
 lost (2026-10-19). `tests/test_stage_gain_guard.py` refuses a second site.
 
-When mpe-fx-host is not running, patches play as authored: the boosts are
-missing, the level never exceeds what Surge itself produces.
+When mpe-fx-host is not running, patches play as authored: the boosts and cuts
+are missing, the trim-mode Vol fader has no effect, and the level never exceeds
+what Surge itself produces (fx_host_protocol, "Without mpe-fx-host").
 """
 
 from __future__ import annotations

@@ -28,13 +28,25 @@ def gain(db: float) -> tuple[str, str]:
 
 
 class Timeline:
-    """Surge's OSC and the stage datagrams, in the order they went out."""
+    """Surge's OSC and the stage datagrams, in the order they went out.
+
+    ``/q/patch`` is Surge's load confirmation: it answers with the last
+    ``/patch/load`` path while ``surge_confirms`` is True, and not at all when False.
+    """
 
     def __init__(self) -> None:
         self.events: list[tuple[str, object]] = []
+        self.surge_confirms = True
+        self.last_load: str | None = None
+
+    def query_loaded_patch_path(self, *_a, **_k) -> str | None:
+        self.events.append(("/q/patch", None))
+        return self.last_load if self.surge_confirms else None
 
     def send_message(self, address: str, value) -> None:
         self.events.append((address, value))
+        if address == "/patch/load":
+            self.last_load = value[0]
 
     def __call__(self, payload: bytes) -> bool:
         word, value = payload.decode("ascii").split()
@@ -58,6 +70,7 @@ def make_loader(store, authored: float | None = 0.9) -> tuple[PatchLoader, Timel
     loader.osc_client = line
     loader.osc_enabled = True
     loader._query_osc_float = mock.Mock(return_value=authored)
+    loader.query_loaded_patch_path = line.query_loaded_patch_path
     return loader, line
 
 
@@ -72,6 +85,8 @@ def load(loader: PatchLoader, name: str, **kw) -> bool:
         mock.patch.object(loader, "_capture_hold_baseline", return_value=True),
         mock.patch.object(loader, "_send_hold_osc", return_value=True),
         mock.patch.object(loader, "_resend_patch_mod"),
+        # One /q/patch per load: a browse asks once and goes on.
+        mock.patch("patch_browser.patch_loader.BROWSE_CONFIRM_TIMEOUT_S", 0.0),
     ):
         return loader.load_patch(path, capture_hold=False, **kw)
 
@@ -276,22 +291,93 @@ class LoaderSequences(unittest.TestCase):
         self.assertEqual(line.events, [
             gain(-10.0),
             ("/patch/load", ["/p/Hot"]),
-            ("<settle>", None),
+            ("/q/patch", None),
             ("<policy>", None),
             gain(-10.0),
         ])
 
-    def test_load_with_a_raise_waits_for_the_settle(self) -> None:
+    def test_load_with_a_raise_waits_for_surges_confirmation(self) -> None:
         loader, line = make_loader(self.store)
         load(loader, "Hot")
         line.events.clear()
         load(loader, "Quiet")
         self.assertEqual(line.events, [
             ("/patch/load", ["/p/Quiet"]),
-            ("<settle>", None),
+            ("/q/patch", None),
             ("<policy>", None),
             gain(6.0),
         ])
+        loader._query_osc_float.assert_called_with("/param/a/amp/volume")
+
+    def test_an_unconfirmed_raise_is_held_until_surge_reports_the_patch(self) -> None:
+        loader, line = make_loader(self.store)
+        load(loader, "Hot")
+        line.surge_confirms = False
+        line.events.clear()
+        loader._query_osc_float.reset_mock()
+        self.assertTrue(load(loader, "Quiet"), "a browse never fails on a slow answer")
+        self.assertEqual(line.events, [
+            ("/patch/load", ["/p/Quiet"]),
+            ("/q/patch", None),
+            ("<policy>", None),
+            gain(-10.0),
+        ])
+        # The authored volume Surge reports now could be the old patch's.
+        loader._query_osc_float.assert_not_called()
+        line.events.clear()
+        loader.keep_stage_alive(now=1000.0)
+        self.assertEqual(line.events, [("/q/patch", None), gain(-10.0)], "still unconfirmed: held")
+        line.surge_confirms = True
+        line.events.clear()
+        loader.keep_stage_alive(now=1000.0 + STAGE_KEEPALIVE_S)
+        self.assertEqual(line.events, [("/q/patch", None), gain(6.0)])
+        loader._query_osc_float.assert_called_once_with("/param/a/amp/volume")
+        line.events.clear()
+        loader.keep_stage_alive(now=1000.0 + 2 * STAGE_KEEPALIVE_S)
+        self.assertEqual(line.events, [gain(6.0)], "confirmed: Surge is not asked again")
+
+    def test_a_fader_move_while_held_stays_on_the_quieter_side(self) -> None:
+        loader, line = make_loader(self.store)
+        load(loader, "Hot")
+        line.surge_confirms = False
+        load(loader, "Quiet")
+        line.events.clear()
+        loader.set_volume(0.5)
+        vol = pn.volume_fader_trim_to_db(0.5, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX)
+        self.assertEqual(line.events, [gain(-10.0 + vol)])
+
+    def test_an_unconfirmed_cut_still_lands_before_the_load(self) -> None:
+        loader, line = make_loader(self.store)
+        load(loader, "Quiet")
+        line.surge_confirms = False
+        line.events.clear()
+        load(loader, "Hot")
+        self.assertEqual(line.events, [
+            gain(-10.0),
+            ("/patch/load", ["/p/Hot"]),
+            ("/q/patch", None),
+            ("<policy>", None),
+            gain(-10.0),
+        ])
+
+    def test_a_confirmed_load_clears_a_held_raise(self) -> None:
+        loader, line = make_loader(self.store)
+        load(loader, "Hot")
+        line.surge_confirms = False
+        load(loader, "Quiet")
+        line.surge_confirms = True
+        load(loader, "Quiet")
+        line.events.clear()
+        loader.keep_stage_alive(now=5000.0)
+        self.assertEqual(line.events, [gain(6.0)])
+
+    def test_a_calibration_load_surge_does_not_confirm_sends_no_raise(self) -> None:
+        loader, line = make_loader(self.store)
+        line.surge_confirms = False
+        with mock.patch("patch_browser.patch_loader.time.monotonic", side_effect=[0.0, 1.0]):
+            ok = load(loader, "Quiet", confirm_timeout_s=0.5)
+        self.assertFalse(ok)
+        self.assertEqual(line.events, [("/patch/load", ["/p/Quiet"]), ("/q/patch", None)])
 
     def test_the_first_load_counts_from_unity(self) -> None:
         loader, line = make_loader(self.store)

@@ -22,7 +22,7 @@ Static loudness matching for Surge XT patches on the MPE appliance. Calibrate on
 |------|------|
 | **Scan** | Log count of patches missing calibration — no rendering during scan |
 | **Offline / SSH** | Render gesture → measure LUFS → write gain to JSON |
-| **Load** | Lookup by patch → `stage_db` (gain + trim + headroom + Vol) → `gain` datagram to mpe-fx-host. A cut is sent before `/patch/load`, a raise after the settle |
+| **Load** | Lookup by patch → `stage_db` (gain + trim + headroom + Vol) → `gain` datagram to mpe-fx-host. A cut is sent before `/patch/load`, a raise only once Surge reports the new patch loaded (`/q/patch`); unconfirmed after 0.3 s, the load goes on and the raise is held until the keepalive sees it |
 
 **Gain matching only** — velocity and pressure curves stay untouched (no dynamic compression at play time).
 

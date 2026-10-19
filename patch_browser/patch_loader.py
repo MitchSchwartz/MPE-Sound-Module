@@ -72,7 +72,8 @@ AUTHORED_VOLUME_PATH = "/param/a/amp/volume"
 
 class UdpStageSender:
     """Sends one `gain` datagram to mpe-fx-host. A missing listener is not an error:
-    with no insert running, the trunk plays as authored."""
+    with no insert running, the trunk plays as authored and the Vol fader has no
+    effect (fx_host_protocol, "Without mpe-fx-host")."""
 
     def __init__(self, host: str = fx_host_protocol.DEFAULT_HOST, port: int | None = None):
         self.address = (host, fx_host_protocol.resolve_port() if port is None else port)

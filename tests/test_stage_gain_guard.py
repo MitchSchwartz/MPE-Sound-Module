@@ -7,10 +7,15 @@ a `gain` datagram. This refuses a second site: any product file (Python or
 shell) that names Surge's volume parameter, except
 
 - `PatchLoader`'s AUTHORED_VOLUME_PATH, read only (`_query_osc_float`), to
-  notice an edited patch;
+  notice an edited patch. A read, not a send;
 - the calibration script's AMP_VOLUME_PATHS, written only by
   `set_capture_volume`, which pads a clipped capture of the standalone Surge
   that calibration measures, outside the stage.
+
+The pad is the one named exception to "nothing sends amp/volume" (spec D3 against
+D9). It is enforced here: one binding, one writing function, one calling file,
+and the write always puts the authored value back
+(tests/test_calibration_stage.py).
 """
 
 from __future__ import annotations
@@ -109,7 +114,7 @@ class NoSecondLevelSite(unittest.TestCase):
 
     def test_the_loader_only_reads_it(self) -> None:
         path = REPO / "patch_browser/patch_loader.py"
-        self.assertEqual(set(name_uses(path, "AUTHORED_VOLUME_PATH")), {"load_patch"})
+        self.assertEqual(set(name_uses(path, "AUTHORED_VOLUME_PATH")), {"_settle_patch_level"})
         text = path.read_text(encoding="utf-8")
         self.assertIn("self._query_osc_float(AUTHORED_VOLUME_PATH)", text)
         self.assertNotRegex(text, r"send_message\([^)]*AUTHORED_VOLUME_PATH")

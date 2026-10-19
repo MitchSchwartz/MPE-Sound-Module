@@ -989,7 +989,16 @@ def set_capture_volume(loader: PatchLoader, volume: float) -> bool:
     """Set Surge's amp/volume (both scenes) for a capture: the pad, and putting the
     authored value back after it. The only amp/volume write in the product
     (tests/test_stage_gain_guard.py), here because the measured Surge is the
-    standalone one, outside the stage."""
+    standalone one, outside the stage.
+
+    Callers put the authored value back in a ``finally``, so a pad never outlives
+    its capture. That is safe whether or not Surge keeps amp/volume across patch
+    loads: if it does, the next patch plays at the restored value, the read after
+    its load (``loader._authored_volume``) reports that value, the measurement and
+    the stored ``authored_volume`` agree with each other, and the live instrument,
+    whose Surge never had it set, sees a different authored volume and plays the
+    entry as authored (``patch_normalization.is_stale``) rather than at a wrong
+    gain. Whether Surge does is a hardware check in the PR."""
     if not loader.osc_enabled or loader.osc_client is None:
         return False
     value = max(0.0, min(1.0, float(volume)))

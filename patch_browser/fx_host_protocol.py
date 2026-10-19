@@ -61,6 +61,18 @@ decimal with eight places, so -90 dB still has three significant digits.
 
     gain 3.98107171
 
+**Without mpe-fx-host the level is the patch's own.** The insert always runs
+(`MPE_FX_HOST` gates only the effects), so normalization, the Norm trim, device
+mode's headroom and the trim-mode Vol fader all live in this one stage. When
+the insert is absent (stopped, crashed, restarting, or the direct monitor path
+restored) Surge goes straight out: every patch plays as authored, normalization
+is off in effect, and the Vol fader does nothing. The DAC level in device mode
+still applies. No second level site exists in Surge to fall back to; that was
+the bug the stage removes. The sender cannot tell: a `gain` datagram is
+fire-and-forget and the browser has no fx-host health indicator, so this state
+is not shown on screen. A restarted insert starts at the last gain it was
+told (below), so a restart does not undo a cut.
+
 The client keeps the last gain it was told in a file (`gain_state_path`,
 `/run/mpe/fx-stage-gain` unless `MPE_FX_GAIN_STATE` says otherwise; one line in
 the datagram's own format) and a restarted client starts at it held to unity,

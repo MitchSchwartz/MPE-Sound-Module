@@ -99,6 +99,17 @@ class UnityAnchors(unittest.TestCase):
         self.assertEqual(self.sent[-2:], [("/param/a/amp/volume", 0.8), ("/param/b/amp/volume", 0.8)])
 
 
+    def test_a_capture_that_fails_mid_pad_still_restores(self) -> None:
+        # Safe whether or not Surge keeps amp/volume across patch loads: the pad
+        # never outlives the capture it was set for.
+        with self.assertRaises(RuntimeError):
+            self._run(
+                [anchor(self.cal, -8.0, 0.4, 0.0), RuntimeError("capture died")],
+                [anchor(self.cal, -10.0, -1.0, -1.2)],
+            )
+        self.assertEqual(self.sent[-2:], [("/param/a/amp/volume", 0.8), ("/param/b/amp/volume", 0.8)])
+
+
 class CalibratePatch(unittest.TestCase):
     def setUp(self) -> None:
         self.cal = load_cal_module()
