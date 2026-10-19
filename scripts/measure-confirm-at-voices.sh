@@ -63,6 +63,11 @@ mpe_env_set MPE_POLY_CEILING 64
 mpe_env_set MPE_POLY_FLOOR 64
 mpe_source_appliance_env
 mpe_unit_stop_for_measure surge-poly-governor.service
+# The touch UI owns the stage gain and re-sends it every second: a patch loaded
+# here would play at the UI patch's level (load-patch-osc.py refuses while it runs).
+for _ui_unit in touch-patch-browser.service patch-browser.service; do
+    mpe_unit_stop_for_measure "$_ui_unit"
+done
 
 {
     echo "=== measure-confirm-at-voices tag=${TAG} patch=${PATCH_NAME} voices=${VOICES} sec=${SECONDS_HOLD} $(date -Is) ==="

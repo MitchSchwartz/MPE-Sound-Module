@@ -46,6 +46,8 @@ def make_loader(store) -> tuple[PatchLoader, RecordingStage]:
     loader = PatchLoader(normalization_store=store, stage_sender=stage)
     loader.osc_client = mock.Mock()
     loader.osc_enabled = True
+    # Surge has confirmed the loaded patch: a boost goes out (keep_stage_alive).
+    loader._surge_confirmed = True
     return loader, stage
 
 

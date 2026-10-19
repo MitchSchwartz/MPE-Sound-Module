@@ -22,7 +22,7 @@ Static loudness matching for Surge XT patches on the MPE appliance. Calibrate on
 |------|------|
 | **Scan** | Log count of patches missing calibration — no rendering during scan |
 | **Offline / SSH** | Render gesture → measure LUFS → write gain to JSON |
-| **Load** | Lookup by patch → `stage_db` (gain + trim + headroom + Vol) → `gain` datagram to mpe-fx-host. A cut is sent before `/patch/load`, a raise only once Surge reports the new patch loaded (`/q/patch`); unconfirmed after 0.3 s, the load goes on and the raise is held until the keepalive sees it |
+| **Load** | Lookup by patch → `stage_db` (gain + trim + headroom + Vol) → `gain` datagram to mpe-fx-host. A cut is sent before `/patch/load`, a raise only once Surge reports the new patch loaded (`/q/patch`); unconfirmed after 0.3 s, the load goes on and the raise is held until the keepalive sees it. A boost is re-sent only while Surge confirms the loaded patch on that tick; otherwise the stage goes out without it (`min(stage, headroom + Vol)`) |
 
 **Gain matching only** — velocity and pressure curves stay untouched (no dynamic compression at play time).
 
@@ -51,7 +51,7 @@ File: `patch_normalization.json` keyed by **patch name** (stem). Favorites copie
 }
 ```
 
-An entry without `cal_path: "fx-stage-v1"` was measured through Surge's amp/volume and is in the wrong units: it counts as uncalibrated (listed missing, re-measured by the next run) and, until then, plays at the level it played at before the stage (`legacy_norm_db`). An entry whose patch now reports a different `authored_volume` was edited since and plays as authored. Re-measuring a pre-stage entry that had a trim converts the trim so the level heard stays the same (`migrate_trim_to_stage`), keeps the old value as `user_trim_db_legacy`, and prints `[trim]`, with `CLAMPED` when ±30 dB could not hold it.
+An entry without `cal_path: "fx-stage-v1"` was measured through Surge's amp/volume and is in the wrong units: it counts as uncalibrated (listed missing, re-measured by the next run) and, until then, plays at the level it played at before the stage (`legacy_norm_db`, held to +30 dB). A row with a trim and no gain counts its gain as 0, as the old code did. An entry whose patch now reports a different `authored_volume` or `authored_volume_b` (either scene) was edited since: it keeps a cut but loses a boost, `min(norm, 0)`. An authored volume below 0.1 (−60 dB) is not believed and reads as unknown, which errs quiet. Re-measuring a pre-stage entry that had a trim converts the trim so the level heard stays the same (`migrate_trim_to_stage`), keeps the old value as `user_trim_db_legacy`, and prints `[trim]`. A cut is kept exactly even below −30 dB (the Norm fader then reads `min`); only a raise above +30 dB is held, which plays quieter, and is marked `CLAMPED`. Every calibrated row prints `[level]`: its level before and after, dB re authored, marked `LOUDER` when it rises by more than 0.5 dB.
 
 | Path | Purpose |
 |------|---------|
@@ -90,7 +90,8 @@ Surge's `/param/*/amp/volume` is never set. Surge reads it as a cube law (dB = 6
 
 - `gain_db + user_trim_db`: 0 when normalization is off or the patch has no stage calibration.
 - `headroom_db`: device mode's −9 dB, 0 in trim mode. `vol_db`: the trim-mode Vol fader (console law, mute at the bottom), 0 in device mode.
-- `PatchLoader` sends it as `gain <linear>` on UDP 9958, re-sends it once a second (a restarted mpe-fx-host is back within 1 s), and is the only sender. Norm off plays the patch at its authored level.
+- `PatchLoader` sends it as `gain <linear>` on UDP 9958 and re-sends it once a second, the boost only for a patch Surge confirms on that tick. The other senders are named in `tests/test_stage_gain_guard.py` (`STAGE_SENDERS`): the UI's and the measurement loader's `PatchLoader`, and calibration's isolation control. `scripts/load-patch-osc.py` refuses to load while the touch UI runs, and the harnesses that use it stop the UI first. Norm off plays the patch at its authored level.
+- mpe-fx-host keeps the last gain it was told in `/run/mpe/fx-stage-gain` and a restarted insert starts at it, not at unity (`native/mpe-fx-host/fx_gain_state.h`).
 - With mpe-fx-host down, patches play as authored: boosts are missing and the level never exceeds what Surge produces, but cuts and the trim-mode Vol fader are lost too. mpe-fx-host therefore runs whatever `MPE_FX_HOST` says; the flag gates only the effects.
 
 ### Polyphony and static/crackle (Pi)

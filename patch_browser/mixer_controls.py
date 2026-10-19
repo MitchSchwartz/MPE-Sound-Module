@@ -255,10 +255,17 @@ class NormControl:
 
     def format_for(self, browser, value: float) -> str:
         """"max" while the loaded patch's peak ceiling holds the trim, so a fader
-        that has stopped acting does not look broken."""
+        that has stopped acting does not look broken. "min" when the stored trim
+        is below the fader's bottom (a cut the stage migration kept exactly,
+        `migrate_trim_to_stage`): the fader sits at its bottom and plays quieter
+        than that position."""
         patch = browser.detail_patch
         loaded = browser.loaded_patch_info
         store = browser.loader.normalization
+        if patch:
+            trim = store.get_user_trim_db(patch["name"], **sidecar_kwargs_from_patch(patch))
+            if isinstance(trim, (int, float)) and trim < self.spec.min_value:
+                return "min"
         if (
             patch
             and loaded

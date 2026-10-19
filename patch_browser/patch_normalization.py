@@ -52,10 +52,25 @@ CAL_PATH = "fx-stage-v1"
 CLIP_SAMPLE_PEAK_DBFS = -0.1
 CAPTURE_PAD_DB = 12.0
 
-# A patch whose amp/volume now reads differently from the calibration's was edited
-# since: its entry is stale and plays uncalibrated. Surge reports the value as text
-# with a few digits, so the tolerance is a display step, not float equality.
+# A patch whose amp/volume (either scene) now reads differently from the
+# calibration's was edited since: its entry is stale and plays no louder than
+# authored (`stage_norm`). Surge reports the value as text with a few digits, so
+# the tolerance is a display step, not float equality.
 AUTHORED_VOLUME_TOLERANCE = 0.002
+
+# An authored amp/volume below this is not believed: 0.1 is -60 dB through Surge's
+# cube law, quieter than any patch anyone plays, and the reading most likely to be
+# wrong is a near-zero one (a reply for another parameter, a display string). It
+# reads as unknown, which errs quiet (`authored_level_db`).
+MIN_PLAUSIBLE_AUTHORED_VOLUME = 0.1
+
+# The most a pre-stage row's bridge (`legacy_norm_db`) may raise the stage. The
+# bridge raises a patch only to undo a quiet authored volume, so it is
+# 60·log10(1/authored): +30 dB covers any patch authored at 0.32 (-30 dB) or
+# louder, the Norm trim's own range. A patch authored quieter than that plays
+# quieter than it did, never louder, until it is re-measured; and a wrong
+# authored read can never put more than +30 dB on the trunk through this path.
+LEGACY_NORM_MAX_DB = 30.0
 
 # Legacy aliases -- NormControl uses trim range; keep names for import stability.
 NORM_GAIN_DB_MIN = NORM_TRIM_DB_MIN
@@ -314,6 +329,30 @@ def padded_volume(authored_volume: float, pad_db: float) -> float:
     return float(authored_volume) * 10.0 ** (-float(pad_db) / 60.0)
 
 
+def plausible_authored_volume(value: float | None) -> float | None:
+    """An authored amp/volume as read from Surge, or None when it cannot be
+    believed (not a finite 0..1 number, or under MIN_PLAUSIBLE_AUTHORED_VOLUME)."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value) or not MIN_PLAUSIBLE_AUTHORED_VOLUME <= value <= 1.0:
+        return None
+    return value
+
+
+def louder_authored(a: float | None, b: float | None = None) -> float | None:
+    """The louder of the two scenes' authored volumes, for a gain worked out
+    against the authored level (the louder errs quiet). Unknown when scene A is:
+    B alone is not enough to know the patch."""
+    a, b = plausible_authored_volume(a), plausible_authored_volume(b)
+    if a is None:
+        return None
+    return a if b is None else max(a, b)
+
+
 def legacy_level_db(gain_db_old: float, trim_db_old: float) -> float:
     """The level a pre-stage entry played at, in dB re amp/volume 1.0.
 
@@ -324,11 +363,13 @@ def legacy_level_db(gain_db_old: float, trim_db_old: float) -> float:
 
 
 def authored_level_db(authored_volume: float | None) -> float:
-    """60·log10 of the authored amp/volume. Unknown (or 0) reads as 1.0: 0 dB, the
-    loudest it can be, so a gain worked out against it errs quiet."""
-    if authored_volume is None or not math.isfinite(authored_volume) or authored_volume <= 0.0:
+    """60·log10 of the authored amp/volume. Unknown or implausible
+    (`plausible_authored_volume`) reads as 1.0: 0 dB, the loudest it can be, so a
+    gain worked out against it errs quiet."""
+    authored_volume = plausible_authored_volume(authored_volume)
+    if authored_volume is None:
         return 0.0
-    return 60.0 * math.log10(min(1.0, float(authored_volume)))
+    return 60.0 * math.log10(authored_volume)
 
 
 def migrate_trim_to_stage(
@@ -342,44 +383,71 @@ def migrate_trim_to_stage(
 
     `legacy_level_db` less the authored level is what the stage must apply; the new
     trim is that less gain_db_new. An unknown authored volume errs quiet
-    (`authored_level_db`). Returns (trim, clamped): clamped when the trim fader's
-    range could not hold it.
+    (`authored_level_db`). Returns (trim, clamped).
+
+    A cut is kept exactly, even past the Norm fader's bottom (the fader then
+    reads "min"): clamping it to -30 would play the patch louder than the owner
+    left it, by as much as the clamp took. Only a raise past the fader's top is
+    clamped, which plays quieter; `clamped` reports that.
     """
     wanted = (
         legacy_level_db(gain_db_old, trim_db_old)
         - authored_level_db(authored_volume)
         - float(gain_db_new)
     )
-    trim = clamp_user_trim_db(wanted)
-    return trim, abs(trim - wanted) > 1e-9
+    trim = min(wanted, NORM_TRIM_DB_MAX)
+    return trim, trim < wanted
 
 
-def legacy_norm_db(entry: dict[str, Any] | None, authored_volume: float | None) -> float | None:
-    """For an entry calibrated before the stage: the stage gain that plays it at the
-    level it played at then. None when the entry carries no gain.
+def _finite_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
+def legacy_norm_db(
+    entry: dict[str, Any] | None,
+    authored_volume: float | None,
+    authored_volume_b: float | None = None,
+) -> float | None:
+    """For an entry from before the stage: the stage gain that plays it at the
+    level it played at then. None when the entry carries neither a gain nor a trim.
 
     Bridges the deploy and the re-measurement (`CAL_PATH` entries replace these):
-    until then a cut patch stays cut. An unknown authored volume errs quiet.
+    until then a cut patch stays cut. A trim with no gain is the owner's cut on an
+    uncalibrated patch: the old code took the missing gain as 0, and so does this.
+    Worked out against the louder scene's authored volume, an unknown one as 0 dB
+    (`louder_authored`, `authored_level_db`): both err quiet. Held to
+    LEGACY_NORM_MAX_DB.
     """
     if not isinstance(entry, dict) or is_calibrated(entry):
         return None
-    gain = entry.get("gain_db")
-    if not isinstance(gain, (int, float)) or not math.isfinite(float(gain)):
+    gain = _finite_number(entry.get("gain_db"))
+    trim = _finite_number(entry.get("user_trim_db"))
+    if gain is None and trim is None:
         return None
-    trim = entry.get("user_trim_db")
-    trim = float(trim) if isinstance(trim, (int, float)) else 0.0
-    return legacy_level_db(float(gain), trim) - authored_level_db(authored_volume)
+    level = legacy_level_db(gain or 0.0, trim or 0.0)
+    authored = louder_authored(authored_volume, authored_volume_b)
+    return min(LEGACY_NORM_MAX_DB, level - authored_level_db(authored))
 
 
-def is_stale(entry: dict[str, Any] | None, authored_volume: float | None) -> bool:
-    """A calibrated entry whose patch now has a different authored volume (edited
-    since): it plays as authored until re-measured. Unknown now: not stale."""
-    if not is_calibrated(entry) or authored_volume is None:
+def is_stale(
+    entry: dict[str, Any] | None,
+    authored_volume: float | None,
+    authored_volume_b: float | None = None,
+) -> bool:
+    """A calibrated entry whose patch now has a different authored volume in either
+    scene (edited since). A scene unknown now, or not recorded then, is not
+    compared."""
+    if not is_calibrated(entry):
         return False
-    was = entry.get("authored_volume")
-    if not isinstance(was, (int, float)):
-        return False
-    return abs(float(was) - float(authored_volume)) > AUTHORED_VOLUME_TOLERANCE
+    for key, now in (("authored_volume", authored_volume), ("authored_volume_b", authored_volume_b)):
+        was = _finite_number(entry.get(key))
+        now = plausible_authored_volume(now)
+        if was is not None and now is not None and abs(was - now) > AUTHORED_VOLUME_TOLERANCE:
+            return True
+    return False
 
 
 def compute_gain_db(
@@ -662,25 +730,30 @@ class PatchNormalizationStore(SidecarKeyMixin):
         patch_path: str | None = None,
         stable_key: str | None = None,
         authored_volume: float | None = None,
+        authored_volume_b: float | None = None,
     ) -> tuple[float, float | None]:
-        """(norm_db, ceiling_db) for `stage_db`, given the patch's amp/volume as Surge
-        reports it after the load (None if it did not answer).
+        """(norm_db, ceiling_db) for `stage_db`, given the patch's amp/volume in each
+        scene as Surge reports it after the load (None if it did not answer).
 
-        (0, None) when normalization is off, globally or for this patch, when the
-        patch has no calibration, or when it is stale (`is_stale`). An entry from
-        before the stage plays at its old level (`legacy_norm_db`).
+        (0, None) when normalization is off, globally or for this patch, or when the
+        patch has no entry. A stale entry (`is_stale`: the patch was edited since it
+        was measured) keeps its cut but loses its boost, min(norm, 0): the edit may
+        have made it louder, and a boost measured on the old patch could then clip,
+        while dropping the cut would play a patch the owner turned down at full
+        level. An entry from before the stage plays at its old level
+        (`legacy_norm_db`).
         """
         kw = {"patch_path": patch_path, "stable_key": stable_key}
         if not self.is_effectively_enabled(patch_name, **kw):
             return 0.0, None
         entry = self.get_entry(patch_name, **kw)
         if is_calibrated(entry):
-            if is_stale(entry, authored_volume):
-                return 0.0, None
             trim = entry.get("user_trim_db")
             norm = float(entry["gain_db"]) + (float(trim) if trim is not None else 0.0)
+            if is_stale(entry, authored_volume, authored_volume_b):
+                return min(norm, 0.0), None
             return norm, norm_ceiling_db(entry)
-        legacy = legacy_norm_db(entry, authored_volume)
+        legacy = legacy_norm_db(entry, authored_volume, authored_volume_b)
         if legacy is None:
             return 0.0, None
         return legacy, None
@@ -846,6 +919,7 @@ class PatchNormalizationStore(SidecarKeyMixin):
         lufs_unity: dict[str, float] | None = None,
         true_peak_unity_dbtp: dict[str, float] | None = None,
         authored_volume: float | None = None,
+        authored_volume_b: float | None = None,
         capture_padded_db: float | None = None,
         patch_path: str | None = None,
         stable_key: str | None = None,
@@ -892,6 +966,8 @@ class PatchNormalizationStore(SidecarKeyMixin):
             }
         if authored_volume is not None:
             entry["authored_volume"] = round(float(authored_volume), 6)
+        if authored_volume_b is not None:
+            entry["authored_volume_b"] = round(float(authored_volume_b), 6)
         if capture_padded_db is not None:
             entry["capture_padded_db"] = round(float(capture_padded_db), 2)
         migration: dict[str, Any] | None = None
@@ -903,17 +979,16 @@ class PatchNormalizationStore(SidecarKeyMixin):
                 for carried in ("user_trim_db_legacy",):
                     if carried in existing:
                         entry[carried] = existing[carried]
-                if (
-                    entry.get("cal_path") == CAL_PATH
-                    and not is_calibrated(existing)
-                    and existing.get("gain_db") is not None
-                ):
+                # A pre-stage row: its trim was heard through amp/volume's cube law,
+                # on its gain or, with none, on 0 (`legacy_norm_db`).
+                if entry.get("cal_path") == CAL_PATH and not is_calibrated(existing):
                     old_trim = float(existing["user_trim_db"])
+                    old_gain = _finite_number(existing.get("gain_db")) or 0.0
                     trim, clamped = migrate_trim_to_stage(
-                        gain_db_old=float(existing["gain_db"]),
+                        gain_db_old=old_gain,
                         trim_db_old=old_trim,
                         gain_db_new=float(gain_db),
-                        authored_volume=authored_volume,
+                        authored_volume=louder_authored(authored_volume, authored_volume_b),
                     )
                     entry["user_trim_db"] = round(trim, 3)
                     entry["user_trim_db_legacy"] = old_trim

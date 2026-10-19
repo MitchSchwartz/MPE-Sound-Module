@@ -145,6 +145,63 @@ class CalibratePatch(unittest.TestCase):
             # No amp/volume and no closed loop: one load, nothing sent to Surge.
             loader.osc_client.send_message.assert_not_called()
 
+    def _calibrate(self, store, name: str, *, authored=0.85, authored_b=None):
+        import contextlib
+        import io
+
+        loader = mock.Mock(osc_enabled=True, _authored_volume=authored, _authored_volume_b=authored_b)
+        loader.load_patch.return_value = True
+        out = io.StringIO()
+        with (
+            mock.patch.object(self.cal, "measure_strike_anchor_lufs",
+                              return_value=anchor(self.cal, -20.0, -8.0, -8.5)),
+            mock.patch.object(self.cal, "measure_sustain_anchor_lufs",
+                              return_value=anchor(self.cal, -24.0, -9.0, -9.5)),
+            mock.patch.object(self.cal, "measure_light_touch_lufs", return_value=None),
+            mock.patch.object(self.cal.time, "sleep"),
+            contextlib.redirect_stdout(out),
+        ):
+            result = self.cal.calibrate_patch(
+                Path(f"/tmp/{name}.fxp"), loader, store, audio_device="dev",
+                mock_lufs=None, dry_run=False, midi_out=mock.Mock(),
+            )
+        return result, out.getvalue()
+
+    def test_every_row_reports_its_level_before_and_after(self) -> None:
+        """Not only trimmed rows: an untrimmed pre-stage row, a new one, and a
+        re-measured one each print [level], and a row that gets louder says so."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "norm.json"
+            path.write_text(json.dumps({
+                "Old": {"gain_db": -10.0, "enabled": True},
+                "Cut": {"gain_db": -30.0, "cal_path": pn.CAL_PATH, "authored_volume": 0.85,
+                        "enabled": True},
+            }))
+            store = pn.PatchNormalizationStore(path)
+            store.set_patch_dirs([])
+            gain = round(pn.compute_gain_db_dual_anchor(-20.0, -8.0, -24.0, -9.0), 3)
+            after = min(gain, 0.0 - (-8.0))
+            want_old_before = pn.legacy_norm_db({"gain_db": -10.0}, 0.85)
+            for name, before in (("Old", want_old_before), ("New", 0.0), ("Cut", -30.0)):
+                with self.subTest(name=name):
+                    result, out = self._calibrate(store, name)
+                    self.assertTrue(result.ok)
+                    self.assertAlmostEqual(result.level_before_db, before, places=6)
+                    self.assertAlmostEqual(result.level_after_db, after, places=6)
+                    lines = [line for line in out.splitlines() if line.strip().startswith("[level]")]
+                    self.assertEqual(lines, [self.cal.level_report_line(name, before, after)])
+                    self.assertEqual("LOUDER" in lines[0], after - before > self.cal.LEVEL_REPORT_LOUDER_DB)
+            self.assertIn("LOUDER", self.cal.level_report_line("Cut", -30.0, after))
+            self.assertNotIn("LOUDER", self.cal.level_report_line("X", 2.0, 2.4))
+
+    def test_scene_b_is_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = pn.PatchNormalizationStore(Path(tmp) / "norm.json")
+            store.set_patch_dirs([])
+            self._calibrate(store, "Lead", authored=0.85, authored_b=0.6)
+            entry = store.get_entry("Lead", patch_path="/tmp/Lead.fxp")
+            self.assertEqual((entry["authored_volume"], entry["authored_volume_b"]), (0.85, 0.6))
+
     def test_a_padded_capture_is_recorded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = pn.PatchNormalizationStore(Path(tmp) / "norm.json")
@@ -192,7 +249,9 @@ class Controls(unittest.TestCase):
         self.assertFalse(cc.stage_audit(-18.0, (-18.51, -4.0)).ok)
         self.assertFalse(cc.stage_audit(-18.0, (-18.0, -2.79)).ok)
 
-    def test_run_controls_order_and_safety(self) -> None:
+    def _run_controls(self, *, host_running=True, before=0.5):
+        """run_controls on a faked capture, a fake stage and a fake mpe-fx-host whose
+        state file follows what it is sent while it is running."""
         cal = load_cal_module()
         loader = mock.Mock(osc_enabled=True, _authored_volume=0.8)
         loader.load_patch.return_value = True
@@ -204,6 +263,7 @@ class Controls(unittest.TestCase):
             anchor(cal, -20.1, -6.1, -6.6),   # repeat
             anchor(cal, -20.0, -6.0, -6.5),   # stage muted
         ])
+        state = {"gain": before}
 
         def sustain(*_a):
             line.append(("<capture>",))
@@ -211,13 +271,20 @@ class Controls(unittest.TestCase):
 
         def stage(payload):
             line.append(("stage", payload))
+            if host_running:
+                state["gain"] = float(payload.split()[1])
             return True
 
         with (
             mock.patch.object(cal, "measure_sustain_anchor_lufs", side_effect=sustain),
             mock.patch.object(cal.time, "sleep"),
         ):
-            results = cal.run_controls(loader, object(), "dev", Path("/p/Ref.fxp"), stage_sender=stage)
+            results = cal.run_controls(loader, object(), "dev", Path("/p/Ref.fxp"), stage_sender=stage,
+                                       gain_state=lambda: state["gain"])
+        return cal, loader, line, results, state
+
+    def test_run_controls_order_and_safety(self) -> None:
+        cal, loader, line, results, state = self._run_controls()
         self.assertEqual([r.name for r in results], ["positive", "repeatability", "isolation"])
         # The control patch is measured only once Surge confirms it loaded (#198).
         self.assertEqual(loader.load_patch.call_args.kwargs["confirm_timeout_s"],
@@ -232,7 +299,61 @@ class Controls(unittest.TestCase):
             ("<capture>",),
             ("stage", b"gain 0.00000000"),  # the safe direction: mute, never a boost
             ("<capture>",),
+            ("stage", b"gain 0.50000000"),  # and the insert's own gain put back
         ])
+        self.assertEqual(state["gain"], 0.5)
+
+    def test_isolation_fails_when_no_insert_took_the_mute(self) -> None:
+        """No mpe-fx-host: the capture would match because nothing was muted."""
+        _cal, _loader, line, results, _state = self._run_controls(host_running=False)
+        isolation = results[2]
+        self.assertFalse(isolation.ok)
+        self.assertIn("did not take the mute", isolation.detail)
+        self.assertEqual(line[-2:], [("stage", b"gain 0.00000000"), ("stage", b"gain 0.50000000")],
+                         "nothing captured against a mute that did not land; the gain still put back")
+
+    def test_a_capture_that_dies_muted_still_puts_the_gain_back(self) -> None:
+        cal = load_cal_module()
+        sent: list[bytes] = []
+        state = {"gain": 0.25}
+
+        def stage(payload):
+            sent.append(payload)
+            state["gain"] = float(payload.split()[1])
+            return True
+
+        loader = mock.Mock(osc_enabled=True, _authored_volume=0.8)
+        loader.load_patch.return_value = True
+        readings = iter([anchor(cal, -20.0, -6.0, -6.5)] * 3 + [RuntimeError("capture died")])
+
+        def sustain(*_a):
+            reading = next(readings)
+            if isinstance(reading, Exception):
+                raise reading
+            return reading
+
+        with (
+            mock.patch.object(cal, "measure_sustain_anchor_lufs", side_effect=sustain),
+            mock.patch.object(cal.time, "sleep"),
+            self.assertRaises(RuntimeError),
+        ):
+            cal.run_controls(loader, object(), "dev", Path("/p/Ref.fxp"), stage_sender=stage,
+                             gain_state=lambda: state["gain"])
+        self.assertEqual(sent, [b"gain 0.00000000", b"gain 0.25000000"])
+        self.assertEqual(state["gain"], 0.25)
+
+    def test_an_already_muted_stage_is_probed_and_left_muted(self) -> None:
+        _cal, _loader, line, results, state = self._run_controls(before=0.0)
+        self.assertTrue(results[2].ok, results[2])
+        stage = [e for e in line if e[0] == "stage"]
+        self.assertEqual(stage, [("stage", b"gain 0.00000100"), ("stage", b"gain 0.00000000")])
+        self.assertEqual(state["gain"], 0.0)
+
+    def test_with_no_gain_on_record_the_stage_stays_muted(self) -> None:
+        _cal, _loader, line, results, state = self._run_controls(before=None)
+        self.assertTrue(results[2].ok, results[2])
+        self.assertEqual([e for e in line if e[0] == "stage"], [("stage", b"gain 0.00000000")])
+        self.assertEqual(state["gain"], 0.0)
 
 
 class AuditAndBackup(unittest.TestCase):

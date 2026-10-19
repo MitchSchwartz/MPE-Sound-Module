@@ -143,6 +143,8 @@ class RuntimeTrimTests(unittest.TestCase):
             loader = PatchLoader(normalization_store=store, stage_sender=sent.append)
             loader.osc_client = FakeOscClient()
             loader.osc_enabled = True
+            # Surge has confirmed the loaded patch: a boost goes out (keep_stage_alive).
+            loader._surge_confirmed = True
             loader.user_volume_trim = 1.0
             loader.refresh_patch_volume("Lead")
             self.assertEqual(sent, [f"gain {db_to_linear(4.0):.8f}".encode()])

@@ -164,6 +164,7 @@ class TestPatchLoadKeepsDeviceTrim(unittest.TestCase):
     def test_the_script_routes_through_the_ui_volume_path(self):
         module = _load_script("load-patch-osc.py")
         with (
+            mock.patch.object(module, "ui_running", return_value=None),
             mock.patch.object(sys, "argv", ["load-patch-osc.py", __file__]),
             mock.patch("patch_browser.patch_loader.PatchLoader", return_value=self.loader),
             mock.patch.object(measure_patch, "device_mode_active", return_value=True),
@@ -182,6 +183,55 @@ class TestPatchLoadKeepsDeviceTrim(unittest.TestCase):
         self.assertTrue(gains)
         self.assertTrue(all(g < 1.0 for g in gains), gains)
         self.assertEqual(self.loader.osc_client.amps(), [])
+
+    def test_the_script_refuses_while_the_ui_runs(self):
+        """The UI re-sends its own patch's stage gain every second: a patch loaded
+        beside it would play at that gain (a cut patch's -20 dB lost, or worse)."""
+        module = _load_script("load-patch-osc.py")
+        with (
+            mock.patch.object(sys, "argv", ["load-patch-osc.py", __file__]),
+            mock.patch.object(module.subprocess, "run",
+                              return_value=mock.Mock(returncode=0)) as run,
+            mock.patch("patch_browser.patch_loader.PatchLoader") as loader_cls,
+            self.assertRaises(SystemExit) as exit_,
+        ):
+            module.main()
+        self.assertEqual(exit_.exception.code, 3)
+        loader_cls.assert_not_called()
+        self.assertEqual(run.call_args.args[0],
+                         ["systemctl", "is-active", "--quiet", "touch-patch-browser.service"])
+        # The older OLED UI's unit counts too.
+        with mock.patch.object(module.subprocess, "run",
+                               side_effect=[mock.Mock(returncode=3), mock.Mock(returncode=0)]):
+            self.assertEqual(module.ui_running(), "patch-browser.service")
+        # Neither unit active, or no systemctl at all: it loads.
+        for result in (mock.Mock(returncode=3), FileNotFoundError("systemctl")):
+            with self.subTest(result=result), mock.patch.object(
+                    module.subprocess, "run",
+                    **({"side_effect": result} if isinstance(result, Exception) else {"return_value": result})):
+                self.assertIsNone(module.ui_running())
+
+    def test_harnesses_that_load_patches_stop_the_ui_first(self):
+        """Each harness that loads through load-patch-osc.py stops both UI units with
+        mpe_unit_stop_for_measure (started again on exit) before its first load.
+        measure-v8b-playable.sh has no restore trap: it relies on the refusal."""
+        relying_on_refusal = {"measure-v8b-playable.sh"}
+        missing = []
+        for path in sorted(SCRIPTS.glob("measure-*.sh")):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if "mpe_load_patch_osc" not in text or path.name in relying_on_refusal:
+                continue
+            ui_stop = re.search(r"for (\w+) in [^;]*\btouch-patch-browser\.service[^;]*\bpatch-browser\.service"
+                                r"; do\n\s*mpe_unit_stop_for_measure \"\$\1\"", text)
+            if ui_stop is None:
+                missing.append(path.name)
+                continue
+            # Before the first load at top level (a load inside a function runs later).
+            top_level = [m.start() for m in re.finditer(r"^(?![\s#]).*\bmpe_load_patch_osc ", text, re.M)]
+            if top_level and ui_stop.start() > min(top_level):
+                missing.append(path.name + " (after its first load)")
+        self.assertEqual(missing, [])
+        self.assertTrue((SCRIPTS / "measure-v8b-playable.sh").read_text().count("mpe_load_patch_osc"))
 
     def test_harnesses_load_patches_only_through_the_shared_loader(self):
         """One authority: no measure script calls load-patch-osc.py or PatchLoader itself."""

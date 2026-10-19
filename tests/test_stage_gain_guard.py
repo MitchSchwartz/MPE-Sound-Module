@@ -6,7 +6,7 @@ trunk is decided in `patch_normalization.stage_db` and sent by `PatchLoader` as
 a `gain` datagram. This refuses a second site: any product file (Python or
 shell) that names Surge's volume parameter, except
 
-- `PatchLoader`'s AUTHORED_VOLUME_PATH, read only (`_query_osc_float`), to
+- `PatchLoader`'s AUTHORED_VOLUME_PATHS, read only (`_query_osc_float`), to
   notice an edited patch. A read, not a send;
 - the calibration script's AMP_VOLUME_PATHS, written only by
   `set_capture_volume`, which pads a clipped capture of the standalone Surge
@@ -34,7 +34,7 @@ PATH_TOKEN = re.compile(r"^\S*amp/volume\S*$")
 
 # (file, name the literal is bound to): the only places it may appear.
 ALLOWED = {
-    ("patch_browser/patch_loader.py", "AUTHORED_VOLUME_PATH"),
+    ("patch_browser/patch_loader.py", "AUTHORED_VOLUME_PATHS"),
     ("scripts/calibrate-patch-normalization.py", "AMP_VOLUME_PATHS"),
 }
 
@@ -114,10 +114,10 @@ class NoSecondLevelSite(unittest.TestCase):
 
     def test_the_loader_only_reads_it(self) -> None:
         path = REPO / "patch_browser/patch_loader.py"
-        self.assertEqual(set(name_uses(path, "AUTHORED_VOLUME_PATH")), {"_settle_patch_level"})
+        self.assertEqual(set(name_uses(path, "AUTHORED_VOLUME_PATHS")), {"_settle_patch_level"})
         text = path.read_text(encoding="utf-8")
-        self.assertIn("self._query_osc_float(AUTHORED_VOLUME_PATH)", text)
-        self.assertNotRegex(text, r"send_message\([^)]*AUTHORED_VOLUME_PATH")
+        self.assertIn("self._query_osc_float(path))\n                for path in AUTHORED_VOLUME_PATHS)", text)
+        self.assertNotRegex(text, r"send_message\([^)]*(AUTHORED_VOLUME_PATHS|\bpath\b)")
 
     def test_calibration_writes_it_in_one_function(self) -> None:
         path = REPO / "scripts/calibrate-patch-normalization.py"
@@ -165,6 +165,108 @@ class WhoSendsTheStage(unittest.TestCase):
             loader.refresh_patch_volume("X")
         sendto.assert_not_called()
 
+
+
+# The stage gain's senders, by (file, enclosing function): every construction of
+# UdpStageSender and every fx_host_protocol.encode_gain call in product code. A
+# `gain` sent from anywhere else moves the live trunk behind PatchLoader's back
+# (P0, 2026-10-19: the UI's keepalive re-applied its patch's boost to a patch a
+# harness had loaded). Changing this set is a decision, not a refactor.
+STAGE_SENDERS = {
+    ("patch_browser/touch_browser_app.py", "UdpStageSender", "__init__"),
+    ("patch_browser_ui.py", "UdpStageSender", "__init__"),
+    ("patch_browser_ui.py", "UdpStageSender", "_handle_surge_error_dialog"),
+    ("scripts/load-patch-osc.py", "UdpStageSender", "main"),
+    ("scripts/calibrate-patch-normalization.py", "UdpStageSender", "run_controls"),
+    ("patch_browser/patch_loader.py", "encode_gain", "_send_stage_db"),
+    ("scripts/calibrate-patch-normalization.py", "encode_gain", "run_controls"),
+}
+# `gain <n>` written as a literal outside the encoder. The live monitor's own
+# `gain` goes to its own port (scripts/sooperlooper/live_monitor.py), not to
+# mpe-fx-host.
+GAIN_LITERAL_ALLOWED = {
+    "patch_browser/fx_host_protocol.py",
+    "scripts/sooperlooper/live_monitor.py",
+}
+GAIN_LITERAL = re.compile(r"^gain [\d{]")
+SHELL_GAIN_SEND = re.compile(r"\bgain\s+[\d.$]")
+SHELL_UDP = re.compile(r"/dev/udp|\bnc\b|\bsocat\b|\boscsend\b|\b9958\b")
+
+
+def _enclosing(tree: ast.AST) -> dict[int, str | None]:
+    """Each node's innermost enclosing function name (None at module level)."""
+    owner: dict[int, str | None] = {}
+
+    def visit(node: ast.AST, name: str | None) -> None:
+        for child in ast.iter_child_nodes(node):
+            inner = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else name
+            owner[id(child)] = inner
+            visit(child, inner)
+
+    visit(tree, None)
+    return owner
+
+
+def stage_sender_sites(root: Path) -> list[tuple[str, str, str | None]]:
+    """(file, what, enclosing function) for every stage-gain send in product code."""
+    sites = []
+    for path in product_files(root):
+        rel = str(path.relative_to(root))
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if path.suffix == ".sh":
+            for line in text.splitlines():
+                if not line.lstrip().startswith("#") and SHELL_GAIN_SEND.search(line) and SHELL_UDP.search(line):
+                    sites.append((rel, "shell gain", None))
+            continue
+        tree = ast.parse(text)
+        owner = _enclosing(tree)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+                if name in ("UdpStageSender", "encode_gain"):
+                    sites.append((rel, name, owner.get(id(node))))
+            literal = None
+            if isinstance(node, ast.JoinedStr):
+                literal = "".join(p.value if isinstance(p, ast.Constant) else "{}" for p in node.values)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)):
+                literal = node.value.decode("latin-1") if isinstance(node.value, bytes) else node.value
+            if literal is not None and GAIN_LITERAL.match(literal) and rel not in GAIN_LITERAL_ALLOWED:
+                sites.append((rel, "gain literal", owner.get(id(node))))
+    return sites
+
+
+class WhoSendsAGain(unittest.TestCase):
+    def test_only_the_named_senders(self) -> None:
+        sites = set(stage_sender_sites(REPO))
+        self.assertEqual(sorted(sites - STAGE_SENDERS), [], "a new stage-gain sender")
+        self.assertEqual(sorted(STAGE_SENDERS - sites), [], "a named sender is gone: update the list")
+
+    def test_the_guard_sees_each_form(self) -> None:
+        files = {
+            "patch_browser/a.py": "from patch_browser.patch_loader import UdpStageSender\n"
+                                  "def f():\n    UdpStageSender()(b'')\n",
+            "scripts/b.py": "from patch_browser import fx_host_protocol\n"
+                            "def g():\n    s.sendto(fx_host_protocol.encode_gain(2.0), a)\n",
+            "patch_browser/c.py": "def h(v):\n    s.sendto(f'gain {v:.8f}'.encode(), a)\n",
+            "patch_browser/d.py": "X = b'gain 4.0'\n",
+            "scripts/e.sh": "echo \"gain 4.0\" > /dev/udp/127.0.0.1/9958\n",
+            "patch_browser/ok.py": "raise ValueError(f'gain must be finite, got {v}')\n",
+            "tests/t.py": "X = b'gain 4.0'\n",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel, text in files.items():
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(text)
+            sites = sorted(stage_sender_sites(root), key=str)
+        self.assertEqual(sites, sorted([
+            ("patch_browser/a.py", "UdpStageSender", "f"),
+            ("scripts/b.py", "encode_gain", "g"),
+            ("patch_browser/c.py", "gain literal", "h"),
+            ("patch_browser/d.py", "gain literal", None),
+            ("scripts/e.sh", "shell gain", None),
+        ], key=str))
 
 class GuardSees(unittest.TestCase):
     """The guard's own controls: an added send, in each form, is caught."""

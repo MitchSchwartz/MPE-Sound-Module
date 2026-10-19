@@ -89,6 +89,8 @@ def _loader(norm_gain_db: float | None = None) -> tuple[PatchLoader, Stage]:
     loader = PatchLoader(normalization_store=store, stage_sender=stage)
     loader.osc_client = FakeOscClient()
     loader.osc_enabled = True
+    # Surge has confirmed the loaded patch: a boost goes out (keep_stage_alive).
+    loader._surge_confirmed = True
     if norm_gain_db is not None:
         loader._norm_db = norm_gain_db
     return loader, stage

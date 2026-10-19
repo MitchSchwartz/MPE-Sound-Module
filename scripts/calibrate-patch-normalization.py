@@ -86,6 +86,7 @@ from patch_browser.patch_normalization import (  # noqa: E402
     CAL_PATH,
     CAPTURE_PAD_DB,
     CLIP_SAMPLE_PEAK_DBFS,
+    NORM_TRIM_DB_MIN,
     POST_GAIN_VERIFY_PEAK_MAX_DBTP,
     PatchNormalizationStore,
     post_gain_verify_passes,
@@ -94,7 +95,9 @@ from patch_browser.patch_normalization import (  # noqa: E402
     compute_gain_db_dual_anchor,
     default_normalization_path,
     padded_volume,
+    plausible_authored_volume,
     repo_starter_path,
+    stage_db,
 )
 from patch_browser import calibration_controls  # noqa: E402
 from patch_browser.patch_pressure import (  # noqa: E402
@@ -141,6 +144,17 @@ SUSTAIN_ANCHOR_GESTURE_SECONDS = (2.5, 4.0, 6.0, 8.0)
 # Surge's volume parameters: written only by `set_capture_volume`.
 AMP_VOLUME_PATHS = ("/param/a/amp/volume", "/param/b/amp/volume")
 CONTROL_PAD_DB = 6.0
+# The isolation control's mute is believed only once mpe-fx-host has written it
+# to its state file (fx_host_protocol.read_gain_state): polled this often, this
+# many times. A mute that reached no insert proves nothing.
+ISOLATION_ACK_POLL_S = 0.02
+ISOLATION_ACK_POLLS = 25
+# When the stage is already muted, the isolation mute is this instead (-120 dB),
+# so the insert has a new value to write and the acknowledgement can be seen.
+ISOLATION_PROBE_GAIN = 1e-6
+# A row whose heard level rises by more than this on recalibration is marked
+# LOUDER in the report.
+LEVEL_REPORT_LOUDER_DB = 0.5
 STORE_BACKUP_DIR = Path.home() / ".patch_browser_calibration_backups"
 DEFAULT_PI_CAPTURE = "plughw:1,0"
 MIN_VALID_LUFS = -39.0  # legacy reference only — validity uses peak floor below
@@ -167,6 +181,10 @@ class CalibrateResult:
     lufs_strike: float | None = None
     lufs_sustain: float | None = None
     trim_migration: dict | None = None
+    # The norm part of the stage (dB re authored) before and after this
+    # calibration was written: what the instrument plays this patch at.
+    level_before_db: float | None = None
+    level_after_db: float | None = None
 
 
 @dataclass
@@ -1232,6 +1250,7 @@ def calibrate_patch(
 
         # Surge plays the patch at its authored volume: nothing here sets it.
         authored_volume = loader._authored_volume
+        authored_volume_b = plausible_authored_volume(getattr(loader, "_authored_volume_b", None))
         time.sleep(PATCH_LOAD_SETTLE_SECONDS)
 
         unity = measure_unity_anchors(
@@ -1290,6 +1309,14 @@ def calibrate_patch(
         )
         return CalibrateResult(ok=False, verify_failed=True)
 
+    def heard() -> float:
+        norm_db, ceiling_db = store.stage_norm(
+            name, patch_path=str(patch_path), authored_volume=authored_volume,
+            authored_volume_b=authored_volume_b,
+        )
+        return stage_db(norm_db=norm_db, ceiling_db=ceiling_db, headroom_db=0.0, vol_db=0.0)
+
+    level_before = heard()
     migration = store.set_calibration(
         name,
         gain_db,
@@ -1303,13 +1330,17 @@ def calibrate_patch(
         lufs_unity={"strike": lufs_strike, "sustain": lufs_sustain},
         true_peak_unity_dbtp={"strike": peak_strike, "sustain": peak_sustain},
         authored_volume=authored_volume,
+        authored_volume_b=authored_volume_b,
         capture_padded_db=capture_padded_db,
         patch_path=str(patch_path),
     )
     store.save()
+    level_after = heard()
+    print(level_report_line(name, level_before, level_after))
     if migration is not None:
-        clamp_note = " (CLAMPED: level not reproduced)" if migration["clamped"] else ""
-        print(f"  [trim] {name}: {migration['old']:+.1f} -> {migration['new']:+.1f} dB{clamp_note}")
+        clamp_note = " (CLAMPED: raise held to the fader's top, plays quieter)" if migration["clamped"] else ""
+        below = " (below the Norm fader: it reads min)" if migration["new"] < NORM_TRIM_DB_MIN else ""
+        print(f"  [trim] {name}: {migration['old']:+.1f} -> {migration['new']:+.1f} dB{clamp_note}{below}")
     touch_note = ""
     if lufs_light is not None:
         touch_note = f", light {lufs_light:.1f} LUFS"
@@ -1326,7 +1357,17 @@ def calibrate_patch(
         lufs_strike=lufs_strike,
         lufs_sustain=lufs_sustain,
         trim_migration=migration,
+        level_before_db=level_before,
+        level_after_db=level_after,
     )
+
+
+def level_report_line(name: str, before_db: float, after_db: float) -> str:
+    """One line per calibrated row: the level it played at before and after, dB re
+    the patch as authored, so the owner sees every patch that gets louder."""
+    delta = after_db - before_db
+    flag = "  LOUDER" if delta > LEVEL_REPORT_LOUDER_DB else ""
+    return f"  [level] {name}: {before_db:+.1f} -> {after_db:+.1f} dB re authored ({delta:+.1f}){flag}"
 
 
 def run_controls(
@@ -1336,17 +1377,24 @@ def run_controls(
     patch_path: Path,
     *,
     stage_sender=None,
+    gain_state=None,
 ) -> list[calibration_controls.ControlResult]:
     """The instrument controls on one reference patch, in the order to trust them.
 
     Positive: CONTROL_PAD_DB taken off through Surge's volume law reads as that pad.
     Repeatability: the same capture twice reads the same. Isolation: the stage gain
-    muted during a capture changes nothing, so the stage is outside this path. The
-    mute is the safe direction for the live trunk; the touch UI puts its level back
-    within STAGE_KEEPALIVE_S of starting again.
+    muted during a capture changes nothing, so the stage is outside this path.
+
+    The mute is the safe direction for the live trunk. It counts only once
+    mpe-fx-host has taken it (its state file shows it): with no insert running the
+    capture would match for the wrong reason, so the control fails. The gain the
+    insert had before is put back in a ``finally``; with none on record the stage
+    is left muted (the quiet side) until the touch UI's next send.
     """
     from patch_browser import fx_host_protocol
     from patch_browser.patch_loader import UdpStageSender
+
+    read_state = gain_state or fx_host_protocol.read_gain_state
 
     if not load_patch_confirmed(loader, patch_path):
         raise RuntimeError(f"Surge did not confirm the control patch loaded: {patch_path}")
@@ -1373,13 +1421,40 @@ def run_controls(
     time.sleep(0.35)
     second = sustain()
     send = stage_sender or UdpStageSender()
-    send(fx_host_protocol.encode_gain(0.0))
-    isolated = sustain()
+    before = read_state()
+    mute = ISOLATION_PROBE_GAIN if before == 0.0 else 0.0
+    send(fx_host_protocol.encode_gain(mute))
+    try:
+        if stage_took(read_state, mute):
+            isolation = calibration_controls.isolation_control(second, sustain())
+        else:
+            isolation = calibration_controls.ControlResult(
+                "isolation", False,
+                "mpe-fx-host did not take the mute (is it running?): the capture "
+                "cannot show the stage is outside the calibration path",
+            )
+    finally:
+        if before is not None:
+            send(fx_host_protocol.encode_gain(before))
+        else:
+            print("  [isolation] no earlier stage gain on record: the stage stays muted "
+                  "until the touch UI sends its level")
     return [
         calibration_controls.positive_control(first, padded, pad_db=CONTROL_PAD_DB),
         calibration_controls.repeatability_control(first, second),
-        calibration_controls.isolation_control(second, isolated),
+        isolation,
     ]
+
+
+def stage_took(read_state, value: float) -> bool:
+    """True once mpe-fx-host's state file shows `value`: the insert is running and
+    applied it. Polled ISOLATION_ACK_POLLS times, ISOLATION_ACK_POLL_S apart."""
+    for _ in range(ISOLATION_ACK_POLLS):
+        now = read_state()
+        if now is not None and abs(now - value) < 1e-9:
+            return True
+        time.sleep(ISOLATION_ACK_POLL_S)
+    return False
 
 
 def audit_patch(

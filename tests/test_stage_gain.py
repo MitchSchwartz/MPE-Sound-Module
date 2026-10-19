@@ -201,10 +201,22 @@ class TrimMigration(unittest.TestCase):
             with self.subTest(args=args):
                 self.assertFalse(self._check(*args)[1])
 
-    def test_a_row_past_the_range_is_clamped_and_reported(self) -> None:
-        trim, clamped = self._check(-20.0, -10.0, 10.0, 1.0)  # wants -100 dB
+    def test_a_cut_past_the_fader_is_kept_exactly(self) -> None:
+        """Wants -100 dB: clamping to -30 would play it 70 dB louder than the owner left it."""
+        trim, clamped = self._check(-20.0, -10.0, 10.0, 1.0)
+        self.assertFalse(clamped)
+        self.assertAlmostEqual(trim, -100.0, places=9)
+        trim, clamped = self._check(-20.0, -4.0, 3.0, 0.9)  # wants -52.3 dB
+        self.assertFalse(clamped)
+        self.assertLess(trim, pn.NORM_TRIM_DB_MIN)
+
+    def test_only_a_raise_past_the_fader_is_clamped_and_reported(self) -> None:
+        """Wants +45.7 dB (a quiet authored volume): held to +30, which plays quieter."""
+        trim, clamped = self._check(0.0, 0.0, -30.0, 0.5)
         self.assertTrue(clamped)
-        self.assertEqual(trim, pn.NORM_TRIM_DB_MIN)
+        self.assertEqual(trim, pn.NORM_TRIM_DB_MAX)
+        wanted = 0.0 - 60.0 * math.log10(0.5) + 30.0
+        self.assertLess(trim, wanted)
 
     def test_set_calibration_migrates_and_keeps_the_old_trim(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -307,7 +319,8 @@ class LoaderSequences(unittest.TestCase):
             ("<policy>", None),
             gain(6.0),
         ])
-        loader._query_osc_float.assert_called_with("/param/a/amp/volume")
+        self.assertEqual(loader._query_osc_float.call_args_list[-2:],
+                         [mock.call("/param/a/amp/volume"), mock.call("/param/b/amp/volume")])
 
     def test_an_unconfirmed_raise_is_held_until_surge_reports_the_patch(self) -> None:
         loader, line = make_loader(self.store)
@@ -331,10 +344,13 @@ class LoaderSequences(unittest.TestCase):
         line.events.clear()
         loader.keep_stage_alive(now=1000.0 + STAGE_KEEPALIVE_S)
         self.assertEqual(line.events, [("/q/patch", None), gain(6.0)])
-        loader._query_osc_float.assert_called_once_with("/param/a/amp/volume")
+        self.assertEqual(loader._query_osc_float.call_args_list,
+                         [mock.call("/param/a/amp/volume"), mock.call("/param/b/amp/volume")])
         line.events.clear()
         loader.keep_stage_alive(now=1000.0 + 2 * STAGE_KEEPALIVE_S)
-        self.assertEqual(line.events, [gain(6.0)], "confirmed: Surge is not asked again")
+        self.assertEqual(line.events, [("/q/patch", None), gain(6.0)],
+                         "a boost is re-sent only for a patch Surge confirms on this tick")
+        self.assertEqual(loader._query_osc_float.call_count, 2, "the authored volume is read once")
 
     def test_a_fader_move_while_held_stays_on_the_quieter_side(self) -> None:
         loader, line = make_loader(self.store)
@@ -366,10 +382,12 @@ class LoaderSequences(unittest.TestCase):
         line.surge_confirms = False
         load(loader, "Quiet")
         line.surge_confirms = True
+        line.events.clear()
         load(loader, "Quiet")
+        self.assertEqual(line.stage(), [gain(6.0)], "the confirmed load raises at once")
         line.events.clear()
         loader.keep_stage_alive(now=5000.0)
-        self.assertEqual(line.events, [gain(6.0)])
+        self.assertEqual(line.events, [("/q/patch", None), gain(6.0)])
 
     def test_a_calibration_load_surge_does_not_confirm_sends_no_raise(self) -> None:
         loader, line = make_loader(self.store)
@@ -384,10 +402,11 @@ class LoaderSequences(unittest.TestCase):
         load(loader, "Quiet")
         self.assertEqual(line.events[0], ("/patch/load", ["/p/Quiet"]))
 
-    def test_an_edited_patch_plays_as_authored(self) -> None:
+    def test_an_edited_patch_keeps_its_cut(self) -> None:
+        """Stale (authored 0.5 then, 0.9 now): min(norm, 0), never the patch as authored."""
         loader, line = make_loader(self.store, authored=0.9)
         load(loader, "Edited")
-        self.assertEqual(line.stage(), [gain(-10.0), gain(0.0)])
+        self.assertEqual(line.stage(), [gain(-10.0), gain(-10.0)])
 
     def test_normalization_off_for_the_load(self) -> None:
         loader, line = make_loader(self.store)
@@ -456,6 +475,261 @@ class NormFaderLabel(unittest.TestCase):
         self.assertEqual(NormControl().format_for(browser, 6.0), "+6.0")
 
 
+    def test_min_below_the_fader(self) -> None:
+        """A migrated cut past -30 is kept, and the fader says so rather than "-30.0"."""
+        from patch_browser.mixer_controls import NormControl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = write_store(tmp, {"Lead": {"gain_db": 2.0, "user_trim_db": -52.3, "cal_path": CAL}})
+            patch = {"name": "Lead", "path": "/p/Lead.fxp"}
+            browser = mock.Mock(detail_patch=patch, loaded_patch_info=patch)
+            browser.loader.normalization = store
+            browser.loader.norm_at_ceiling = False
+            self.assertEqual(NormControl().format_for(browser, NormControl.spec.min_value), "min")
+            self.assertEqual(store.stage_norm("Lead", authored_volume=None)[0], 2.0 - 52.3)
+            store.set_user_trim_db("Lead", -30.0)
+            self.assertEqual(NormControl().format_for(browser, -30.0), "-30.0")
+
+
+class LegacyAndStaleRows(unittest.TestCase):
+    """Rows the stage did not measure: each keeps the owner's cut; none plays loud."""
+
+    def test_a_trim_only_row_keeps_its_cut(self) -> None:
+        """The old code took a missing gain as 0: the trim alone was heard."""
+        entry = {"user_trim_db": -8.0, "enabled": True}
+        stage = pn.legacy_norm_db(entry, 0.9)
+        self.assertAlmostEqual(60.0 * math.log10(0.9) + stage, 3.0 * -8.0, places=9)
+        self.assertIsNone(pn.legacy_norm_db({"enabled": True}, 0.9), "no gain, no trim: as authored")
+        with tempfile.TemporaryDirectory() as tmp:
+            store = write_store(tmp, {"T": entry})
+            self.assertAlmostEqual(store.stage_norm("T", authored_volume=0.9)[0], stage, places=9)
+
+    def test_the_norm_fader_acts_on_an_uncalibrated_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = write_store(tmp, {})
+            self.assertEqual(store.stage_norm("U", authored_volume=1.0), (0.0, None))
+            store.set_user_trim_db("U", -6.0)
+            self.assertAlmostEqual(store.stage_norm("U", authored_volume=1.0)[0], -18.0, places=9)
+
+    def test_a_trim_only_row_migrates_on_recalibration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = write_store(tmp, {"T": {"user_trim_db": -8.0, "enabled": True}})
+            record = store.set_calibration("T", -4.0, -18.0, authored_volume=0.9)
+            expected, _ = pn.migrate_trim_to_stage(gain_db_old=0.0, trim_db_old=-8.0,
+                                                   gain_db_new=-4.0, authored_volume=0.9)
+            self.assertIsNotNone(record)
+            self.assertEqual(store.get_entry("T")["user_trim_db"], round(expected, 3))
+            heard = 60.0 * math.log10(0.9) + store.stage_norm("T", authored_volume=0.9)[0]
+            self.assertAlmostEqual(heard, -24.0, places=2)
+
+    def test_the_legacy_bridge_is_capped(self) -> None:
+        # Authored 0.12 (plausible, -55 dB): undoing it would take +55 dB.
+        stage = pn.legacy_norm_db({"gain_db": 0.0}, 0.12)
+        self.assertEqual(stage, pn.LEGACY_NORM_MAX_DB)
+        self.assertLess(pn.legacy_norm_db({"gain_db": 0.0}, 0.5), pn.LEGACY_NORM_MAX_DB)
+
+    def test_an_implausible_authored_volume_is_unknown(self) -> None:
+        """legacy_norm_db({'gain_db': 10}, 0.05) was +78 dB."""
+        for bad in (0.05, 0.0, -0.2, 1.5, float("nan"), True):
+            with self.subTest(bad=bad):
+                self.assertIsNone(pn.plausible_authored_volume(bad))
+                self.assertEqual(pn.authored_level_db(bad), 0.0)
+                self.assertEqual(pn.legacy_norm_db({"gain_db": 10.0}, bad),
+                                 pn.legacy_norm_db({"gain_db": 10.0}, None))
+                self.assertLessEqual(pn.legacy_norm_db({"gain_db": 10.0}, bad), 0.0)
+        self.assertEqual(pn.plausible_authored_volume(0.1), 0.1)
+
+    def test_the_legacy_bridge_uses_the_louder_scene(self) -> None:
+        entry = {"gain_db": -10.0}
+        self.assertEqual(pn.legacy_norm_db(entry, 0.5, 0.9), pn.legacy_norm_db(entry, 0.9))
+        self.assertEqual(pn.legacy_norm_db(entry, 0.9, 0.5), pn.legacy_norm_db(entry, 0.9))
+        self.assertEqual(pn.legacy_norm_db(entry, None, 0.9), pn.legacy_norm_db(entry, None))
+
+    def test_a_stale_row_keeps_its_cut_and_loses_its_boost(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = write_store(tmp, {
+                "Cut": {"gain_db": -12.0, "cal_path": CAL, "authored_volume": 0.8,
+                        "true_peak_unity_dbtp": {"s": -20.0}},
+                "Boost": {"gain_db": 9.0, "cal_path": CAL, "authored_volume": 0.8,
+                          "true_peak_unity_dbtp": {"s": -20.0}},
+            })
+            self.assertEqual(store.stage_norm("Cut", authored_volume=0.6), (-12.0, None))
+            self.assertEqual(store.stage_norm("Boost", authored_volume=0.6), (0.0, None))
+            self.assertEqual(store.stage_norm("Cut", authored_volume=0.8), (-12.0, 20.0))
+
+    def test_an_edit_to_scene_b_is_stale(self) -> None:
+        entry = {"gain_db": 9.0, "cal_path": CAL, "authored_volume": 0.8, "authored_volume_b": 0.7}
+        self.assertFalse(pn.is_stale(entry, 0.8, 0.7))
+        self.assertTrue(pn.is_stale(entry, 0.8, 0.5))
+        self.assertTrue(pn.is_stale(entry, 0.6, 0.7))
+        self.assertFalse(pn.is_stale(entry, 0.8, None), "unknown now: not compared")
+        self.assertFalse(pn.is_stale({**entry, "authored_volume_b": None}, 0.8, 0.5),
+                         "not recorded then: not compared")
+        with tempfile.TemporaryDirectory() as tmp:
+            store = write_store(tmp, {"P": entry})
+            self.assertEqual(store.stage_norm("P", authored_volume=0.8, authored_volume_b=0.5), (0.0, None))
+
+
+class KeepaliveConfirms(unittest.TestCase):
+    """The keepalive re-sends a boost only for a patch Surge confirms on that tick.
+
+    Surge can hold a patch the UI did not load: a measurement harness's load, a
+    crash restart, an audio-profile switch whose reload is still queued. A boost
+    for the UI's patch is wrong there and can be loud.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.store = write_store(self._tmp.name, {
+            "Quiet": {"gain_db": 6.0, "cal_path": CAL, "enabled": True},
+            "Hot": {"gain_db": -10.0, "cal_path": CAL, "enabled": True},
+        })
+        self.loader, self.line = make_loader(self.store)
+        self.now = 1000.0
+
+    def tick(self) -> list:
+        self.line.events.clear()
+        self.loader.keep_stage_alive(now=self.now)
+        self.now += STAGE_KEEPALIVE_S
+        return list(self.line.events)
+
+    def test_another_patch_in_surge_loses_the_boost(self) -> None:
+        load(self.loader, "Quiet")
+        self.assertEqual(self.tick(), [("/q/patch", None), gain(6.0)])
+        self.line.last_load = "/p/Someone else's"
+        self.assertEqual(self.tick(), [("/q/patch", None), gain(0.0)])
+        self.assertEqual(self.tick(), [("/q/patch", None), gain(0.0)])
+        self.line.last_load = "/p/Quiet"
+        self.assertEqual(self.tick(), [("/q/patch", None), gain(6.0)], "confirmed again: back")
+
+    def test_a_silent_surge_loses_the_boost(self) -> None:
+        load(self.loader, "Quiet")
+        self.line.surge_confirms = False
+        self.assertEqual(self.tick(), [("/q/patch", None), gain(0.0)])
+
+    def test_the_cap_keeps_the_vol_fader_and_headroom(self) -> None:
+        load(self.loader, "Quiet")
+        self.loader.set_volume(0.5, headroom_db=-6.0)
+        vol = pn.volume_fader_trim_to_db(0.5, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX)
+        self.line.surge_confirms = False
+        self.assertEqual(self.tick(), [("/q/patch", None), gain(-6.0 + vol)])
+
+    def test_an_unconfirmed_load_between_two_boosts_sends_no_boost(self) -> None:
+        """Held at the quieter of +6 and +3, and that is still a boost on a patch
+        Surge has not confirmed: it goes out capped. The cut to +3 lands first."""
+        self.store.set_calibration("Mild", 3.0, -18.0)
+        load(self.loader, "Quiet")
+        self.line.surge_confirms = False
+        self.line.events.clear()
+        load(self.loader, "Mild")
+        self.assertEqual(self.line.stage(), [gain(3.0), gain(0.0)])
+
+    def test_a_cut_needs_no_confirmation(self) -> None:
+        """A cut is right for any patch: no question, and it still goes out."""
+        load(self.loader, "Hot")
+        self.line.last_load = "/p/Someone else's"
+        self.assertEqual(self.tick(), [gain(-10.0)])
+
+    def test_a_fader_move_after_a_mismatch_stays_capped(self) -> None:
+        load(self.loader, "Quiet")
+        self.line.surge_confirms = False
+        self.tick()
+        self.line.events.clear()
+        self.loader.set_volume(VOLUME_MAX)
+        self.loader.refresh_patch_volume("Quiet")
+        self.assertEqual(self.line.stage(), [gain(0.0), gain(0.0)])
+
+    def test_the_wait_is_short(self) -> None:
+        from patch_browser import patch_loader
+
+        load(self.loader, "Quiet")
+        with mock.patch.object(self.loader, "query_loaded_patch_path", return_value=None) as query:
+            self.loader.keep_stage_alive(now=self.now)
+        query.assert_called_once_with(timeout_s=patch_loader.KEEPALIVE_CONFIRM_TIMEOUT_S)
+        self.assertLessEqual(patch_loader.KEEPALIVE_CONFIRM_TIMEOUT_S, 0.1)
+
+
+class SurgeReplies(unittest.TestCase):
+    """Real OSC datagrams, over a real socket, into the authored-volume read.
+
+    Surge's OSC out carries echoes of every parameter that moves, and each reply
+    has a display string in its parameter's own units. Only the reply for the
+    queried parameter, and only its float, is a volume.
+    """
+
+    @staticmethod
+    def datagram(address: str, *args) -> bytes:
+        from pythonosc.osc_message_builder import OscMessageBuilder
+
+        builder = OscMessageBuilder(address=address)
+        for arg in args:
+            builder.add_arg(arg)
+        return builder.build().dgram
+
+    def test_the_parser_takes_only_the_queried_parameter(self) -> None:
+        parse = PatchLoader._parse_surge_param_query
+        path = "/param/a/amp/volume"
+        self.assertAlmostEqual(parse(self.datagram(path, 0.8, "-5.81 dB"), path), 0.8, places=6)
+        self.assertIsNone(parse(self.datagram("/param/a/aeg/sustain", 0.05, "5.00 %"), path))
+        self.assertIsNone(parse(self.datagram(path, "9.64 %"), path), "a display string is not a value")
+        self.assertIsNone(parse(self.datagram(path, "0.5"), path))
+        self.assertIsNone(parse(self.datagram(path, 1.7, "x"), path))
+        self.assertIsNone(parse(self.datagram("/patch", "/p/Quiet"), path))
+        self.assertIsNone(parse(b"garbage", path))
+
+    def test_the_query_skips_echoes_over_a_real_socket(self) -> None:
+        import socket
+        import threading
+
+        def free_port() -> int:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.bind(("127.0.0.1", 0))
+                return s.getsockname()[1]
+
+        out_port = free_port()
+        surge = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        surge.bind(("127.0.0.1", 0))
+        self.addCleanup(surge.close)
+        replies = {
+            "/q/param/a/amp/volume": [
+                self.datagram("/param/a/aeg/sustain", 0.05, "5.00 %"),   # an echo first
+                self.datagram("/param/a/amp/volume", "9.64 %"),         # no float
+                self.datagram("/param/a/amp/volume", 0.8, "-5.81 dB"),   # the answer
+            ],
+            "/q/param/b/amp/volume": [self.datagram("/param/b/aeg/sustain", 0.3, "30.00 %")],
+        }
+
+        def serve() -> None:
+            from pythonosc.osc_message import OscMessage
+
+            surge.settimeout(2.0)
+            for _ in range(2):
+                try:
+                    data, _addr = surge.recvfrom(4096)
+                except OSError:
+                    return
+                for reply in replies.get(OscMessage(data).address, []):
+                    surge.sendto(reply, ("127.0.0.1", out_port))
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        loader = PatchLoader(osc_port=surge.getsockname()[1], osc_out_port=out_port,
+                             fx_policy=mock.Mock(), fx_store=mock.Mock())
+        self.assertAlmostEqual(loader._query_osc_float("/param/a/amp/volume"), 0.8, places=6)
+        self.assertIsNone(loader._query_osc_float("/param/b/amp/volume"),
+                          "only another parameter's echo came back: unknown")
+        thread.join(3.0)
+
+    def test_a_near_zero_authored_reading_is_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = write_store(tmp, {"Old": {"gain_db": 10.0, "enabled": True}})
+            loader, line = make_loader(store, authored=0.05)
+            load(loader, "Old")
+            self.assertIsNone(loader._authored_volume)
+            self.assertLessEqual(loader._norm_db, 0.0)
+            self.assertEqual(line.stage()[-1], gain(0.0))
+
 
 class SenderSafety(unittest.TestCase):
     def test_no_sender_unless_one_is_passed(self) -> None:
@@ -474,6 +748,7 @@ class SenderSafety(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             loader, line = make_loader(write_store(tmp, {}))
             loader._norm_db = fx_host_protocol.GAIN_MAX_DB + 12.0
+            loader._surge_confirmed = True
             loader.set_volume(VOLUME_MAX)
         self.assertEqual(line.stage(), [gain(fx_host_protocol.GAIN_MAX_DB)])
 

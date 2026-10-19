@@ -228,6 +228,11 @@ _restore_all() {
     fi
 }
 mpe_env_arm _restore_all
+# The touch UI owns the stage gain and re-sends it every second: a patch loaded
+# here would play at the UI patch's level (load-patch-osc.py refuses while it runs).
+for _ui_unit in touch-patch-browser.service patch-browser.service; do
+    mpe_unit_stop_for_measure "$_ui_unit"
+done
 
 _jack_period_from_proc() {
     local pid

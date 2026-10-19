@@ -7,10 +7,9 @@ patches play at their authored volume.
 
 from __future__ import annotations
 
+import math
 import os
-import re
 import socket
-import struct
 import time
 from pathlib import Path
 
@@ -27,6 +26,7 @@ from patch_browser.patch_normalization import (
     PatchNormalizationStore,
     db_to_linear,
     norm_at_ceiling,
+    plausible_authored_volume,
     stage_db,
     volume_fader_trim_to_db,
 )
@@ -52,6 +52,11 @@ PATCH_CONFIRM_POLL_S = 0.1
 # keepalive asks again), so a slow load never plays the old patch at the new
 # patch's boost. Replaces the blind 60 ms settle timer of the amp/volume days.
 BROWSE_CONFIRM_TIMEOUT_S = 0.3
+# The keepalive's /q/patch wait. Surge answers from memory in a few ms; it is
+# asked only while a boost is in force or a raise is held, so a Surge that does
+# not answer (crashed, restarting) costs the UI loop at most this once a second,
+# and the boost comes off until it answers again.
+KEEPALIVE_CONFIRM_TIMEOUT_S = 0.1
 
 
 def same_patch_path(reported: str | None, expected: str) -> bool:
@@ -63,11 +68,13 @@ def same_patch_path(reported: str | None, expected: str) -> bool:
     if not reported:
         return False
     return os.path.normpath(reported) == os.path.normpath(expected)
-# The stage gain is re-sent this often, so a restarted mpe-fx-host (which starts
-# at unity) is back at the right level within it. One sendto per second.
+# The stage gain is re-sent this often (one sendto per second). mpe-fx-host
+# restores its last gain itself after a restart (fx_gain_state.h); the resend is
+# also how a boost comes off when Surge stops reporting the UI's patch.
 STAGE_KEEPALIVE_S = 1.0
-# Surge's amp/volume, read after each load: what the patch was authored at.
-AUTHORED_VOLUME_PATH = "/param/a/amp/volume"
+# Surge's amp/volume in each scene, read after each load: what the patch was
+# authored at. Read only (tests/test_stage_gain_guard.py).
+AUTHORED_VOLUME_PATHS = ("/param/a/amp/volume", "/param/b/amp/volume")
 
 
 class UdpStageSender:
@@ -136,6 +143,7 @@ class PatchLoader:
         self._norm_db = 0.0
         self._ceiling_db: float | None = None
         self._authored_volume: float | None = None
+        self._authored_volume_b: float | None = None
         # Where the stage gain goes. None sends nothing: the default, so a
         # loader that is not the instrument's (calibration, tests) can never
         # move a live insert. The UI and the harness that loads like it pass
@@ -147,6 +155,15 @@ class PatchLoader:
         # outgoing patch's (norm_db, ceiling_db)). Until it is confirmed the
         # stage plays the quieter of the two levels.
         self._pending_raise: tuple[str, bool, tuple[float, float | None]] | None = None
+        # The path asked of Surge by the last load (the Reuse Single copy, as
+        # Surge reports it), and whether Surge last said it has that patch. A
+        # boost goes out only while it has: Surge can hold another patch without
+        # this loader knowing (a harness load, Surge restarted by a crash or an
+        # audio-profile switch), and a boost measured for one patch is wrong,
+        # and can be loud, on any other.
+        self._surge_path: str | None = None
+        self._surge_confirmed = False
+        self._boost_withheld = False
         self._loaded_patch_name: str | None = None
         self._loaded_patch_path: str | None = None
         self._loaded_stable_key: str | None = None
@@ -201,8 +218,18 @@ class PatchLoader:
                 return held
         return pair
 
+    def _quiet_cap_db(self) -> float:
+        """The stage with no normalization: device headroom and the Vol fader only.
+        What any patch may safely get: it plays at most as authored (D10)."""
+        return self._stage_db_for(0.0, None)
+
     def _send_stage(self) -> bool:
-        return self._send_stage_db(self.stage_db)
+        """Send the stage: in full while Surge last confirmed the loaded patch,
+        otherwise without its boost (`_quiet_cap_db`); a cut always goes out."""
+        full = self.stage_db
+        if self._surge_confirmed:
+            return self._send_stage_db(full)
+        return self._send_stage_db(min(full, self._quiet_cap_db()))
 
     def _set_norm(self, patch_name: str, apply_normalization: bool) -> None:
         if apply_normalization:
@@ -211,21 +238,23 @@ class PatchLoader:
             self._norm_db, self._ceiling_db = 0.0, None
 
     def _settle_patch_level(self, patch_name: str, apply_normalization: bool) -> None:
-        """The loaded patch is confirmed: read its authored volume and take its level."""
-        self._authored_volume = self._query_osc_float(AUTHORED_VOLUME_PATH)
+        """The loaded patch is confirmed: read its authored volume (both scenes; an
+        implausible reading is unknown) and take its level."""
+        a, b = (plausible_authored_volume(self._query_osc_float(path))
+                for path in AUTHORED_VOLUME_PATHS)
+        self._authored_volume, self._authored_volume_b = a, b
         self._set_norm(patch_name, apply_normalization)
-
-    def _retry_pending_raise(self) -> None:
-        """Ask Surge once more whether the held-back load has landed."""
-        path_no_ext, apply_normalization, _outgoing = self._pending_raise
-        if not same_patch_path(self.query_loaded_patch_path(), path_no_ext):
-            return
-        self._pending_raise = None
-        if self._loaded_patch_name is not None:
-            self._settle_patch_level(self._loaded_patch_name, apply_normalization)
 
     def keep_stage_alive(self, now: float | None = None) -> None:
         """Re-send the stage gain once every STAGE_KEEPALIVE_S. Call from the UI loop.
+
+        A boost is re-sent only for a patch Surge confirms on this tick (/q/patch
+        reports the path the last load asked for). Unconfirmed, whether Surge
+        reports another patch or does not answer, the stage goes out without its
+        boost: min(stage, headroom + Vol), at most as authored. Sending nothing
+        instead would leave the last boost on whatever Surge now holds (a
+        restarted Surge's default patch, say), so it is the louder of the two.
+        A stage with no boost needs no question: it is right for any patch.
 
         A raise held back by an unconfirmed load is released here, once Surge
         reports the patch.
@@ -234,10 +263,27 @@ class PatchLoader:
         if now < self._stage_next_keepalive:
             return
         self._stage_next_keepalive = now + STAGE_KEEPALIVE_S
-        if self._stage_sent_db is not None:
-            if self._pending_raise is not None:
-                self._retry_pending_raise()
+        if self._stage_sent_db is None:
+            return
+        if self._pending_raise is None and self.stage_db <= self._quiet_cap_db():
             self._send_stage()
+            return
+        reported = None
+        if self._surge_path is not None:
+            reported = self.query_loaded_patch_path(timeout_s=KEEPALIVE_CONFIRM_TIMEOUT_S)
+        confirmed = self._surge_path is not None and same_patch_path(reported, self._surge_path)
+        if confirmed and self._pending_raise is not None:
+            apply_normalization = self._pending_raise[1]
+            self._pending_raise = None
+            if self._loaded_patch_name is not None:
+                self._settle_patch_level(self._loaded_patch_name, apply_normalization)
+        self._surge_confirmed = confirmed
+        withheld = not confirmed and self.stage_db > self._quiet_cap_db()
+        if withheld and not self._boost_withheld:
+            print(f"Stage boost withheld: Surge reports {reported!r}, "
+                  f"not the loaded {self._surge_path!r}")
+        self._boost_withheld = withheld
+        self._send_stage()
 
     def _sidecar_kw(self) -> dict[str, str | None]:
         return {
@@ -252,17 +298,20 @@ class PatchLoader:
         patch_path: str | None,
         stable_key: str | None,
         authored_volume: float | None,
+        authored_volume_b: float | None = None,
     ) -> tuple[float, float | None]:
         return self.normalization.stage_norm(
             patch_name,
             patch_path=patch_path,
             stable_key=stable_key,
             authored_volume=authored_volume,
+            authored_volume_b=authored_volume_b,
         )
 
     def _apply_patch_normalization(self, patch_name: str) -> None:
         self._norm_db, self._ceiling_db = self._norm_for(
-            patch_name, authored_volume=self._authored_volume, **self._sidecar_kw()
+            patch_name, authored_volume=self._authored_volume,
+            authored_volume_b=self._authored_volume_b, **self._sidecar_kw()
         )
 
     def refresh_patch_volume(self, patch_name: str) -> bool:
@@ -271,73 +320,63 @@ class PatchLoader:
         return self._send_stage()
 
     @staticmethod
-    def _parse_surge_param_query(data: bytes) -> float | None:
-        """Parse Surge /q/param/... replies (often `fs`: float + display string like '9.64 %')."""
-        if len(data) < 8 or data[0] != 0x2F:
-            return None
+    def _parse_surge_param_query(data: bytes, osc_path: str) -> float | None:
+        """The value in Surge's reply to ``/q<osc_path>``; None for anything else.
+
+        Surge answers ``/param/a/aeg/sustain ,fs 0.3964 "39.64 %"``: the address is
+        the parameter's, the float its 0..1 value, the string a display. Only a
+        message at exactly ``osc_path`` is taken, and only its float, in 0..1: the
+        OSC out also carries echoes of other parameters, and a display string is
+        in the parameter's own units (a "%" or "dB" of something else would read
+        as a volume).
+        """
         try:
             from pythonosc.osc_message import OscMessage
 
-            for param in OscMessage(data).params:
-                if isinstance(param, str):
-                    match = re.search(r"([\d.]+)\s*%", param)
-                    if match:
-                        return max(0.0, min(1.0, float(match.group(1)) / 100.0))
-                    try:
-                        value = float(param.strip())
-                    except ValueError:
-                        continue
-                    if value <= 1.0:
-                        return max(0.0, min(1.0, value))
-                    return max(0.0, min(1.0, value / 100.0))
-                if isinstance(param, (int, float)):
-                    value = float(param)
-                    if 0.0 <= value <= 1.0:
-                        return value
+            message = OscMessage(data)
         except Exception:
-            pass
-
-        match = re.search(rb"([\d.]+)\s*%", data)
-        if match:
-            return max(0.0, min(1.0, float(match.group(1).decode()) / 100.0))
-
-        idx = data.find(b"\x00,\x00")
-        while idx != -1:
-            start = idx + 4
-            if start + 4 <= len(data):
-                try:
-                    value = struct.unpack(">f", data[start : start + 4])[0]
-                except struct.error:
-                    return None
-                if 0.0 <= value <= 1.0:
-                    return value
-            idx = data.find(b"\x00,\x00", idx + 1)
+            return None
+        if message.address != osc_path:
+            return None
+        for param in message.params:
+            if isinstance(param, bool) or not isinstance(param, (int, float)):
+                continue
+            value = float(param)
+            if math.isfinite(value) and 0.0 <= value <= 1.0:
+                return value
+            return None
         return None
 
     def _query_osc_float(self, osc_path: str) -> float | None:
-        """Query a Surge parameter via /q/ prefix (requires --osc-out-port)."""
+        """Query a Surge parameter via /q/ prefix (requires --osc-out-port).
+
+        Datagrams are read until the deadline and only Surge's reply for this
+        parameter is taken (`_parse_surge_param_query`).
+        """
         if not self.osc_enabled or self.osc_client is None:
             return None
-
+        osc_path = osc_path.rstrip("/")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             sock.bind((self.osc_host, self.osc_out_port))
-            sock.settimeout(OSC_QUERY_TIMEOUT_S)
-            query_paths = (f"/q{osc_path}", f"/q{osc_path.rstrip('/')}")
-            for query in query_paths:
-                self.osc_client.send_message(query, [])
+            self.osc_client.send_message(f"/q{osc_path}", [])
+            deadline = time.monotonic() + OSC_QUERY_TIMEOUT_S
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                sock.settimeout(remaining)
                 try:
                     data, _addr = sock.recvfrom(4096)
                 except socket.timeout:
-                    continue
-                value = self._parse_surge_param_query(data)
+                    return None
+                value = self._parse_surge_param_query(data, osc_path)
                 if value is not None:
-                    return max(0.0, min(1.0, float(value)))
+                    return value
         except OSError:
             return None
         finally:
             sock.close()
-        return None
 
     @staticmethod
     def _parse_patch_path_reply(data: bytes) -> str | None:
@@ -557,13 +596,15 @@ class PatchLoader:
             print(f"Loaded patch: {Path(patch_path).name}")
 
             self._loaded_patch_name = patch_name
+            self._surge_path = path_no_ext
+            self._surge_confirmed = confirmed
             self._apply_playback_policy(patch_name)
             if confirmed:
                 self._pending_raise = None
                 self._settle_patch_level(patch_name, apply_normalization)
             else:
                 # The authored volume read now could be the old patch's.
-                self._authored_volume = None
+                self._authored_volume = self._authored_volume_b = None
                 self._set_norm(patch_name, apply_normalization)
                 self._pending_raise = (path_no_ext, apply_normalization, outgoing)
                 print("Level held at the quieter of the two patches until Surge confirms")
