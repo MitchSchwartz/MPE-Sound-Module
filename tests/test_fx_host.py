@@ -35,6 +35,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from patch_browser import fx_host_protocol as proto
@@ -746,16 +747,18 @@ def _parse_lines(binary: Path, lines: list[str]) -> list[str]:
 
 
 class Gate(unittest.TestCase):
-    def test_python_and_shell_agree_on_what_switches_it_on(self):
-        """Every value through the real shell gate, via --check (see the
-        live monitor's identical test for why never without it)."""
-        for value in ("1", "0", "on", "ON", "true", "True", "yes", "YES", "off",
-                      "no", "false", "2", ""):
+    def test_the_insert_starts_whatever_the_effects_flag_says(self):
+        """The stage gain is the trunk's level: MPE_FX_HOST gates the effects,
+        never the insert. Every value through the real script, via --check
+        (see the live monitor's test for why never without it)."""
+        for value in ("1", "0", "on", "off", "no", "false", "2", "", None):
             with self.subTest(value=value):
-                env = dict(os.environ, MPE_FX_HOST=value)
+                env = {k: v for k, v in os.environ.items() if k != "MPE_FX_HOST"}
+                if value is not None:
+                    env["MPE_FX_HOST"] = value
                 proc = subprocess.run(["bash", str(START), "--check"], env=env,
                                       capture_output=True, text=True, timeout=30)
-                self.assertEqual(proto.enabled(value), proc.returncode == 0)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_the_gate_check_never_reaches_the_binary(self):
         """--check must not start the insert; proven with a stand-in that
@@ -768,7 +771,7 @@ class Gate(unittest.TestCase):
         stand_in = bin_dir / "mpe-fx-host"
         stand_in.write_text(f'#!/bin/sh\ntouch "{mark}"\n')
         stand_in.chmod(0o755)
-        env = dict(os.environ, MPE_FX_HOST="1", MPE_MODULE_REPO=str(repo),
+        env = dict(os.environ, MPE_FX_HOST="0", MPE_MODULE_REPO=str(repo),
                    MPE_RUN_DIR=str(repo))
         check = subprocess.run(["bash", str(START), "--check"], env=env,
                                capture_output=True, text=True, timeout=30)
@@ -777,11 +780,11 @@ class Gate(unittest.TestCase):
         subprocess.run(["bash", str(START)], env=env, capture_output=True, text=True, timeout=30)
         self.assertTrue(mark.exists(), "the script never started the FX host at all")
 
-    def test_off_by_default(self):
-        env = {k: v for k, v in os.environ.items() if k != "MPE_FX_HOST"}
-        proc = subprocess.run(["bash", str(START), "--check"], env=env,
-                              capture_output=True, text=True, timeout=30)
-        self.assertNotEqual(proc.returncode, 0)
+    def test_the_effects_stay_off_by_default(self):
+        """What the flag still gates: the policy and its UI."""
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MPE_FX_HOST", None)
+            self.assertFalse(proto.enabled())
 
 
 class GainStateRestart(unittest.TestCase):
@@ -878,13 +881,16 @@ class Unit(unittest.TestCase):
             return found[0]
         self.assertEqual(affinity(UNIT), affinity(REPO_ROOT / "config/mpe-live-monitor.service"))
 
-    def test_installed_but_in_neither_enable_list(self):
+    def test_enabled_at_boot(self):
+        """The trunk's level lives in it: enabled, never in DISABLED."""
         text = (REPO_ROOT / "scripts/install-units.sh").read_text()
+        lists = {}
         for name in ("ENABLED", "DISABLED"):
             block = re.search(rf"^{name}=\((.*?)^\)", text, re.S | re.M)
             self.assertIsNotNone(block, name)
-            entries = [l.split("#")[0].strip() for l in block.group(1).splitlines()]
-            self.assertNotIn("mpe-fx-host", entries, f"mpe-fx-host listed in {name}")
+            lists[name] = [l.split("#")[0].strip() for l in block.group(1).splitlines()]
+        self.assertIn("mpe-fx-host", lists["ENABLED"])
+        self.assertNotIn("mpe-fx-host", lists["DISABLED"])
 
     def test_client_exits_non_zero_when_jack_goes_away(self):
         """Restart=on-failure only fires on a failure exit. Read from the C
