@@ -134,6 +134,29 @@ class CalibratePatch(unittest.TestCase):
             # No amp/volume and no closed loop: one load, nothing sent to Surge.
             loader.osc_client.send_message.assert_not_called()
 
+    def test_a_padded_capture_is_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = pn.PatchNormalizationStore(Path(tmp) / "norm.json")
+            store.set_patch_dirs([])
+            loader = mock.Mock(osc_enabled=True, _authored_volume=0.85)
+            loader.load_patch.return_value = True
+            with (
+                mock.patch.object(self.cal, "measure_strike_anchor_lufs", side_effect=[
+                    anchor(self.cal, -8.0, 0.4, 0.0), anchor(self.cal, -20.0, -12.0, -12.5)]),
+                mock.patch.object(self.cal, "measure_sustain_anchor_lufs", side_effect=[
+                    anchor(self.cal, -10.0, -1.0, -1.2), anchor(self.cal, -24.0, -13.0, -13.5)]),
+                mock.patch.object(self.cal, "measure_light_touch_lufs", return_value=None),
+                mock.patch.object(self.cal.time, "sleep"),
+            ):
+                result = self.cal.calibrate_patch(
+                    Path("/tmp/Hot.fxp"), loader, store, audio_device="dev",
+                    mock_lufs=None, dry_run=False, midi_out=mock.Mock(),
+                )
+            self.assertTrue(result.ok)
+            entry = store.get_entry("Hot", patch_path="/tmp/Hot.fxp")
+            self.assertEqual(entry["capture_padded_db"], pn.CAPTURE_PAD_DB)
+            self.assertEqual(entry["lufs_unity"]["sustain"], -24.0 + pn.CAPTURE_PAD_DB)
+
 
 class Controls(unittest.TestCase):
     def test_positive(self) -> None:

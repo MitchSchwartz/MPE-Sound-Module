@@ -185,9 +185,8 @@ class PatchLoader:
     def _send_stage_db(self, db: float) -> bool:
         if self._stage_sender is None:
             return False
-        linear = 0.0 if db == -float("inf") else db_to_linear(
-            min(db, fx_host_protocol.GAIN_MAX_DB)
-        )
+        # encode_gain clamps to GAIN_MAX_DB, as the client does.
+        linear = 0.0 if db == -float("inf") else db_to_linear(db)
         self._stage_sent_db = db
         return bool(self._stage_sender(fx_host_protocol.encode_gain(linear)))
 

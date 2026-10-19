@@ -370,5 +370,27 @@ class NormFaderLabel(unittest.TestCase):
         self.assertEqual(NormControl().format_for(browser, 6.0), "+6.0")
 
 
+
+class SenderSafety(unittest.TestCase):
+    def test_no_sender_unless_one_is_passed(self) -> None:
+        """Tests and calibration build loaders too; only production passes a sender."""
+        with mock.patch("patch_browser.patch_loader.UdpStageSender") as udp:
+            loader = PatchLoader()
+            self.assertIsNone(loader._stage_sender)
+            loader.set_volume(VOLUME_MAX)
+            loader.keep_stage_alive(now=1e9)
+            self.assertIsNone(loader._stage_sent_db, "nothing was sent")
+        udp.assert_not_called()
+
+    def test_the_send_is_capped_at_the_client_ceiling(self) -> None:
+        from patch_browser import fx_host_protocol
+
+        with tempfile.TemporaryDirectory() as tmp:
+            loader, line = make_loader(write_store(tmp, {}))
+            loader._norm_db = fx_host_protocol.GAIN_MAX_DB + 12.0
+            loader.set_volume(VOLUME_MAX)
+        self.assertEqual(line.stage(), [gain(fx_host_protocol.GAIN_MAX_DB)])
+
+
 if __name__ == "__main__":
     unittest.main()
