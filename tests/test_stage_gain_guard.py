@@ -237,6 +237,12 @@ def stage_sender_sites(root: Path) -> list[tuple[str, str, str | None]]:
 
 
 class WhoSendsAGain(unittest.TestCase):
+    """Every site that sends mpe-fx-host a stage gain, as a frozen list
+    (STAGE_SENDERS): the file, the form (UdpStageSender, encode_gain or a
+    literal) and the enclosing function. It proves nothing about what a listed
+    site sends, only that no new site appears unreviewed. Adding a sender means
+    adding it here, in review, with the reason it is safe."""
+
     def test_only_the_named_senders(self) -> None:
         sites = set(stage_sender_sites(REPO))
         self.assertEqual(sorted(sites - STAGE_SENDERS), [], "a new stage-gain sender")

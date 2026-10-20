@@ -349,6 +349,15 @@ class Controls(unittest.TestCase):
         self.assertEqual(stage, [("stage", b"gain 0.00000100"), ("stage", b"gain 0.00000000")])
         self.assertEqual(state["gain"], 0.0)
 
+    def test_a_boost_on_record_goes_back_at_unity(self) -> None:
+        """Surge holds the control patch: the touch UI's +12 dB was for its own
+        patch. A cut goes back as it was (test_run_controls_order_and_safety)."""
+        _cal, _loader, line, results, state = self._run_controls(before=3.98107171)
+        self.assertTrue(results[2].ok, results[2])
+        self.assertEqual([e for e in line if e[0] == "stage"],
+                         [("stage", b"gain 0.00000000"), ("stage", b"gain 1.00000000")])
+        self.assertEqual(state["gain"], 1.0)
+
     def test_with_no_gain_on_record_the_stage_stays_muted(self) -> None:
         _cal, _loader, line, results, state = self._run_controls(before=None)
         self.assertTrue(results[2].ok, results[2])

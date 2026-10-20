@@ -491,6 +491,107 @@ class NormFaderLabel(unittest.TestCase):
             self.assertEqual(NormControl().format_for(browser, -30.0), "-30.0")
 
 
+class NormFaderLaw(unittest.TestCase):
+    """A Norm fader move of x dB moves the stage by x dB, on any row. A trim
+    written before the stage was heard through the cube law: it is shown in
+    stage dB and only migrated, never read as plain dB."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+
+    def _browser(self, store, name: str, authored: float | None):
+        from patch_browser.mixer_controls import NormControl
+
+        patch = {"name": name, "path": f"/p/{name}.fxp"}
+        browser = mock.Mock(detail_patch=patch, loaded_patch_info=patch)
+        browser.loader.normalization = store
+        browser.loader.osc_enabled = False
+        browser.loader.norm_at_ceiling = False
+        browser.loader._authored_volume = authored
+        browser.loader._authored_volume_b = None
+        return NormControl(), browser
+
+    def _nudge(self, data: dict, name: str, authored: float | None, played_at: float,
+               step: float = 1.0) -> tuple[float, float]:
+        store = write_store(self._tmp.name, data)
+        control, browser = self._browser(store, name, authored)
+        before = store.stage_norm(name, authored_volume=played_at)[0]
+        control.write(browser, control.read(browser) + step, persist=False)
+        return before, store.stage_norm(name, authored_volume=played_at)[0]
+
+    def test_one_db_on_an_uncalibrated_patch_is_one_db(self) -> None:
+        """Authored 0.547, no row: a +1 dB nudge was +16.7 dB on the stage."""
+        before, after = self._nudge({}, "U", 0.547, 0.547)
+        self.assertEqual(before, 0.0)
+        self.assertAlmostEqual(after - before, 1.0, places=6)
+        before, after = self._nudge({}, "D", 0.547, 0.547, step=-1.0)
+        self.assertAlmostEqual(after - before, -1.0, places=6)
+
+    def test_an_old_law_trim_moves_from_where_it_plays(self) -> None:
+        for row in ({"user_trim_db": -6.0}, {"gain_db": -4.0, "user_trim_db": -3.0},
+                    {"gain_db": 2.0, "user_trim_db": 1.5}):
+            with self.subTest(row=row):
+                before, after = self._nudge({"O": dict(row)}, "O", 0.547, 0.547)
+                self.assertAlmostEqual(after - before, 1.0, delta=0.001)  # stored to 3 places
+
+    def test_an_unknown_authored_volume_errs_quiet(self) -> None:
+        """Shown against an unknown authored volume (detail patch not loaded),
+        the move lands no louder than the fader said."""
+        for row in ({"user_trim_db": -6.0}, {"gain_db": -4.0, "user_trim_db": -3.0}, {}):
+            with self.subTest(row=row):
+                before, after = self._nudge({"O": dict(row)}, "O", None, 0.547)
+                self.assertLessEqual(after - before, 1.001)
+
+    def test_another_patchs_authored_volume_is_not_used(self) -> None:
+        """The detail patch is not the loaded one: the loader's authored volume
+        (here a quiet 0.3) belongs to the other patch and must not place the fader."""
+        store = write_store(self._tmp.name, {"O": {"user_trim_db": -6.0}})
+        control, browser = self._browser(store, "O", 0.3)
+        browser.loaded_patch_info = {"name": "Other", "path": "/p/Other.fxp"}
+        before = store.stage_norm("O", authored_volume=0.9)[0]
+        control.write(browser, control.read(browser) + 1.0, persist=False)
+        self.assertLessEqual(store.stage_norm("O", authored_volume=0.9)[0] - before, 1.001)
+
+    def test_a_stage_law_trim_on_a_bridged_row_is_capped(self) -> None:
+        """Authored 0.12: the bridge alone is held at +30, and the trim moves from there."""
+        cut = {"gain_db": 0.0, "user_trim_db": -10.0, "trim_law": pn.TRIM_LAW_STAGE}
+        self.assertAlmostEqual(pn.legacy_norm_db(cut, 0.12), pn.LEGACY_NORM_MAX_DB - 10.0, places=9)
+        boost = {**cut, "user_trim_db": 10.0}
+        self.assertEqual(pn.legacy_norm_db(boost, 0.12), pn.LEGACY_NORM_MAX_DB)
+
+    def test_the_old_law_row_shows_its_stage_level(self) -> None:
+        entry = {"user_trim_db": -6.0}
+        self.assertAlmostEqual(pn.norm_fader_db(entry, 0.547),
+                               pn.legacy_norm_db(entry, 0.547), places=9)
+        self.assertEqual(pn.norm_fader_db({"user_trim_db": -6.0, "trim_law": pn.TRIM_LAW_STAGE}, 0.547),
+                         -6.0)
+        self.assertEqual(pn.norm_fader_db({"gain_db": 3.0, "user_trim_db": -2.0, "cal_path": CAL}), -2.0)
+        self.assertEqual(pn.norm_fader_db(None), 0.0)
+
+    def test_recalibrating_a_stage_law_row_keeps_what_it_plays(self) -> None:
+        store = write_store(self._tmp.name, {"S": {"user_trim_db": -6.0, "trim_law": pn.TRIM_LAW_STAGE}})
+        heard = store.stage_norm("S", authored_volume=0.8)[0]
+        record = store.set_calibration("S", 4.0, -18.0, authored_volume=0.8)
+        self.assertIsNotNone(record)
+        self.assertAlmostEqual(store.stage_norm("S", authored_volume=0.8)[0], heard, places=2)
+
+    def test_the_fader_bottom_leaves_a_min_row_alone(self) -> None:
+        """A cut kept below -30: the fader at its bottom is a no-op, not -30 (louder)."""
+        store = write_store(self._tmp.name, {"M": {"gain_db": 2.0, "user_trim_db": -52.3, "cal_path": CAL}})
+        control, browser = self._browser(store, "M", 0.8)
+        control.write(browser, control.spec.min_value, persist=False)
+        control.write(browser, control.spec.min_value - 5.0, persist=False)
+        self.assertEqual(store.get_entry("M")["user_trim_db"], -52.3)
+        control.write(browser, control.spec.min_value + 1.0, persist=False)
+        self.assertEqual(store.get_entry("M")["user_trim_db"], control.spec.min_value + 1.0,
+                         "control: a move up off the bottom is written")
+        store.set_user_trim_db("M", -10.0)
+        control.write(browser, control.spec.min_value, persist=False)
+        self.assertEqual(store.get_entry("M")["user_trim_db"], control.spec.min_value,
+                         "control: a row above the bottom is written down to it")
+
+
 class LegacyAndStaleRows(unittest.TestCase):
     """Rows the stage did not measure: each keeps the owner's cut; none plays loud."""
 
@@ -509,7 +610,11 @@ class LegacyAndStaleRows(unittest.TestCase):
             store = write_store(tmp, {})
             self.assertEqual(store.stage_norm("U", authored_volume=1.0), (0.0, None))
             store.set_user_trim_db("U", -6.0)
-            self.assertAlmostEqual(store.stage_norm("U", authored_volume=1.0)[0], -18.0, places=9)
+            self.assertEqual(store.get_entry("U")[pn.TRIM_LAW_KEY], pn.TRIM_LAW_STAGE)
+            self.assertAlmostEqual(store.stage_norm("U", authored_volume=1.0)[0], -6.0, places=9)
+            self.assertAlmostEqual(store.stage_norm("U", authored_volume=0.547)[0], -6.0, places=9)
+            store.clear_user_trim_db("U")
+            self.assertNotIn(pn.TRIM_LAW_KEY, store.get_entry("U"))
 
     def test_a_trim_only_row_migrates_on_recalibration(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

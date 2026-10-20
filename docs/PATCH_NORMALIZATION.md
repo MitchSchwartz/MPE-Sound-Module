@@ -10,7 +10,7 @@ Static loudness matching for Surge XT patches on the MPE appliance. Calibrate on
 
 ### v2 Norm trim (2026-08-18)
 
-- **Norm fader** adjusts `user_trim_db` — an offset from calibrated `gain_db` (−30…+30 dB since 2026-10-19, so 0 sits at the centre). **0** = calibrated baseline; double-tap clears trim. `gain_db + user_trim_db` is held to the calibration gesture's 0 dBTP (`norm_ceiling_db`); the fader reads **max** while that holds.
+- **Norm fader** adjusts `user_trim_db` — an offset from calibrated `gain_db` (−30…+30 dB since 2026-10-19, so 0 sits at the centre). **0** = calibrated baseline; double-tap clears trim. `gain_db + user_trim_db` is held to the calibration gesture's 0 dBTP (`norm_ceiling_db`); the fader reads **max** while that holds. A trim the fader writes is plain dB on the stage and marks its row `trim_law: "fx-stage-v1"`: on an uncalibrated patch a 1 dB move is a 1 dB change. A trim from before the stage (no mark) is shown at the stage level it plays at now and is only ever migrated, never read as plain dB. With the fader at its bottom on a row reading **min**, nothing is written.
 - **Legacy `user_gain_db`** rows migrate on store load to `user_trim_db` (absolute → offset) and persist.
 - **Cal save gate:** the predicted post-gain peak (unity peak + `gain_db`) must be ≤ −2.8 dBTP or the patch is **not saved**.
 - **Audit:** `scripts/calibrate-patch-normalization.py --verify-only --favorites-only` re-measures at authored volume and checks the predicted post-gain peak.

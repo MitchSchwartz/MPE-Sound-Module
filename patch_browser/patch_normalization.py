@@ -47,6 +47,13 @@ NORM_TRIM_DB_MAX = 30.0
 # cube law and are in the wrong units).
 CAL_PATH = "fx-stage-v1"
 
+# A user trim written on or after the stage's deploy is plain dB on the stage
+# (`set_user_trim_db` marks it). An uncalibrated row's trim without the mark was
+# heard through amp/volume's cube law; it is bridged (`legacy_norm_db`) and
+# re-expressed for the fader (`norm_fader_db`), never read as plain dB.
+TRIM_LAW_KEY = "trim_law"
+TRIM_LAW_STAGE = CAL_PATH
+
 # Calibration captures whose sample peak reaches this are clipped: re-measured with
 # CAPTURE_PAD_DB applied through Surge's own volume law (`padded_volume`).
 CLIP_SAMPLE_PEAK_DBFS = -0.1
@@ -417,6 +424,8 @@ def legacy_norm_db(
     Bridges the deploy and the re-measurement (`CAL_PATH` entries replace these):
     until then a cut patch stays cut. A trim with no gain is the owner's cut on an
     uncalibrated patch: the old code took the missing gain as 0, and so does this.
+    A trim marked stage-law (`trim_is_stage_law`) is plain dB on the row's base
+    instead: its pre-stage gain bridged, or as authored with none.
     Worked out against the louder scene's authored volume, an unknown one as 0 dB
     (`louder_authored`, `authored_level_db`): both err quiet. Held to
     LEGACY_NORM_MAX_DB.
@@ -427,9 +436,58 @@ def legacy_norm_db(
     trim = _finite_number(entry.get("user_trim_db"))
     if gain is None and trim is None:
         return None
-    level = legacy_level_db(gain or 0.0, trim or 0.0)
     authored = louder_authored(authored_volume, authored_volume_b)
+    if trim_is_stage_law(entry):
+        # Plain dB on the row's base: the fader moves the stage by what it says.
+        return min(LEGACY_NORM_MAX_DB, _bridge_base_db(gain, authored) + (trim or 0.0))
+    level = legacy_level_db(gain or 0.0, trim or 0.0)
     return min(LEGACY_NORM_MAX_DB, level - authored_level_db(authored))
+
+
+def trim_is_stage_law(entry: dict[str, Any] | None) -> bool:
+    """True when the row's user trim is plain dB on the stage: a calibrated row
+    (its trim was migrated, `migrate_trim_to_stage`) or one marked by
+    `set_user_trim_db`."""
+    return isinstance(entry, dict) and (
+        is_calibrated(entry) or entry.get(TRIM_LAW_KEY) == TRIM_LAW_STAGE
+    )
+
+
+def _bridge_base_db(gain: float | None, authored: float | None) -> float:
+    """What an uncalibrated row plays at before its stage-law trim: its pre-stage
+    gain bridged (`legacy_level_db` against the authored level, held to
+    LEGACY_NORM_MAX_DB), or 0 (as authored) with no gain."""
+    if gain is None:
+        return 0.0
+    return min(LEGACY_NORM_MAX_DB, legacy_level_db(gain, 0.0) - authored_level_db(authored))
+
+
+def norm_fader_db(
+    entry: dict[str, Any] | None,
+    authored_volume: float | None = None,
+    authored_volume_b: float | None = None,
+) -> float:
+    """Where the Norm fader sits for this row, in stage dB: a move of the fader by
+    x dB moves the stage by x dB from what plays now.
+
+    A stage-law trim is itself. An uncalibrated row's cube-law trim is re-expressed
+    as the stage-law trim that plays what it plays now (`legacy_norm_db` less the
+    row's base), so the first write does not jump. An unknown authored volume reads
+    as 0 dB (`authored_level_db`), which puts the fader no higher than the level
+    really is: a move from it lands quiet. Unclamped: below the fader's bottom it
+    reads "min" (mixer_controls.NormControl).
+    """
+    if not isinstance(entry, dict):
+        return 0.0
+    trim = _finite_number(entry.get("user_trim_db"))
+    if trim is None:
+        return 0.0
+    if trim_is_stage_law(entry):
+        return trim
+    playing = legacy_norm_db(entry, authored_volume, authored_volume_b)
+    authored = louder_authored(authored_volume, authored_volume_b)
+    base = _bridge_base_db(_finite_number(entry.get("gain_db")), authored)
+    return (playing if playing is not None else 0.0) - base
 
 
 def is_stale(
@@ -706,6 +764,21 @@ class PatchNormalizationStore(SidecarKeyMixin):
             return 0.0
         return float(entry["user_trim_db"])
 
+    def get_norm_fader_db(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+        authored_volume: float | None = None,
+        authored_volume_b: float | None = None,
+    ) -> float:
+        """The Norm fader's position for this patch, in stage dB (`norm_fader_db`)."""
+        entry = self.get_entry(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        return norm_fader_db(entry, authored_volume, authored_volume_b)
+
     def get_effective_gain_db(
         self,
         patch_name: str,
@@ -800,7 +873,10 @@ class PatchNormalizationStore(SidecarKeyMixin):
         patch_path: str | None = None,
         stable_key: str | None = None,
     ) -> None:
-        """Set Norm trim offset from calibrated gain (defer persist=False while dragging)."""
+        """Set the Norm trim, plain dB on the stage (defer persist=False while dragging).
+
+        Marks the row stage-law (TRIM_LAW_KEY): the value is the fader's, which
+        `norm_fader_db` already put in stage dB."""
         key = self._storage_key(
             patch_name, patch_path=patch_path, stable_key=stable_key
         )
@@ -811,6 +887,7 @@ class PatchNormalizationStore(SidecarKeyMixin):
             entry = {}
         entry = self._ensure_calibration_fields(matched or key, entry)
         entry["user_trim_db"] = round(clamp_user_trim_db(trim_db), 3)
+        entry[TRIM_LAW_KEY] = TRIM_LAW_STAGE
         entry.pop("user_gain_db", None)
         if matched and matched != key:
             self._data.pop(matched, None)
@@ -863,6 +940,7 @@ class PatchNormalizationStore(SidecarKeyMixin):
         updated = dict(entry)
         updated.pop("user_trim_db", None)
         updated.pop("user_gain_db", None)
+        updated.pop(TRIM_LAW_KEY, None)
         storage = self._storage_key(
             patch_name, patch_path=patch_path, stable_key=stable_key
         )
@@ -981,7 +1059,18 @@ class PatchNormalizationStore(SidecarKeyMixin):
                         entry[carried] = existing[carried]
                 # A pre-stage row: its trim was heard through amp/volume's cube law,
                 # on its gain or, with none, on 0 (`legacy_norm_db`).
-                if entry.get("cal_path") == CAL_PATH and not is_calibrated(existing):
+                if (entry.get("cal_path") == CAL_PATH and not is_calibrated(existing)
+                        and trim_is_stage_law(existing)):
+                    # A stage-law trim on an uncalibrated row: keep what it plays.
+                    old_trim = float(existing["user_trim_db"])
+                    heard = legacy_norm_db(existing, authored_volume, authored_volume_b)
+                    wanted = (heard if heard is not None else 0.0) - float(gain_db)
+                    trim = min(wanted, NORM_TRIM_DB_MAX)
+                    clamped = trim < wanted
+                    entry["user_trim_db"] = round(trim, 3)
+                    migration = {"key": key, "old": old_trim, "new": round(trim, 3),
+                                 "clamped": clamped}
+                elif entry.get("cal_path") == CAL_PATH and not is_calibrated(existing):
                     old_trim = float(existing["user_trim_db"])
                     old_gain = _finite_number(existing.get("gain_db")) or 0.0
                     trim, clamped = migrate_trim_to_stage(

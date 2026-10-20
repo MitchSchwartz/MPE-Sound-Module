@@ -1388,8 +1388,10 @@ def run_controls(
     The mute is the safe direction for the live trunk. It counts only once
     mpe-fx-host has taken it (its state file shows it): with no insert running the
     capture would match for the wrong reason, so the control fails. The gain the
-    insert had before is put back in a ``finally``; with none on record the stage
-    is left muted (the quiet side) until the touch UI's next send.
+    insert had before is put back in a ``finally``, held to unity (a boost was for
+    the touch UI's patch, not the control patch Surge now holds); with none on
+    record the stage is left muted. Either way the touch UI's next send restores
+    the level.
     """
     from patch_browser import fx_host_protocol
     from patch_browser.patch_loader import UdpStageSender
@@ -1435,7 +1437,10 @@ def run_controls(
             )
     finally:
         if before is not None:
-            send(fx_host_protocol.encode_gain(before))
+            # Held to unity: the gain on record may be a boost for the patch the
+            # touch UI had loaded, and Surge now holds the control patch. A cut
+            # goes back as it was; a boost waits for the UI's next send.
+            send(fx_host_protocol.encode_gain(min(before, 1.0)))
         else:
             print("  [isolation] no earlier stage gain on record: the stage stays muted "
                   "until the touch UI sends its level")
