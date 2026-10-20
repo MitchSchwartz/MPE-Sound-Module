@@ -5107,6 +5107,45 @@ static void test_stage_gain_restart(void)
     CHECK(fabs(ramped) <= 1.0, "control (start ramped from unity) passed: %+.4f dB", ramped);
 }
 
+/* A restart keeps a cut, never a boost (fx_gain_state_restore): a file at
+ * -20 dB restores -20 dB, one at +12 dB restores unity, unity restores unity,
+ * and a malformed file restores nothing. Control: the restore passing a boost
+ * through brings back +12 dB. */
+static void test_stage_gain_restore_cap(void)
+{
+    const char *base = getenv("TMPDIR");
+    char dir[512], path[600];
+    snprintf(dir, sizeof(dir), "%s/fx-gain-restore-XXXXXX", (base != NULL && base[0]) ? base : "/tmp");
+    CHECK(mkdtemp(dir) != NULL, "mkdtemp %s: %s", dir, strerror(errno));
+    snprintf(path, sizeof(path), "%s/fx-stage-gain", dir);
+    float cut = -1.0f, boost = -1.0f, unity = -1.0f, leaked = -1.0f;
+    CHECK(fx_gain_state_write(path, db_lin(-20.0)) == 0, "write");
+    CHECK(fx_gain_state_restore(path, &cut), "a cut was not restored");
+    CHECK(fx_gain_state_write(path, 1.0f) == 0, "write");
+    CHECK(fx_gain_state_restore(path, &unity), "unity was not restored");
+    CHECK(fx_gain_state_write(path, db_lin(12.0)) == 0, "write");
+    CHECK(fx_gain_state_restore(path, &boost), "a boost file restored nothing");
+    fx_test_gain_restore_boosts = 1;
+    CHECK(fx_gain_state_restore(path, &leaked), "control restore");
+    fx_test_gain_restore_boosts = 0;
+    CHECK(write_raw(path, "gain 1e3\n") == 0, "fixture write");
+    float bad = -1.0f;
+    const int bad_restored = fx_gain_state_restore(path, &bad);
+    if (g_verbose) {
+        printf("  restore: -20 dB file -> %+.4f dB; unity -> %+.4f dB; +12 dB file -> %+.4f dB; "
+               "control (boost passed through) %+.4f dB\n", 20.0 * log10((double)cut),
+               20.0 * log10((double)unity), 20.0 * log10((double)boost), 20.0 * log10((double)leaked));
+    }
+    CHECK(fabsf(cut - db_lin(-20.0)) <= 1e-7f, "a -20 dB file restored %.8f", (double)cut);
+    CHECK(unity == 1.0f, "a unity file restored %.8f", (double)unity);
+    CHECK(boost == 1.0f, "a +12 dB file restored %.8f, a boost", (double)boost);
+    CHECK(!bad_restored, "a malformed file restored %.8f", (double)bad);
+    CHECK(fabsf(leaked - db_lin(12.0)) <= 1e-6f, "control (boost passed through) restored %.8f",
+          (double)leaked);
+    unlink(path);
+    rmdir(dir);
+}
+
 /* ========================================================================= */
 /* The runner                                                                 */
 /* ========================================================================= */
@@ -5236,6 +5275,7 @@ CASE0(test_stage_gain_clamp)
 CASE0(test_stage_before_chain)
 CASE0(test_stage_gain_state_file)
 CASE0(test_stage_gain_restart)
+CASE0(test_stage_gain_restore_cap)
 
 /* The pack's level bound: part arg = (k * LB_N + v) * N_LEVEL_SIGNALS + sgi. */
 static int g_lb_case[N_FX][LB_N][N_LEVEL_SIGNALS];
@@ -5398,6 +5438,7 @@ static void build_cases(void)
     add_case("stage before chain", 0, case_test_stage_before_chain, NULL, 1);
     add_case("stage gain state file", 0, case_test_stage_gain_state_file, NULL, 1);
     add_case("stage gain restart", 0, case_test_stage_gain_restart, NULL, 1);
+    add_case("stage gain restore cap", 0, case_test_stage_gain_restore_cap, NULL, 1);
 }
 
 static int selftest_jobs(void)

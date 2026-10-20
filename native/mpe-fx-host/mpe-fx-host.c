@@ -693,12 +693,13 @@ int main(int argc, char **argv)
     }
     atomic_store_explicit(&g_rate, rate, memory_order_relaxed);
 
-    /* The last gain the previous process was told, in force from the first
-     * period (no ramp from unity): a restart must not play a cut patch loud
-     * for the second until the sender's next resend. No file: unity, as an
-     * insert nobody has configured. */
+    /* The last gain the previous process was told, held to unity, in force
+     * from the first period (no ramp from unity): a restart must not play a
+     * cut patch loud for the second until the sender's next resend, and must
+     * not bring back a boost the sender has not re-sent (fx_gain_state.h). No
+     * file: unity, as an insert nobody has configured. */
     float restored = 1.0f;
-    if (fx_gain_state_read(g_gain_state_path, &restored)) {
+    if (fx_gain_state_restore(g_gain_state_path, &restored)) {
         fx_engine_start_gain(&g_engine, restored);
         atomic_store_explicit(&g_target_gain, restored, memory_order_relaxed);
         fprintf(stderr, "mpe-fx-host: stage gain %.8f restored from %s\n", (double)restored,

@@ -787,8 +787,8 @@ class Gate(unittest.TestCase):
 class GainStateRestart(unittest.TestCase):
     """A restarted client starts at the last stage gain, not at unity for up to
     the sender's resend interval. The file's round trip, its refusals and the
-    first-frame level are fx_selftest's "stage gain state file" and "stage gain
-    restart" checks; these read the client's C, since there is no jackd here."""
+    first-frame level and the cap at unity are fx_selftest's "stage gain state
+    file", "stage gain restart" and "stage gain restore cap" checks; these read the client's C, since there is no jackd here."""
 
     def _function(self, source: str, signature: str) -> str:
         start = source.index(signature)
@@ -797,7 +797,10 @@ class GainStateRestart(unittest.TestCase):
 
     def test_main_restores_before_activating(self):
         main = self._function(C_CLIENT.read_text(), "int main(")
-        read = main.index("fx_gain_state_read(g_gain_state_path, &restored)")
+        # The restore, not the plain read: a restart keeps a cut, never a
+        # boost (fx_selftest "stage gain restore cap").
+        self.assertNotIn("fx_gain_state_read(", main)
+        read = main.index("fx_gain_state_restore(g_gain_state_path, &restored)")
         self.assertLess(read, main.index("jack_activate(g_client)"))
         self.assertLess(main.index("fx_engine_init("), read)
         restore = main[read:main.index("jack_activate(g_client)")]

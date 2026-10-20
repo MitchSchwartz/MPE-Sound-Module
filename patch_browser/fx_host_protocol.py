@@ -62,8 +62,10 @@ decimal with eight places, so -90 dB still has three significant digits.
 
 The client keeps the last gain it was told in a file (`gain_state_path`,
 `/run/mpe/fx-stage-gain` unless `MPE_FX_GAIN_STATE` says otherwise; one line in
-the datagram's own format) and a restarted client starts at it, with no ramp
-from unity (`native/mpe-fx-host/fx_gain_state.h`). No file: unity.
+the datagram's own format) and a restarted client starts at it held to unity,
+with no ramp from unity (`native/mpe-fx-host/fx_gain_state.h`): a restart keeps
+a cut, never a boost, and a boost waits for the sender's next resend. No file:
+unity.
 """
 
 from __future__ import annotations

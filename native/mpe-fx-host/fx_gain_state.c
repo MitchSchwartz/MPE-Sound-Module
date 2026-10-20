@@ -66,3 +66,23 @@ int fx_gain_state_read(const char *path, float *linear)
     *linear = value;
     return 1;
 }
+
+#ifdef FX_SELFTEST
+int fx_test_gain_restore_boosts;
+#endif
+
+int fx_gain_state_restore(const char *path, float *linear)
+{
+    float value = 1.0f;
+    if (!fx_gain_state_read(path, &value)) {
+        return 0;
+    }
+#ifdef FX_SELFTEST
+    if (fx_test_gain_restore_boosts) {
+        *linear = value;
+        return 1;
+    }
+#endif
+    *linear = value > 1.0f ? 1.0f : value;
+    return 1;
+}

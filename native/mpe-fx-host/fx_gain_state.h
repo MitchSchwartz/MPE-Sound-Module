@@ -33,4 +33,19 @@ int fx_gain_state_write(const char *path, float linear);
  * too long or malformed. */
 int fx_gain_state_read(const char *path, float *linear);
 
+/* What a restarted host starts at: the file's gain (fx_gain_state_read), held
+ * to unity. A restart keeps a cut and never a boost. The file can outlive the
+ * patch that wanted the boost (the directory survives jackd and fx-host
+ * restarts, and only the host writes it), so a boost is left to the sender's
+ * next resend, which comes only for a patch Surge has confirmed. Returns 1 and
+ * fills `linear` as fx_gain_state_read does, 0 when there is nothing to
+ * restore. */
+int fx_gain_state_restore(const char *path, float *linear);
+
+#ifdef FX_SELFTEST
+/* fx_gain_state_restore passing a boost through: the restore check must
+ * catch it. */
+extern int fx_test_gain_restore_boosts;
+#endif
+
 #endif
