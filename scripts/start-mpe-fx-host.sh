@@ -32,6 +32,14 @@ BIN="$MPE_MODULE_REPO/native/mpe-fx-host/mpe-fx-host"
 if [ ! -x "$BIN" ]; then
     "$MPE_MODULE_REPO/scripts/build-mpe-fx-host.sh" --required
 fi
+# The binary is gitignored, so a pull leaves the old one in place. An old host
+# ignores the `gain` datagram while the browser has stopped cutting in Surge,
+# which plays every normalization cut and the Vol fader at full. Rebuild
+# whenever a source is newer, and refuse to start a binary that failed to.
+if ! make -s -C "$MPE_MODULE_REPO/native/mpe-fx-host" all; then
+    echo "mpe-fx-host: rebuild failed; not starting a possibly stale binary" >&2
+    exit 1
+fi
 if [ ! -x "$BIN" ]; then
     echo "mpe-fx-host: binary missing after build" >&2
     exit 1

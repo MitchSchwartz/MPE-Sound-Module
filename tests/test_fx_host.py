@@ -901,5 +901,42 @@ class Unit(unittest.TestCase):
         self.assertRegex(branch.group(1), r"return 1;")
 
 
+
+@unittest.skipUnless(shutil.which("make") and shutil.which("bash"), "needs make and bash")
+class StartRebuildsAStaleBinary(unittest.TestCase):
+    """The binary is gitignored, so a pull keeps the old one. An old host ignores
+    `gain` while the browser no longer cuts in Surge: every cut plays at full.
+    The start script must rebuild a stale binary, and must not run one whose
+    rebuild failed."""
+
+    def _run(self, makefile: str) -> tuple[int, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts" / "lib").mkdir(parents=True)
+            shutil.copy(START, root / "scripts" / START.name)
+            for lib in (REPO_ROOT / "scripts" / "lib").glob("*.sh"):
+                shutil.copy(lib, root / "scripts" / "lib" / lib.name)
+            native = root / "native" / "mpe-fx-host"
+            native.mkdir(parents=True)
+            binary = native / "mpe-fx-host"
+            binary.write_text("#!/bin/sh\necho RAN \"$(cat built 2>/dev/null || echo stale)\"\n")
+            binary.chmod(0o755)
+            (native / "Makefile").write_text(makefile)
+            env = {k: v for k, v in os.environ.items() if k != "MPE_MODULE_REPO"}
+            done = subprocess.run(["bash", str(root / "scripts" / START.name)], cwd=native,
+                                  env=env, capture_output=True, text=True, timeout=30)
+            return done.returncode, done.stdout
+
+    def test_a_failed_rebuild_does_not_start_the_old_binary(self):
+        rc, out = self._run("all:\n\tfalse\n")
+        self.assertEqual(rc, 1)
+        self.assertNotIn("RAN", out)
+
+    def test_the_rebuild_runs_before_the_binary(self):
+        rc, out = self._run("all:\n\techo fresh > built\n")
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), "RAN fresh")
+
+
 if __name__ == "__main__":
     unittest.main()
