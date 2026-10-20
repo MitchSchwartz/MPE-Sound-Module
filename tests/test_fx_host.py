@@ -29,11 +29,13 @@ import hashlib
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from patch_browser import fx_host_protocol as proto
@@ -49,7 +51,8 @@ START = REPO_ROOT / "scripts" / "start-mpe-fx-host.sh"
 #: depend on besides the compiler. Not the client (mpe-fx-host.c) and not the
 #: Python protocol: the self-test never reads either. Its own switches are in
 #: the key too (_SELFTEST_ENV).
-SELFTEST_INPUTS = ("fx_dsp.c", "fx_dsp.h", "fx_selftest.c", "Makefile")
+SELFTEST_INPUTS = ("fx_dsp.c", "fx_dsp.h", "fx_gain_state.c", "fx_gain_state.h", "fx_selftest.c",
+                   "Makefile")
 _SELFTEST_ENV = ("CC", "CFLAGS", "LDFLAGS", "FX_SELFTEST_FULL")
 
 
@@ -299,7 +302,7 @@ class SelfTestCache(unittest.TestCase):
         rule = re.search(r"^selftest-bin:.*?\n\t(.*?)\n", (NATIVE / "Makefile").read_text(), re.S | re.M)
         self.assertIsNotNone(rule, "no selftest-bin rule in the Makefile")
         compiled = set(re.findall(r"\b([\w-]+\.c)\b", rule.group(1)))
-        self.assertEqual(compiled, {"fx_selftest.c", "fx_dsp.c"})
+        self.assertEqual(compiled, {"fx_selftest.c", "fx_dsp.c", "fx_gain_state.c"})
         self.assertLessEqual(compiled, set(SELFTEST_INPUTS))
         for source in compiled:
             for header in re.findall(r'#include "([^"]+)"', (NATIVE / source).read_text()):
@@ -551,7 +554,7 @@ class WireFormat(unittest.TestCase):
         _need_compiler(self)
         binary, build = _selftest_binary()
         self.assertEqual(build.returncode, 0, build.stderr)
-        junk = ["gain 0.5", "fx", "fx 0", "fx 0 nan", "fx 0 inf", "fx -1 0.5",
+        junk = ["fx", "fx 0", "fx 0 nan", "fx 0 inf", "fx -1 0.5",
                 "fx 0x1 0.5", "fx 0 0.5 extra", "fx0 0.5", "fx 1e3 0.5", "fx 8 0.5", "",
                 "chain", "chain 5", "chain -1 0.5", "chain 0x5 0.5", "chain 5 nan",
                 "chain 5 0.5 extra", "chain5 0.5", "chain 256 0.5", "chain 5.0 0.5",
@@ -638,6 +641,72 @@ class WireFormat(unittest.TestCase):
         self.assertIn("fx_parse_bass(buf, &bass)", text)
         self.assertIn("fx_engine_set_bass(&g_engine", text)
 
+    def test_gain_encoding(self):
+        self.assertEqual(proto.encode_gain(1.0), b"gain 1.00000000")
+        self.assertEqual(proto.encode_gain(1), b"gain 1.00000000")
+        self.assertEqual(proto.encode_gain(0.0), b"gain 0.00000000")
+        self.assertEqual(proto.encode_gain(10 ** (12 / 20)), b"gain 3.98107171")
+        self.assertEqual(proto.encode_gain(10 ** (-90 / 20)), b"gain 0.00003162")
+        # Above the client's ceiling, held to it, as the client would.
+        top = f"gain {10 ** (proto.GAIN_MAX_DB / 20):.8f}".encode()
+        self.assertEqual(proto.encode_gain(1e6), top)
+        for bad in (float("nan"), float("inf"), -0.5, True, "1.0", None):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                proto.encode_gain(bad)
+
+    def test_the_gain_ceiling_matches_the_c(self):
+        found = re.search(r"#define\s+FX_GAIN_MAX_DB\s+([\d.]+)", (NATIVE / "fx_dsp.h").read_text())
+        self.assertIsNotNone(found, "FX_GAIN_MAX_DB not found in fx_dsp.h")
+        self.assertEqual(float(found.group(1)), proto.GAIN_MAX_DB)
+        self.assertEqual(proto.GAIN_MAX_DB, 48.0)
+
+    def test_gain_round_trips_through_the_real_parser(self):
+        """Every value the encoder writes, read back by the client's parser,
+        and every older message reads as it did beside it."""
+        _need_compiler(self)
+        binary, build = _selftest_binary()
+        self.assertEqual(build.returncode, 0, build.stderr)
+        ones = " ".join(["1.000000"] * proto.MAX_LEVELS)
+        cases = []
+        for db in (-120.0, -90.0, -60.0, -30.0, -12.0, -0.1, 0.0, 0.1, 6.0, 12.0, 30.0, 47.9,
+                   48.0, 60.0):
+            wire = proto.encode_gain(10 ** (db / 20)).decode("ascii")
+            # The client holds a float: the value sent, to float precision.
+            sent = float(wire.split()[1])
+            cases.append((wire, f"gain {struct.unpack('f', struct.pack('f', sent))[0]:.8f}"))
+        cases += [
+            ("gain 0", "gain 0.00000000"),
+            ("  gain\t2.5 ", "gain 2.50000000"),
+            ("gain 1000", "gain 1000.00000000"),   # parsed as sent; the engine clamps
+            (proto.encode_bass(120).decode("ascii"), "bass 120.000000"),
+            (proto.encode_chain(5, 0.5).decode("ascii"), f"ok 5 0.500000 {ones}"),
+        ]
+        got = _parse_lines(binary, [c for c, _ in cases])
+        for (wire, want), answer in zip(cases, got, strict=True):
+            with self.subTest(wire=wire):
+                self.assertEqual(answer, want)
+
+    def test_gain_junk_changes_nothing(self):
+        _need_compiler(self)
+        binary, build = _selftest_binary()
+        self.assertEqual(build.returncode, 0, build.stderr)
+        junk = ["gain", "gain ", "gain -1", "gain -0.5", "gain nan", "gain NaN", "gain inf",
+                "gain 1 x", "gain 1 2", "gainx 1", "gain1", "gain 0x10", "gain 1e3", "gain 1e40",
+                "gain +1", "gain 1,5", "gains 1", "chainl 5 0.5 1 gain 2"]
+        got = _parse_lines(binary, junk)
+        for text, answer in zip(junk, got, strict=True):
+            with self.subTest(junk=text):
+                self.assertEqual(answer, "reject")
+
+    def test_the_client_reads_gain_and_starts_at_unity(self):
+        """The client stores what `gain` says and hands it to the engine every
+        period; with no `gain` it stays at unity, the insert as it was."""
+        text = C_CLIENT.read_text()
+        self.assertRegex(text, r"static _Atomic float g_target_gain = 1\.0f;")
+        self.assertIn("fx_parse_gain(buf, &gain)", text)
+        self.assertIn("fx_engine_set_gain(&g_engine", text)
+        self.assertIn("atomic_is_lock_free(&g_target_gain)", text)
+
     def test_the_level_slots_match_the_c(self):
         found = re.search(r"#define\s+FX_MAX_EFFECTS\s+(\d+)", (NATIVE / "fx_dsp.h").read_text())
         self.assertIsNotNone(found)
@@ -678,16 +747,18 @@ def _parse_lines(binary: Path, lines: list[str]) -> list[str]:
 
 
 class Gate(unittest.TestCase):
-    def test_python_and_shell_agree_on_what_switches_it_on(self):
-        """Every value through the real shell gate, via --check (see the
-        live monitor's identical test for why never without it)."""
-        for value in ("1", "0", "on", "ON", "true", "True", "yes", "YES", "off",
-                      "no", "false", "2", ""):
+    def test_the_insert_starts_whatever_the_effects_flag_says(self):
+        """The stage gain is the trunk's level: MPE_FX_HOST gates the effects,
+        never the insert. Every value through the real script, via --check
+        (see the live monitor's test for why never without it)."""
+        for value in ("1", "0", "on", "off", "no", "false", "2", "", None):
             with self.subTest(value=value):
-                env = dict(os.environ, MPE_FX_HOST=value)
+                env = {k: v for k, v in os.environ.items() if k != "MPE_FX_HOST"}
+                if value is not None:
+                    env["MPE_FX_HOST"] = value
                 proc = subprocess.run(["bash", str(START), "--check"], env=env,
                                       capture_output=True, text=True, timeout=30)
-                self.assertEqual(proto.enabled(value), proc.returncode == 0)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_the_gate_check_never_reaches_the_binary(self):
         """--check must not start the insert; proven with a stand-in that
@@ -700,7 +771,8 @@ class Gate(unittest.TestCase):
         stand_in = bin_dir / "mpe-fx-host"
         stand_in.write_text(f'#!/bin/sh\ntouch "{mark}"\n')
         stand_in.chmod(0o755)
-        env = dict(os.environ, MPE_FX_HOST="1", MPE_MODULE_REPO=str(repo),
+        (bin_dir / "Makefile").write_text("all:\n")  # up to date: the start's rebuild is a no-op
+        env = dict(os.environ, MPE_FX_HOST="0", MPE_MODULE_REPO=str(repo),
                    MPE_RUN_DIR=str(repo))
         check = subprocess.run(["bash", str(START), "--check"], env=env,
                                capture_output=True, text=True, timeout=30)
@@ -709,11 +781,76 @@ class Gate(unittest.TestCase):
         subprocess.run(["bash", str(START)], env=env, capture_output=True, text=True, timeout=30)
         self.assertTrue(mark.exists(), "the script never started the FX host at all")
 
-    def test_off_by_default(self):
-        env = {k: v for k, v in os.environ.items() if k != "MPE_FX_HOST"}
-        proc = subprocess.run(["bash", str(START), "--check"], env=env,
-                              capture_output=True, text=True, timeout=30)
-        self.assertNotEqual(proc.returncode, 0)
+    def test_the_effects_stay_off_by_default(self):
+        """What the flag still gates: the policy and its UI."""
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MPE_FX_HOST", None)
+            self.assertFalse(proto.enabled())
+
+
+class GainStateRestart(unittest.TestCase):
+    """A restarted client starts at the last stage gain, not at unity for up to
+    the sender's resend interval. The file's round trip, its refusals and the
+    first-frame level and the cap at unity are fx_selftest's "stage gain state
+    file", "stage gain restart" and "stage gain restore cap" checks; these read the client's C, since there is no jackd here."""
+
+    def _function(self, source: str, signature: str) -> str:
+        start = source.index(signature)
+        end = source.index("\n}\n", start)
+        return source[start:end]
+
+    def test_main_restores_before_activating(self):
+        main = self._function(C_CLIENT.read_text(), "int main(")
+        # The restore, not the plain read: a restart keeps a cut, never a
+        # boost (fx_selftest "stage gain restore cap").
+        self.assertNotIn("fx_gain_state_read(", main)
+        read = main.index("fx_gain_state_restore(g_gain_state_path, &restored)")
+        self.assertLess(read, main.index("jack_activate(g_client)"))
+        self.assertLess(main.index("fx_engine_init("), read)
+        restore = main[read:main.index("jack_activate(g_client)")]
+        self.assertIn("fx_engine_start_gain(&g_engine, restored)", restore)
+        self.assertIn("atomic_store_explicit(&g_target_gain, restored", restore)
+
+    def test_the_control_thread_writes_and_the_callback_does_not(self):
+        source = C_CLIENT.read_text()
+        control = self._function(source, "static void *control_thread(")
+        self.assertIn("fx_gain_state_write(g_gain_state_path, gain)", control)
+        self.assertIn("if (gain != written)", control, "a resend of the same value writes nothing")
+        process = self._function(source, "static int process(")
+        self.assertNotIn("fx_gain_state", process)
+
+    def test_the_path_matches_the_python_and_the_unit(self):
+        header = (NATIVE / "fx_gain_state.h").read_text()
+        match = re.search(r'#define FX_GAIN_STATE_DEFAULT "([^"]+)"', header)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), proto.GAIN_STATE_DEFAULT)
+        self.assertIn('getenv("MPE_FX_GAIN_STATE")', C_CLIENT.read_text())
+        # /run/mpe is the unit's RuntimeDirectory, kept across its restarts.
+        self.assertTrue(proto.GAIN_STATE_DEFAULT.startswith("/run/mpe/"))
+        lines = {line.strip() for line in UNIT.read_text().splitlines()}
+        self.assertIn("RuntimeDirectory=mpe", lines)
+        self.assertIn("RuntimeDirectoryPreserve=yes", lines)
+
+    def test_python_reads_what_the_client_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state"
+            self.assertIsNone(proto.read_gain_state(str(path)))
+            for text, want in (("gain 0.10000000\n", 0.1), ("gain 1.00000000", 1.0)):
+                path.write_text(text)
+                self.assertEqual(proto.read_gain_state(str(path)), want)
+            for bad in ("", "gain -1\n", "gain 1e3\n", "gain nan\n", "gain 1\ngain 2\n", "x 1\n",
+                        "gain " + "0" * 70):
+                path.write_text(bad)
+                self.assertIsNone(proto.read_gain_state(str(path)), bad)
+            old = os.environ.get("MPE_FX_GAIN_STATE")
+            os.environ["MPE_FX_GAIN_STATE"] = str(path)
+            try:
+                self.assertEqual(proto.gain_state_path(), str(path))
+            finally:
+                if old is None:
+                    os.environ.pop("MPE_FX_GAIN_STATE", None)
+                else:
+                    os.environ["MPE_FX_GAIN_STATE"] = old
 
 
 class Unit(unittest.TestCase):
@@ -745,13 +882,16 @@ class Unit(unittest.TestCase):
             return found[0]
         self.assertEqual(affinity(UNIT), affinity(REPO_ROOT / "config/mpe-live-monitor.service"))
 
-    def test_installed_but_in_neither_enable_list(self):
+    def test_enabled_at_boot(self):
+        """The trunk's level lives in it: enabled, never in DISABLED."""
         text = (REPO_ROOT / "scripts/install-units.sh").read_text()
+        lists = {}
         for name in ("ENABLED", "DISABLED"):
             block = re.search(rf"^{name}=\((.*?)^\)", text, re.S | re.M)
             self.assertIsNotNone(block, name)
-            entries = [l.split("#")[0].strip() for l in block.group(1).splitlines()]
-            self.assertNotIn("mpe-fx-host", entries, f"mpe-fx-host listed in {name}")
+            lists[name] = [l.split("#")[0].strip() for l in block.group(1).splitlines()]
+        self.assertIn("mpe-fx-host", lists["ENABLED"])
+        self.assertNotIn("mpe-fx-host", lists["DISABLED"])
 
     def test_client_exits_non_zero_when_jack_goes_away(self):
         """Restart=on-failure only fires on a failure exit. Read from the C
@@ -760,6 +900,43 @@ class Unit(unittest.TestCase):
         branch = re.search(r"if \(g_jack_shutdown\) \{(.*?)\n    \}", source, re.S)
         self.assertIsNotNone(branch, "no JACK-shutdown exit branch in main")
         self.assertRegex(branch.group(1), r"return 1;")
+
+
+
+@unittest.skipUnless(shutil.which("make") and shutil.which("bash"), "needs make and bash")
+class StartRebuildsAStaleBinary(unittest.TestCase):
+    """The binary is gitignored, so a pull keeps the old one. An old host ignores
+    `gain` while the browser no longer cuts in Surge: every cut plays at full.
+    The start script must rebuild a stale binary, and must not run one whose
+    rebuild failed."""
+
+    def _run(self, makefile: str) -> tuple[int, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts" / "lib").mkdir(parents=True)
+            shutil.copy(START, root / "scripts" / START.name)
+            for lib in (REPO_ROOT / "scripts" / "lib").glob("*.sh"):
+                shutil.copy(lib, root / "scripts" / "lib" / lib.name)
+            native = root / "native" / "mpe-fx-host"
+            native.mkdir(parents=True)
+            binary = native / "mpe-fx-host"
+            binary.write_text("#!/bin/sh\necho RAN \"$(cat built 2>/dev/null || echo stale)\"\n")
+            binary.chmod(0o755)
+            (native / "Makefile").write_text(makefile)
+            env = {k: v for k, v in os.environ.items() if k != "MPE_MODULE_REPO"}
+            done = subprocess.run(["bash", str(root / "scripts" / START.name)], cwd=native,
+                                  env=env, capture_output=True, text=True, timeout=30)
+            return done.returncode, done.stdout
+
+    def test_a_failed_rebuild_does_not_start_the_old_binary(self):
+        rc, out = self._run("all:\n\tfalse\n")
+        self.assertEqual(rc, 1)
+        self.assertNotIn("RAN", out)
+
+    def test_the_rebuild_runs_before_the_binary(self):
+        rc, out = self._run("all:\n\techo fresh > built\n")
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), "RAN fresh")
 
 
 if __name__ == "__main__":

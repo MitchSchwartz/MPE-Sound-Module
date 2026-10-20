@@ -116,7 +116,7 @@ class VolumeControl:
         )
 
     def format_for(self, browser, value: float) -> str:
-        """Device mode shows the DAC's own dB; trim mode shows the Surge trim."""
+        """Device mode shows the DAC's own dB; trim mode shows the stage trim."""
         device = getattr(browser, "device_volume", None)
         if device is not None and device.active:
             return device.format_db()
@@ -194,15 +194,28 @@ class NormControl:
         kw = sidecar_kwargs_from_patch(browser.detail_patch)
         return store.is_enabled(browser.detail_patch["name"], **kw)
 
+    @staticmethod
+    def _position(browser) -> float:
+        """The fader's position in stage dB, unclamped (`norm_fader_db`). The
+        authored volumes are the loader's while the detail patch is the one
+        loaded; otherwise unknown, which errs quiet."""
+        patch = browser.detail_patch
+        store = browser.loader.normalization
+        loaded = browser.loaded_patch_info
+        authored = authored_b = None
+        if loaded and store.refs_match(loaded, patch):
+            authored = getattr(browser.loader, "_authored_volume", None)
+            authored_b = getattr(browser.loader, "_authored_volume_b", None)
+        value = store.get_norm_fader_db(
+            patch["name"], authored_volume=authored, authored_volume_b=authored_b,
+            **sidecar_kwargs_from_patch(patch),
+        )
+        return float(value) if isinstance(value, (int, float)) else 0.0
+
     def read(self, browser) -> float:
         if not browser.detail_patch:
             return 0.0
-        store = browser.loader.normalization
-        patch = browser.detail_patch
-        kw = sidecar_kwargs_from_patch(patch)
-        name = patch["name"]
-        trim = store.get_user_trim_db(name, **kw)
-        return max(self.spec.min_value, min(self.spec.max_value, trim))
+        return max(self.spec.min_value, min(self.spec.max_value, self._position(browser)))
 
     def default(self, browser) -> float:
         if not browser.detail_patch:
@@ -221,6 +234,10 @@ class NormControl:
         name = patch["name"]
         store = browser.loader.normalization
         clamped = max(self.spec.min_value, min(self.spec.max_value, float(value)))
+        if clamped <= self.spec.min_value and self._position(browser) < self.spec.min_value:
+            # A cut kept below the fader's bottom ("min"): the fader at its own
+            # bottom is where it already sits, not a request for -30, which is louder.
+            return
         if abs(clamped) < 0.05:
             store.clear_user_trim_db(name, persist=persist, **kw)
         else:
@@ -252,6 +269,26 @@ class NormControl:
 
     def format(self, value: float) -> str:
         return f"{value:+.1f}"
+
+    def format_for(self, browser, value: float) -> str:
+        """"max" while the loaded patch's peak ceiling holds the trim, so a fader
+        that has stopped acting does not look broken. "min" when the stored trim
+        is below the fader's bottom (a cut the stage migration kept exactly,
+        `migrate_trim_to_stage`): the fader sits at its bottom and plays quieter
+        than that position."""
+        patch = browser.detail_patch
+        loaded = browser.loaded_patch_info
+        store = browser.loader.normalization
+        if patch and self._position(browser) < self.spec.min_value:
+            return "min"
+        if (
+            patch
+            and loaded
+            and store.refs_match(loaded, patch)
+            and getattr(browser.loader, "norm_at_ceiling", False) is True
+        ):
+            return "max"
+        return self.format(value)
 
     def persist(self, browser) -> None:
         browser.loader.normalization.save()

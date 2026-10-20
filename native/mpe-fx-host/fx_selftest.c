@@ -53,7 +53,9 @@
 
 #define _GNU_SOURCE
 #include "fx_dsp.h"
+#include "fx_gain_state.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <math.h>
 #include <sched.h>
@@ -175,6 +177,9 @@ static float makeup_gain(float m)
 /* The bass bypass's crossover every run_period plays at: 0 (Off) unless a
  * bass check sets it, so every other check runs the chain as it was. */
 static float g_bass_hz;
+/* The stage gain every run_period plays at, linear: unity unless a stage
+ * check sets it, so every other check runs the engine as it was before it. */
+static float g_stage_gain = 1.0f;
 
 /* One period with the effects in `mask` enabled (BIT(k) for effect k alone). */
 static void run_period(fx_engine *e, float *l, float *r, float *ol, float *or_,
@@ -183,6 +188,7 @@ static void run_period(fx_engine *e, float *l, float *r, float *ol, float *or_,
     const float *const in[FX_CHANNELS] = { l, r };
     float *const out[FX_CHANNELS] = { ol, or_ };
     fx_engine_set_bass(e, g_bass_hz);
+    fx_engine_set_gain(e, g_stage_gain);
     if (g_levels == NULL) {
         fx_engine_process(e, in, out, n, mask, depth);
     } else {
@@ -4678,8 +4684,11 @@ static void print_parse(const char *text)
     float depth = 0.0f;
     float levels[FX_MAX_EFFECTS];
     float hz = 0.0f;
+    float gain = 0.0f;
     if (!fx_parse_control(text, &mask, &depth, levels)) {
-        if (fx_parse_bass(text, &hz)) {
+        if (fx_parse_gain(text, &gain)) {
+            printf("gain %.8f\n", (double)gain);
+        } else if (fx_parse_bass(text, &hz)) {
             printf("bass %.6f\n", (double)hz);
         } else {
             printf("reject\n");
@@ -4691,6 +4700,450 @@ static void print_parse(const char *text)
         printf(" %.6f", (double)levels[k]);
     }
     printf("\n");
+}
+
+/* ========================================================================= */
+/* The stage gain (fx_dsp.h, "Stage gain")                                   */
+/* ========================================================================= */
+
+static float db_lin(double dbv)
+{
+    return (float)pow(10.0, dbv / 20.0);
+}
+
+/* RMS out/in, in dB, at depth 0 with the stage at `stage_db`, after `settle_s`
+ * of the ramp: 0.5 s measured on noise at 0.01 (no clamp at +12 dB). */
+static double stage_level_db(double stage_db, float settle_s)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    double si = 0.0, so = 0.0;
+    const int settle = (int)(settle_s * RATE / PERIOD), measure = (int)(0.5f * RATE / PERIOD);
+    g_stage_gain = db_lin(stage_db);
+    for (int p = 0; p < settle + measure; p++) {
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            l[i] = 0.01f * noise();
+            r[i] = 0.01f * noise();
+        }
+        run_period(&e, l, r, ol, or_, PERIOD, BIT(0), 0.0f);
+        if (p >= settle) {
+            for (uint32_t i = 0; i < PERIOD; i++) {
+                si += (double)l[i] * l[i] + (double)r[i] * r[i];
+                so += (double)ol[i] * ol[i] + (double)or_[i] * or_[i];
+            }
+        }
+    }
+    g_stage_gain = 1.0f;
+    fx_engine_free(&e);
+    return 10.0 * log10(so / si);
+}
+
+/* The stage applies what it is told: +12 and -12 dB, settled, within 0.01 dB.
+ * Controls: the stage not applied (0 dB) and applied twice (+-24 dB) must
+ * each miss. */
+#define STAGE_TOL_DB 0.01
+static void test_stage_gain_level(void)
+{
+    static const double want[2] = { 12.0, -12.0 };
+    for (int j = 0; j < 2; j++) {
+        double got = stage_level_db(want[j], 0.5f);
+        fx_test_gain_off = 1;
+        double off = stage_level_db(want[j], 0.5f);
+        fx_test_gain_off = 0;
+        fx_test_gain_twice = 1;
+        double twice = stage_level_db(want[j], 0.5f);
+        fx_test_gain_twice = 0;
+        if (g_verbose) {
+            printf("  stage %+5.1f dB: out/in %+.4f dB; controls: not applied %+.4f, "
+                   "applied twice %+.4f\n", want[j], got, off, twice);
+        }
+        CHECK(fabs(got - want[j]) <= STAGE_TOL_DB, "stage %+.1f dB measured %+.4f dB",
+              want[j], got);
+        CHECK(fabs(off - want[j]) > STAGE_TOL_DB, "control (stage not applied) passed "
+              "at %+.1f dB: %+.4f", want[j], off);
+        CHECK(fabs(twice - want[j]) > STAGE_TOL_DB, "control (stage applied twice) passed "
+              "at %+.1f dB: %+.4f", want[j], twice);
+    }
+}
+
+/* The ramp. A DC input at depth 0, so out/in IS the gain, frame by frame:
+ * unity, a 30 dB step up, back down to unity, a 30 dB step down. Its largest
+ * change per frame is at most the one-pole's (alpha x the step, alpha from
+ * FX_GAIN_MS here, not from the engine), 1 % over for rounding; one time
+ * constant after the step up it has covered 63 % of it (+-3 %: the ramp is
+ * the 25 ms the header says, not 1 ms or 1 s); and 0.4 s after every step
+ * it is within 0.01 dB of its target. Control: the step unsmoothed. */
+typedef struct {
+    double worst_ratio;   /* largest per-frame change / the one-pole's bound */
+    double at_tau;        /* fraction of the step up covered after one tau */
+    double settle_db;     /* worst distance from target 0.4 s after a step */
+} stage_ramp;
+
+static stage_ramp stage_ramp_run(void)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    const double alpha = 1.0 - exp(-1.0 / ((FX_GAIN_MS / 1000.0) * (double)RATE));
+    static const double seg_db[4] = { 0.0, 30.0, 0.0, -30.0 };
+    const int seg_frames = (int)(0.5f * RATE);
+    const long tau_frames = (long)(FX_GAIN_MS / 1000.0 * (double)RATE);
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    stage_ramp sr = { 0.0, 0.0, 0.0 };
+    double prev = 1.0;
+    for (int s = 0; s < 4; s++) {
+        const double target = pow(10.0, seg_db[s] / 20.0);
+        const double from = prev;
+        const double step = fabs(target - from);
+        g_stage_gain = (float)target;
+        long t = 0;
+        for (int p = 0; p * (int)PERIOD < seg_frames; p++) {
+            for (uint32_t i = 0; i < PERIOD; i++) {
+                l[i] = r[i] = 0.01f;
+            }
+            run_period(&e, l, r, ol, or_, PERIOD, BIT(0), 0.0f);
+            for (uint32_t i = 0; i < PERIOD; i++, t++) {
+                const double g = (double)ol[i] / 0.01;
+                if (step > 0.0) {
+                    sr.worst_ratio = fmax(sr.worst_ratio, fabs(g - prev) / (alpha * step));
+                }
+                if (s == 1 && t == tau_frames - 1) {
+                    sr.at_tau = (g - from) / (target - from);
+                }
+                if (t >= (long)(0.4f * RATE)) {
+                    sr.settle_db = fmax(sr.settle_db, fabs(20.0 * log10(g / target)));
+                }
+                prev = g;
+            }
+        }
+    }
+    g_stage_gain = 1.0f;
+    fx_engine_free(&e);
+    return sr;
+}
+
+static void test_stage_gain_ramp(void)
+{
+    stage_ramp m = stage_ramp_run();
+    fx_test_gain_no_ramp = 1;
+    stage_ramp c = stage_ramp_run();
+    fx_test_gain_no_ramp = 0;
+    const double want_tau = 1.0 - exp(-1.0);
+    if (g_verbose) {
+        printf("  stage ramp, 30 dB steps: largest frame step %.4f x the one-pole's, %.3f of "
+               "the step after one tau, settled to %.5f dB; control (unsmoothed) %.1f x, %.3f\n",
+               m.worst_ratio, m.at_tau, m.settle_db, c.worst_ratio, c.at_tau);
+    }
+    CHECK(m.worst_ratio <= 1.01, "the stage gain moved %.3f x the one-pole's step in a frame",
+          m.worst_ratio);
+    CHECK(fabs(m.at_tau - want_tau) <= 0.03, "the stage ramp covered %.3f of a step in one "
+          "time constant, wanted %.3f", m.at_tau, want_tau);
+    CHECK(m.settle_db <= 0.01, "the stage gain was %.4f dB off its target 0.4 s after a step",
+          m.settle_db);
+    CHECK(c.worst_ratio > 1.01, "control (unsmoothed stage) passed the ramp bound: %.3f x",
+          c.worst_ratio);
+}
+
+/* Unity is the input, bit for bit: from the start, and after a trip to
+ * +12 dB and back (a ramp that never lands stalls a float's width short of
+ * 1.0, which no level check sees). Also with an effect live: the chorus at
+ * depth 0.5, run beside a second engine that never left unity, must print
+ * the same bytes. Control: the ramp with no landing. */
+static size_t stage_unity_mismatches(int *chain_differs)
+{
+    fx_engine e, ref;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    CHECK(fx_engine_init(&ref, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD], rl[PERIOD], rr[PERIOD];
+    size_t mismatches = 0;
+    const int seg = (int)(1.0f * RATE / PERIOD);
+    for (int p = 0; p < 4 * seg; p++) {
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            l[i] = 0.1f * noise();
+            r[i] = 0.1f * noise();
+        }
+        /* unity, +12 dB, back to unity at depth 0, then the chorus at 0.5 */
+        g_stage_gain = (p >= seg && p < 2 * seg) ? db_lin(12.0) : 1.0f;
+        const float depth = p >= 3 * seg ? 0.5f : 0.0f;
+        run_period(&e, l, r, ol, or_, PERIOD, BIT(0), depth);
+        g_stage_gain = 1.0f;
+        run_period(&ref, l, r, rl, rr, PERIOD, BIT(0), depth);
+        const int measured = p < seg || (p >= 2 * seg + seg / 2 && p < 3 * seg);
+        if (measured && (memcmp(l, ol, sizeof(l)) != 0 || memcmp(r, or_, sizeof(r)) != 0)) {
+            mismatches++;
+        }
+        if (p >= 3 * seg + seg / 2 &&
+            (memcmp(rl, ol, sizeof(rl)) != 0 || memcmp(rr, or_, sizeof(rr)) != 0)) {
+            (*chain_differs)++;
+        }
+    }
+    fx_engine_free(&e);
+    fx_engine_free(&ref);
+    return mismatches;
+}
+
+static void test_stage_gain_unity(void)
+{
+    int chain = 0, chain_c = 0;
+    size_t m = stage_unity_mismatches(&chain);
+    fx_test_gain_no_snap = 1;
+    size_t c = stage_unity_mismatches(&chain_c);
+    fx_test_gain_no_snap = 0;
+    if (g_verbose) {
+        printf("  stage at unity: %zu bypass periods differ from the input, %d chain periods "
+               "from a never-moved engine; control (ramp never lands) %zu, %d\n", m, chain, c,
+               chain_c);
+    }
+    CHECK(m == 0, "%zu unity periods differ from their input", m);
+    CHECK(chain == 0, "%d chain periods at unity differ from an engine that never moved", chain);
+    CHECK(c > 0 && chain_c > 0, "control (ramp never lands) passed: %zu, %d", c, chain_c);
+}
+
+/* The clamp and the refusals. A commanded 1e6 (+120 dB) plays at
+ * FX_GAIN_MAX_DB, measured on an input small enough that the right answer
+ * meets neither the output clamp nor the bound. NaN, inf and -1 change
+ * nothing: the stage stays at the +12 dB it was told before them. Control:
+ * the clamp removed. */
+static double stage_gain_of(float commanded, const float *junk, int njunk)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    const int settle = (int)(0.5f * RATE / PERIOD);
+    double si = 0.0, so = 0.0;
+    for (int p = 0; p < 2 * settle; p++) {
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            l[i] = r[i] = 1e-4f;
+        }
+        const float *const in[FX_CHANNELS] = { l, r };
+        float *const out[FX_CHANNELS] = { ol, or_ };
+        fx_engine_set_gain(&e, commanded);
+        for (int j = 0; j < njunk; j++) {
+            fx_engine_set_gain(&e, junk[j]);
+        }
+        fx_engine_process(&e, in, out, PERIOD, BIT(0), 0.0f);
+        if (p >= settle) {
+            for (uint32_t i = 0; i < PERIOD; i++) {
+                si += (double)l[i];
+                so += (double)ol[i];
+            }
+        }
+    }
+    fx_engine_free(&e);
+    return 20.0 * log10(so / si);
+}
+
+static void test_stage_gain_clamp(void)
+{
+    const float junk[3] = { NAN, INFINITY, -1.0f };
+    double top = stage_gain_of(1e6f, NULL, 0);
+    double kept = stage_gain_of(db_lin(12.0), junk, 3);
+    fx_test_gain_unclamped = 1;
+    double c = stage_gain_of(1e6f, NULL, 0);
+    fx_test_gain_unclamped = 0;
+    if (g_verbose) {
+        printf("  stage told 1e6: %+.3f dB (FX_GAIN_MAX_DB %+.1f); told +12 then NaN, inf, -1: "
+               "%+.3f dB; control (unclamped) %+.3f dB\n", top, FX_GAIN_MAX_DB, kept, c);
+    }
+    CHECK(fabs(top - FX_GAIN_MAX_DB) <= STAGE_TOL_DB, "a commanded 1e6 played at %+.3f dB, "
+          "wanted FX_GAIN_MAX_DB %+.1f", top, FX_GAIN_MAX_DB);
+    CHECK(fabs(kept - 12.0) <= STAGE_TOL_DB, "NaN, inf or -1 moved the stage: %+.3f dB", kept);
+    CHECK(fabs(c - FX_GAIN_MAX_DB) > STAGE_TOL_DB, "control (unclamped) passed: %+.3f dB", c);
+}
+
+/* The stage sits before the chain: the drive is driven by it. The drive's
+ * harmonics re its fundamental, with the stage at -12 and at +12 dB on the
+ * same input: before the chain they differ (the shaper sees 24 dB more);
+ * after it they would be the same profile scaled. h2 or h3 must move by at
+ * least 6 dB between the two; the control (the stage after the chain) by
+ * under 0.5. */
+static double stage_drive_moves(void)
+{
+    double lo[7], hi[7];
+    g_stage_gain = db_lin(-12.0);
+    harmonic_profile(FX_EFFECTS, FX_I_DRIVE, 0.1f, 1.0f, lo);
+    g_stage_gain = db_lin(12.0);
+    harmonic_profile(FX_EFFECTS, FX_I_DRIVE, 0.1f, 1.0f, hi);
+    g_stage_gain = 1.0f;
+    return fmax(fabs(hi[1] - lo[1]), fabs(hi[2] - lo[2]));
+}
+
+static void test_stage_before_chain(void)
+{
+    double m = stage_drive_moves();
+    fx_test_gain_post_chain = 1;
+    double c = stage_drive_moves();
+    fx_test_gain_post_chain = 0;
+    if (g_verbose) {
+        printf("  drive harmonics re fundamental, stage -12 vs +12 dB: moved %.2f dB; control "
+               "(stage after the chain) %.2f dB\n", m, c);
+    }
+    CHECK(m >= 6.0, "the drive's harmonics moved only %.2f dB with 24 dB of stage gain: is "
+          "the stage before the chain?", m);
+    CHECK(c < 0.5, "control (stage after the chain) moved the harmonics %.2f dB", c);
+}
+
+/* A restarted host takes up the last gain (fx_gain_state.h). The file: what is
+ * written reads back to the datagram's precision, a second write replaces the
+ * first, and nothing is left beside it (the write goes through a rename).
+ * Refused, so the host starts at unity as it always did: a missing file, an
+ * empty one, one the datagram parser refuses (a sign, an exponent, nan, a
+ * second line, a word), and one too long to be ours. The writer refuses what
+ * the engine would ignore. */
+static int dir_entries(const char *dir)
+{
+    DIR *d = opendir(dir);
+    int n = 0;
+    if (d == NULL) {
+        return -1;
+    }
+    for (struct dirent *ent; (ent = readdir(d)) != NULL;) {
+        if (strcmp(ent->d_name, ".") != 0 && strcmp(ent->d_name, "..") != 0) {
+            n++;
+        }
+    }
+    closedir(d);
+    return n;
+}
+
+static int write_raw(const char *path, const char *text)
+{
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        return -1;
+    }
+    fputs(text, f);
+    return fclose(f);
+}
+
+static void test_stage_gain_state_file(void)
+{
+    const char *base = getenv("TMPDIR");
+    char dir[512], path[600];
+    snprintf(dir, sizeof(dir), "%s/fx-gain-state-XXXXXX", (base != NULL && base[0]) ? base : "/tmp");
+    CHECK(mkdtemp(dir) != NULL, "mkdtemp %s: %s", dir, strerror(errno));
+    snprintf(path, sizeof(path), "%s/fx-stage-gain", dir);
+    float got = -1.0f;
+    CHECK(!fx_gain_state_read(path, &got), "a missing file read as a gain");
+    CHECK(fx_gain_state_write(path, db_lin(-20.0)) == 0, "write failed: %s", strerror(errno));
+    CHECK(fx_gain_state_write(path, db_lin(12.0)) == 0, "second write failed");
+    CHECK(fx_gain_state_read(path, &got) && fabsf(got - db_lin(12.0)) <= 1e-7f,
+          "read back %.8f, wanted the second write %.8f", (double)got, (double)db_lin(12.0));
+    CHECK(dir_entries(dir) == 1, "%d files beside the state (a temporary left behind?)",
+          dir_entries(dir) - 1);
+    CHECK(fx_gain_state_write(path, NAN) != 0 && fx_gain_state_write(path, -1.0f) != 0 &&
+          fx_gain_state_write(path, INFINITY) != 0, "the writer kept NaN, -1 or inf");
+    CHECK(fx_gain_state_read(path, &got) && fabsf(got - db_lin(12.0)) <= 1e-7f,
+          "a refused write changed the file: %.8f", (double)got);
+    static const char *const bad[] = {
+        "", "gain -1.0\n", "gain 1e3\n", "gain nan\n", "gain 0.5\ngain 4.0\n", "hello\n",
+        "gain\n", "gain 0.5 0.5\n",
+        "gain 0.50000000000000000000000000000000000000000000000000000000000000\n",
+    };
+    int refused = 0;
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        CHECK(write_raw(path, bad[i]) == 0, "fixture write");
+        got = -1.0f;
+        if (!fx_gain_state_read(path, &got)) {
+            refused++;
+        } else {
+            CHECK(0, "state file %zu read as gain %.8f; wanted refused", i, (double)got);
+        }
+    }
+    /* Control: the reader is not refusing everything. */
+    CHECK(write_raw(path, "gain 0.25000000\n") == 0, "fixture write");
+    const int control = fx_gain_state_read(path, &got) && got == 0.25f;
+    if (g_verbose) {
+        printf("  stage gain file: round trip ok, %d of %zu malformed files refused; control "
+               "(well-formed) %s\n", refused, sizeof(bad) / sizeof(bad[0]), control ? "read" : "REFUSED");
+    }
+    CHECK(control, "control (a well-formed file) was refused");
+    unlink(path);
+    rmdir(dir);
+}
+
+/* The restored gain is in force from the first frame: an engine started at
+ * -20 dB plays its very first sample at -20 dB (within float rounding), and
+ * +12 dB likewise. Refused values leave it at unity; 1e6 starts at the clamp.
+ * Control: started through the ramp (fx_engine_set_gain's path), the first
+ * frame is within 1 dB of unity, 19 dB loud. */
+static double first_frame_db(float start)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    fx_engine_start_gain(&e, start);
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    for (uint32_t i = 0; i < PERIOD; i++) {
+        l[i] = r[i] = 1e-4f;
+    }
+    const float *const in[FX_CHANNELS] = { l, r };
+    float *const out[FX_CHANNELS] = { ol, or_ };
+    fx_engine_process(&e, in, out, PERIOD, BIT(0), 0.0f);
+    fx_engine_free(&e);
+    return 20.0 * log10((double)ol[0] / 1e-4);
+}
+
+static void test_stage_gain_restart(void)
+{
+    const double cut = first_frame_db(db_lin(-20.0));
+    const double boost = first_frame_db(db_lin(12.0));
+    const double nan_start = first_frame_db(NAN);
+    const double neg_start = first_frame_db(-1.0f);
+    const double top = first_frame_db(1e6f);
+    fx_test_gain_start_ramps = 1;
+    const double ramped = first_frame_db(db_lin(-20.0));
+    fx_test_gain_start_ramps = 0;
+    if (g_verbose) {
+        printf("  restart at -20 dB: first frame %+.4f dB; at +12: %+.4f; NaN %+.4f, -1 %+.4f, "
+               "1e6 %+.3f; control (ramped from unity) %+.4f dB\n", cut, boost, nan_start,
+               neg_start, top, ramped);
+    }
+    CHECK(fabs(cut + 20.0) <= STAGE_TOL_DB, "restart at -20 dB played its first frame at %+.4f", cut);
+    CHECK(fabs(boost - 12.0) <= STAGE_TOL_DB, "restart at +12 dB played its first frame at %+.4f",
+          boost);
+    CHECK(fabs(nan_start) <= STAGE_TOL_DB && fabs(neg_start) <= STAGE_TOL_DB,
+          "a refused start moved the stage: NaN %+.4f, -1 %+.4f", nan_start, neg_start);
+    CHECK(fabs(top - FX_GAIN_MAX_DB) <= STAGE_TOL_DB, "a start at 1e6 played at %+.3f dB", top);
+    CHECK(fabs(ramped) <= 1.0, "control (start ramped from unity) passed: %+.4f dB", ramped);
+}
+
+/* A restart keeps a cut, never a boost (fx_gain_state_restore): a file at
+ * -20 dB restores -20 dB, one at +12 dB restores unity, unity restores unity,
+ * and a malformed file restores nothing. Control: the restore passing a boost
+ * through brings back +12 dB. */
+static void test_stage_gain_restore_cap(void)
+{
+    const char *base = getenv("TMPDIR");
+    char dir[512], path[600];
+    snprintf(dir, sizeof(dir), "%s/fx-gain-restore-XXXXXX", (base != NULL && base[0]) ? base : "/tmp");
+    CHECK(mkdtemp(dir) != NULL, "mkdtemp %s: %s", dir, strerror(errno));
+    snprintf(path, sizeof(path), "%s/fx-stage-gain", dir);
+    float cut = -1.0f, boost = -1.0f, unity = -1.0f, leaked = -1.0f;
+    CHECK(fx_gain_state_write(path, db_lin(-20.0)) == 0, "write");
+    CHECK(fx_gain_state_restore(path, &cut), "a cut was not restored");
+    CHECK(fx_gain_state_write(path, 1.0f) == 0, "write");
+    CHECK(fx_gain_state_restore(path, &unity), "unity was not restored");
+    CHECK(fx_gain_state_write(path, db_lin(12.0)) == 0, "write");
+    CHECK(fx_gain_state_restore(path, &boost), "a boost file restored nothing");
+    fx_test_gain_restore_boosts = 1;
+    CHECK(fx_gain_state_restore(path, &leaked), "control restore");
+    fx_test_gain_restore_boosts = 0;
+    CHECK(write_raw(path, "gain 1e3\n") == 0, "fixture write");
+    float bad = -1.0f;
+    const int bad_restored = fx_gain_state_restore(path, &bad);
+    if (g_verbose) {
+        printf("  restore: -20 dB file -> %+.4f dB; unity -> %+.4f dB; +12 dB file -> %+.4f dB; "
+               "control (boost passed through) %+.4f dB\n", 20.0 * log10((double)cut),
+               20.0 * log10((double)unity), 20.0 * log10((double)boost), 20.0 * log10((double)leaked));
+    }
+    CHECK(fabsf(cut - db_lin(-20.0)) <= 1e-7f, "a -20 dB file restored %.8f", (double)cut);
+    CHECK(unity == 1.0f, "a unity file restored %.8f", (double)unity);
+    CHECK(boost == 1.0f, "a +12 dB file restored %.8f, a boost", (double)boost);
+    CHECK(!bad_restored, "a malformed file restored %.8f", (double)bad);
+    CHECK(fabsf(leaked - db_lin(12.0)) <= 1e-6f, "control (boost passed through) restored %.8f",
+          (double)leaked);
+    unlink(path);
+    rmdir(dir);
 }
 
 /* ========================================================================= */
@@ -4815,6 +5268,14 @@ CASE0(test_bass_fade_no_dip)
 CASE0(test_bass_drive_inside)
 CASEK(test_bass_level)
 CASE0(test_bass_clean)
+CASE0(test_stage_gain_level)
+CASE0(test_stage_gain_ramp)
+CASE0(test_stage_gain_unity)
+CASE0(test_stage_gain_clamp)
+CASE0(test_stage_before_chain)
+CASE0(test_stage_gain_state_file)
+CASE0(test_stage_gain_restart)
+CASE0(test_stage_gain_restore_cap)
 
 /* The pack's level bound: part arg = (k * LB_N + v) * N_LEVEL_SIGNALS + sgi. */
 static int g_lb_case[N_FX][LB_N][N_LEVEL_SIGNALS];
@@ -4968,6 +5429,16 @@ static void build_cases(void)
     }
     add_case("bass chain level", 0, NULL, test_bass_chain_level, 0);
     add_case("bass clean", 0, case_test_bass_clean, NULL, 1);
+
+    /* The stage gain. */
+    add_case("stage gain level", 0, case_test_stage_gain_level, NULL, 1);
+    add_case("stage gain ramp", 0, case_test_stage_gain_ramp, NULL, 1);
+    add_case("stage gain unity", 0, case_test_stage_gain_unity, NULL, 1);
+    add_case("stage gain clamp", 0, case_test_stage_gain_clamp, NULL, 1);
+    add_case("stage before chain", 0, case_test_stage_before_chain, NULL, 1);
+    add_case("stage gain state file", 0, case_test_stage_gain_state_file, NULL, 1);
+    add_case("stage gain restart", 0, case_test_stage_gain_restart, NULL, 1);
+    add_case("stage gain restore cap", 0, case_test_stage_gain_restore_cap, NULL, 1);
 }
 
 static int selftest_jobs(void)

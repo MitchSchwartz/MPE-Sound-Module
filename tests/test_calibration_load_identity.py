@@ -42,11 +42,34 @@ class FakeOscClient:
         return [v for a, v in self.messages if a == address]
 
 
+class FakeStage:
+    """The `gain` datagrams the loader sends to mpe-fx-host, decoded."""
+
+    def __init__(self) -> None:
+        self.sent: list[float] = []
+
+    def __call__(self, payload: bytes) -> bool:
+        word, value = payload.decode("ascii").split()
+        assert word == "gain"
+        self.sent.append(float(value))
+        return True
+
+
 def _loader() -> PatchLoader:
-    loader = PatchLoader(fx_policy=mock.Mock(enabled=False), fx_store=mock.Mock())
+    # A calibrated patch that needs a raise (+6 dB): what a premature send would
+    # play the old patch at.
+    store = mock.Mock(**{"stage_norm.return_value": (6.0, None)})
+    loader = PatchLoader(
+        normalization_store=store, stage_sender=FakeStage(),
+        fx_policy=mock.Mock(enabled=False), fx_store=mock.Mock(),
+    )
     loader.osc_client = FakeOscClient()
     loader.osc_enabled = True
+    loader._query_osc_float = mock.Mock(return_value=0.9)
     return loader
+
+
+RAISE = round(10.0 ** (6.0 / 20.0), 8)  # encode_gain sends 8 decimals
 
 
 @contextlib.contextmanager
@@ -54,6 +77,9 @@ def _quiet_load(loader: PatchLoader):
     with (
         mock.patch("patch_browser.patch_loader.time.sleep"),
         mock.patch.object(loader, "_apply_playback_policy"),
+        # A browse asks Surge once; here Surge never answers unless a test says so.
+        mock.patch("patch_browser.patch_loader.BROWSE_CONFIRM_TIMEOUT_S", 0.0),
+        mock.patch.object(loader, "query_loaded_patch_path", return_value=None),
         contextlib.redirect_stdout(io.StringIO()),
     ):
         yield
@@ -105,7 +131,10 @@ class ConfirmedLoadTests(unittest.TestCase):
     def test_confirmed_when_surge_reports_the_requested_path(self) -> None:
         loader = _loader()
         self.assertTrue(self._load(loader, [BLUELIGHT]))
-        self.assertTrue(loader.osc_client.sent("/param/a/amp/volume"))
+        # The raise goes to the stage once the load is confirmed; Surge's own
+        # volume is never sent.
+        self.assertEqual(loader._stage_sender.sent, [RAISE])
+        self.assertEqual(loader.osc_client.sent("/param/a/amp/volume"), [])
 
     def test_waits_through_the_previous_patch_until_the_new_one_lands(self) -> None:
         loader = _loader()
@@ -115,20 +144,29 @@ class ConfirmedLoadTests(unittest.TestCase):
         loader = _loader()
         loader._loaded_patch_path = FACTORY + ".fxp"
         self.assertFalse(self._load(loader, [FACTORY], timeout=0.0))
-        # Nothing follows a load that did not take: no volume, no new identity.
+        # Nothing follows a load that did not take: no raise, no new identity.
+        self.assertEqual(loader._stage_sender.sent, [])
         self.assertEqual(loader.osc_client.sent("/param/a/amp/volume"), [])
         self.assertEqual(loader._loaded_patch_path, FACTORY + ".fxp")
 
     def test_no_reply_is_a_failed_load(self) -> None:
         loader = _loader()
         self.assertFalse(self._load(loader, [None], timeout=0.0))
+        self.assertEqual(loader._stage_sender.sent, [])
         self.assertEqual(loader.osc_client.sent("/param/a/amp/volume"), [])
 
-    def test_without_confirm_surge_is_not_asked(self) -> None:
+    def test_a_browse_load_asks_but_never_fails_on_silence(self) -> None:
+        # Without confirm_timeout_s (the touch UI) Surge is asked too, but a slow
+        # answer only holds the raise back: the load itself goes on.
         loader = _loader()
-        with _quiet_load(loader), mock.patch.object(loader, "query_loaded_patch_path") as q:
+        with _quiet_load(loader), mock.patch.object(
+            loader, "query_loaded_patch_path", return_value=None
+        ) as q:
             self.assertTrue(loader.load_patch(BLUELIGHT + ".fxp", capture_hold=False))
-        q.assert_not_called()
+        q.assert_called()
+        self.assertEqual(loader._loaded_patch_path, BLUELIGHT + ".fxp")
+        self.assertEqual(loader._stage_sender.sent, [1.0], "held at the outgoing level, not +6 dB")
+        loader._query_osc_float.assert_not_called()
 
 
 def _free_udp_port() -> int:
@@ -189,13 +227,13 @@ class CalibrationLoadTests(unittest.TestCase):
 
     def _calibrate(self, load_ok: bool):
         store = self.cal.PatchNormalizationStore(self.tmp / "norm.json")
-        loader = mock.Mock()
+        # The gain is arithmetic on the unity reading now (no closed loop).
+        loader = mock.Mock(_authored_volume=0.8)
         loader.load_patch.return_value = load_ok
         with (
             mock.patch.object(self.cal, "measure_strike_anchor_lufs", return_value=(-20.0, -6.0)) as strike,
             mock.patch.object(self.cal, "measure_sustain_anchor_lufs", return_value=(-22.0, -6.0)),
             mock.patch.object(self.cal, "measure_light_touch_lufs", return_value=None),
-            mock.patch.object(self.cal, "finalize_gain_with_closed_loop", return_value=(1.0, -18.0, -9.0)),
             mock.patch.object(self.cal.time, "sleep"),
             contextlib.redirect_stdout(io.StringIO()),
             contextlib.redirect_stderr(io.StringIO()),
@@ -261,7 +299,7 @@ class CalibrationLoadTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"")
         roots[1].mkdir(exist_ok=True)
-        loader = mock.Mock(osc_enabled=True)
+        loader = mock.Mock(osc_enabled=True, _authored_volume=0.8)
         loader.load_patch.side_effect = list(load_results)
         # Real-looking, distinct readings so the plateau guard stays out of it.
         strikes = iter([(-14.0 - 3 * i, -6.0) for i in range(len(load_results))])
@@ -284,7 +322,6 @@ class CalibrationLoadTests(unittest.TestCase):
             mock.patch.object(self.cal.signal, "signal"),
             mock.patch.object(self.cal, "measure_strike_anchor_lufs", side_effect=lambda *a: next(strikes)),
             mock.patch.object(self.cal, "measure_sustain_anchor_lufs", return_value=(-22.0, -6.0)),
-            mock.patch.object(self.cal, "finalize_gain_with_closed_loop", return_value=(1.0, -18.0, -9.0)),
             mock.patch.object(self.cal.time, "sleep"),
             contextlib.redirect_stdout(io.StringIO()),
             contextlib.redirect_stderr(err),

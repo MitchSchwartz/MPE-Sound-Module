@@ -1,83 +1,82 @@
-"""Tests for per-patch normalization store and loader volume refresh."""
+"""Tests for per-patch normalization store and the loader's stage gain."""
 
 from __future__ import annotations
 
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from patch_browser.patch_loader import PatchLoader
-from patch_browser.patch_normalization import PatchNormalizationStore
+from patch_browser.patch_normalization import CAL_PATH, PatchNormalizationStore
+from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 
 
-class FakeOscClient:
+class RecordingStage:
+    """Stands in for the UDP sender: keeps every `gain` datagram, as dB."""
+
     def __init__(self) -> None:
-        self.messages: list[tuple[str, float]] = []
+        self.payloads: list[bytes] = []
 
-    def send_message(self, address: str, value: float) -> None:
-        self.messages.append((address, value))
+    def __call__(self, payload: bytes) -> bool:
+        self.payloads.append(payload)
+        return True
+
+    @property
+    def db(self) -> list[float]:
+        out = []
+        for payload in self.payloads:
+            word, value = payload.decode("ascii").split()
+            assert word == "gain", payload
+            linear = float(value)
+            out.append(-math.inf if linear == 0.0 else 20.0 * math.log10(linear))
+        return out
+
+
+def vol_db(position: float) -> float | None:
+    from patch_browser.patch_normalization import volume_fader_trim_to_db
+
+    return volume_fader_trim_to_db(position, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX)
+
+
+def make_loader(store) -> tuple[PatchLoader, RecordingStage]:
+    stage = RecordingStage()
+    loader = PatchLoader(normalization_store=store, stage_sender=stage)
+    loader.osc_client = mock.Mock()
+    loader.osc_enabled = True
+    # Surge has confirmed the loaded patch: a boost goes out (keep_stage_alive).
+    loader._surge_confirmed = True
+    return loader, stage
+
+
+def calibrated(gain_db: float, **extra) -> dict:
+    return {"gain_db": gain_db, "cal_path": CAL_PATH, "enabled": True, **extra}
 
 
 class PatchNormalizationStoreTests(unittest.TestCase):
-    def test_toggle_off_on_preserves_gain_and_applies_volume(self) -> None:
+    def _store(self, tmp: str, data: dict) -> tuple[PatchNormalizationStore, Path]:
+        user_path = Path(tmp) / "user.json"
+        user_path.write_text(json.dumps(data))
+        return PatchNormalizationStore(user_path), user_path
+
+    def test_toggle_off_on_preserves_gain_and_moves_the_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            user_path = Path(tmp) / "user.json"
-            user_path.write_text(
-                json.dumps(
-                    {
-                        "Lead": {
-                            "gain_db": 6.0,
-                            "enabled": True,
-                            "lufs_measured": -24.0,
-                        }
-                    }
-                )
-            )
-            store = PatchNormalizationStore(user_path)
-            loader = PatchLoader(normalization_store=store)
-            loader.osc_client = FakeOscClient()
-            loader.osc_enabled = True
+            store, user_path = self._store(tmp, {"Lead": calibrated(6.0, lufs_measured=-24.0)})
+            loader, stage = make_loader(store)
             loader.user_volume_trim = 0.8
 
             loader.refresh_patch_volume("Lead")
-            on_volume = loader.osc_client.messages[-1][1]
-            from patch_browser.patch_normalization import (
-                NORM_MAX_AMP_VOLUME_LINEAR,
-                db_to_linear,
-                volume_fader_to_amp_linear,
-            )
-            from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
-
-            gain_linear = db_to_linear(6.0)
-            expected_on = volume_fader_to_amp_linear(
-                0.8,
-                patch_gain_linear=gain_linear,
-                cap=NORM_MAX_AMP_VOLUME_LINEAR,
-                fader_min=VOLUME_MIN,
-                fader_max=VOLUME_MAX,
-                norm_active=True,
-            )
-            self.assertAlmostEqual(on_volume, expected_on)
+            self.assertAlmostEqual(stage.db[-1], 6.0 + vol_db(0.8), places=5)
 
             store.set_enabled("Lead", False)
             loader.refresh_patch_volume("Lead")
-            off_volume = loader.osc_client.messages[-1][1]
-
-            expected_off = volume_fader_to_amp_linear(
-                0.8,
-                patch_gain_linear=1.0,
-                cap=1.5,
-                fader_min=VOLUME_MIN,
-                fader_max=VOLUME_MAX,
-            )
-            self.assertAlmostEqual(off_volume, expected_off)
+            self.assertAlmostEqual(stage.db[-1], vol_db(0.8), places=5)
 
             store.set_enabled("Lead", True)
             loader.refresh_patch_volume("Lead")
-            on_again = loader.osc_client.messages[-1][1]
-            self.assertAlmostEqual(on_volume, on_again)
+            self.assertAlmostEqual(stage.db[-1], 6.0 + vol_db(0.8), places=5)
 
             saved = json.loads(user_path.read_text())
             self.assertTrue(saved["Lead"]["enabled"])
@@ -87,17 +86,7 @@ class PatchNormalizationStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             starter = Path(tmp) / "starter.json"
             user_path = Path(tmp) / "user.json"
-            starter.write_text(
-                json.dumps(
-                    {
-                        "Pad": {
-                            "gain_db": -3.0,
-                            "enabled": True,
-                            "lufs_measured": -15.0,
-                        }
-                    }
-                )
-            )
+            starter.write_text(json.dumps({"Pad": calibrated(-3.0, lufs_measured=-15.0)}))
             user_path.write_text(json.dumps({"Pad": {"enabled": False}}))
 
             with mock.patch(
@@ -117,9 +106,7 @@ class PatchNormalizationStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             starter = Path(tmp) / "starter.json"
             user_path = Path(tmp) / "user.json"
-            starter.write_text(
-                json.dumps({"Acid": {"gain_db": 12.0, "enabled": True, "lufs_measured": -40.0}})
-            )
+            starter.write_text(json.dumps({"Acid": calibrated(12.0, lufs_measured=-40.0)}))
             user_path.write_text("{}")
 
             with mock.patch(
@@ -136,79 +123,30 @@ class PatchNormalizationStoreTests(unittest.TestCase):
                 self.assertTrue(store.is_enabled("Acid"))
                 self.assertEqual(store.get_raw_gain_db("Acid"), 12.0)
 
-    def test_refresh_sends_volume_twice_when_norm_active(self) -> None:
+    def test_refresh_sends_the_stage_once(self) -> None:
+        """One datagram: the stage has no first-message quirk to repeat for."""
         with tempfile.TemporaryDirectory() as tmp:
-            user_path = Path(tmp) / "user.json"
-            user_path.write_text(
-                json.dumps({"Lead": {"gain_db": 6.0, "enabled": True, "lufs_measured": -24.0}})
-            )
-            store = PatchNormalizationStore(user_path)
-            loader = PatchLoader(normalization_store=store)
-            loader.osc_client = FakeOscClient()
-            loader.osc_enabled = True
-
+            store, _ = self._store(tmp, {"Lead": calibrated(6.0)})
+            loader, stage = make_loader(store)
             loader.refresh_patch_volume("Lead")
-            self.assertEqual(len(loader.osc_client.messages), 4)
-            self.assertEqual(loader.osc_client.messages[-1][1], loader.osc_client.messages[-2][1])
+            self.assertEqual(stage.payloads, [b"gain 1.99526231"])
+            loader.osc_client.send_message.assert_not_called()
 
-    def test_volume_trim_scales_when_norm_baseline_exceeds_cap(self) -> None:
-        """Vol fader must not flatten when trim * baseline always hits the cap."""
+    def test_vol_fader_moves_a_boosted_patch_down_to_mute(self) -> None:
+        """The fader acts at any norm gain: nothing caps the boost under it."""
         with tempfile.TemporaryDirectory() as tmp:
-            user_path = Path(tmp) / "user.json"
-            user_path.write_text(
-                json.dumps({"Loud": {"gain_db": 18.0, "enabled": True, "lufs_measured": -40.0}})
-            )
-            store = PatchNormalizationStore(user_path)
-            loader = PatchLoader(normalization_store=store)
-            loader.osc_client = FakeOscClient()
-            loader.osc_enabled = True
-
+            store, _ = self._store(tmp, {"Loud": calibrated(18.0, lufs_measured=-40.0)})
+            loader, stage = make_loader(store)
             loader.refresh_patch_volume("Loud")
 
             loader.set_volume(1.0)
-            at_unity = loader.osc_client.messages[-1][1]
-
             loader.set_volume(0.5)
-            at_half = loader.osc_client.messages[-1][1]
-
             loader.set_volume(0.0)
-            at_mute = loader.osc_client.messages[-1][1]
-
-            from patch_browser.patch_normalization import db_to_linear, volume_fader_to_amp_linear
-            from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
-
-            gain_linear = db_to_linear(18.0)
-            expected_unity = volume_fader_to_amp_linear(
-                1.0,
-                patch_gain_linear=gain_linear,
-                cap=1.5,
-                fader_min=VOLUME_MIN,
-                fader_max=VOLUME_MAX,
-                norm_active=True,
-            )
-            expected_half = volume_fader_to_amp_linear(
-                0.5,
-                patch_gain_linear=gain_linear,
-                cap=1.5,
-                fader_min=VOLUME_MIN,
-                fader_max=VOLUME_MAX,
-                norm_active=True,
-            )
-            expected_mute = volume_fader_to_amp_linear(
-                0.0,
-                patch_gain_linear=gain_linear,
-                cap=1.5,
-                fader_min=VOLUME_MIN,
-                fader_max=VOLUME_MAX,
-                norm_active=True,
-            )
-
-            self.assertAlmostEqual(at_unity, expected_unity)
-            self.assertAlmostEqual(at_half, expected_half)
-            self.assertAlmostEqual(at_mute, expected_mute)
-            self.assertEqual(at_mute, 0.0)
-            self.assertGreater(at_unity, at_half)
-            self.assertGreater(at_half, at_mute)
+            at_unity, at_half, at_mute = stage.db[-3:]
+            self.assertAlmostEqual(at_unity, 18.0, places=5)
+            self.assertAlmostEqual(at_half, 18.0 + vol_db(0.5), places=5)
+            self.assertEqual(at_mute, -math.inf)
+            self.assertEqual(stage.payloads[-1], b"gain 0.00000000")
 
     def test_volume_fader_uses_console_taper_not_linear_db(self) -> None:
         """Top of travel must be gentler than the bottom (IEC 60268-17 fader law).
@@ -218,17 +156,10 @@ class PatchNormalizationStoreTests(unittest.TestCase):
         into the top 20% and wastes the bottom half below -30 dB — the steep dropoff
         reported on the appliance.
         """
-        from patch_browser.patch_normalization import (
-            VOLUME_FADER_FLOOR_DB,
-            volume_fader_trim_to_db,
-        )
-        from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
+        from patch_browser.patch_normalization import VOLUME_FADER_FLOOR_DB
 
         def db_at(pct: float) -> float:
-            trim = VOLUME_MIN + (pct / 100.0) * (VOLUME_MAX - VOLUME_MIN)
-            value = volume_fader_trim_to_db(
-                trim, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX
-            )
+            value = vol_db(VOLUME_MIN + (pct / 100.0) * (VOLUME_MAX - VOLUME_MIN))
             return VOLUME_FADER_FLOOR_DB if value is None else value
 
         top_span = db_at(100.0) - db_at(80.0)
@@ -249,11 +180,7 @@ class PatchNormalizationStoreTests(unittest.TestCase):
         self.assertGreater(db_at(50.0), -22.0)
 
     def test_volume_fader_mute_and_db_labels(self) -> None:
-        from patch_browser.patch_normalization import (
-            volume_fader_display_db,
-            volume_fader_to_amp_linear,
-        )
-        from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
+        from patch_browser.patch_normalization import stage_db, volume_fader_display_db
 
         self.assertEqual(
             volume_fader_display_db(0.0, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX),
@@ -264,95 +191,46 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             "0",
         )
         self.assertEqual(
-            volume_fader_to_amp_linear(
-                0.0,
-                patch_gain_linear=2.0,
-                cap=1.5,
-                fader_min=VOLUME_MIN,
-                fader_max=VOLUME_MAX,
-            ),
-            0.0,
+            stage_db(norm_db=6.0, ceiling_db=None, headroom_db=0.0, vol_db=vol_db(0.0)),
+            -math.inf,
         )
 
-    def test_combined_volume_sends_full_norm_gain_when_active(self) -> None:
-        """Norm-on applies full calibrated linear gain (#31 Stage 1)."""
+    def test_norm_on_sends_the_full_calibrated_gain(self) -> None:
+        """No amp/volume cap stands between a quiet patch and its gain (#31 Stage 1)."""
         with tempfile.TemporaryDirectory() as tmp:
-            user_path = Path(tmp) / "user.json"
-            user_path.write_text(
-                json.dumps({"Loud": {"gain_db": 18.0, "enabled": True, "lufs_measured": -40.0}})
-            )
-            store = PatchNormalizationStore(user_path)
-            loader = PatchLoader(normalization_store=store)
-            loader.osc_client = FakeOscClient()
-            loader.osc_enabled = True
-            loader.user_volume_trim = 1.0
-
+            store, _ = self._store(tmp, {"Loud": calibrated(18.0, lufs_measured=-40.0)})
+            loader, stage = make_loader(store)
             loader.refresh_patch_volume("Loud")
-            sent = loader.osc_client.messages[-1][1]
-            from patch_browser.patch_normalization import NORM_MAX_AMP_VOLUME_LINEAR, db_to_linear
+            self.assertAlmostEqual(stage.db[-1], 18.0, places=5)
 
-            self.assertGreater(sent, NORM_MAX_AMP_VOLUME_LINEAR)
-            self.assertAlmostEqual(sent, db_to_linear(18.0))
-
-    def test_norm_off_uses_higher_volume_cap(self) -> None:
+    def test_norm_off_plays_the_patch_as_authored(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            user_path = Path(tmp) / "user.json"
-            user_path.write_text(
-                json.dumps({"Loud": {"gain_db": 18.0, "enabled": True, "lufs_measured": -40.0}})
-            )
-            store = PatchNormalizationStore(user_path)
-            loader = PatchLoader(normalization_store=store)
-            loader.osc_client = FakeOscClient()
-            loader.osc_enabled = True
-            loader.user_volume_trim = 1.0
-
+            store, _ = self._store(tmp, {"Loud": calibrated(18.0, lufs_measured=-40.0)})
+            loader, stage = make_loader(store)
             store.set_enabled("Loud", False)
             loader.refresh_patch_volume("Loud")
-            sent = loader.osc_client.messages[-1][1]
-            self.assertAlmostEqual(sent, 1.0)
+            self.assertEqual(stage.payloads[-1], b"gain 1.00000000")
 
     def test_set_calibration_preserves_disabled_toggle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            user_path = Path(tmp) / "user.json"
-            user_path.write_text(json.dumps({"Bass": {"gain_db": 1.0, "enabled": False}}))
-            store = PatchNormalizationStore(user_path)
+            store, _ = self._store(tmp, {"Bass": {"gain_db": 1.0, "enabled": False}})
             store.set_calibration("Bass", 2.5, -20.0, true_peak_dbtp=-4.0)
             self.assertFalse(store.is_enabled("Bass"))
             self.assertEqual(store.get_raw_gain_db("Bass"), 2.5)
 
     def test_global_disable_skips_gain_without_wiping_per_patch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            user_path = Path(tmp) / "user.json"
-            user_path.write_text(
-                json.dumps(
-                    {
-                        "Lead": {
-                            "gain_db": 4.0,
-                            "enabled": True,
-                            "lufs_measured": -22.0,
-                        }
-                    }
-                )
-            )
-            store = PatchNormalizationStore(user_path)
-            loader = PatchLoader(normalization_store=store)
-            loader.osc_client = FakeOscClient()
-            loader.osc_enabled = True
-            loader.user_volume_trim = 1.0
+            store, user_path = self._store(tmp, {"Lead": calibrated(4.0, lufs_measured=-22.0)})
+            loader, stage = make_loader(store)
 
             loader.refresh_patch_volume("Lead")
-            on_volume = loader.osc_client.messages[-1][1]
-            # gain_db=4.0 -> ~1.585x linear; norm-on cap now matches norm-off ceiling
-            # (see NORM_MAX_AMP_VOLUME_LINEAR), so the calibrated gain actually comes
-            # through instead of being clamped back down near unity.
-            self.assertGreater(on_volume, 1.0)
+            self.assertAlmostEqual(stage.db[-1], 4.0, places=5)
 
             store.set_globally_enabled(False)
             self.assertTrue(store.is_enabled("Lead"))
             self.assertIsNone(store.get_gain_db("Lead"))
             loader.refresh_patch_volume("Lead")
-            off_volume = loader.osc_client.messages[-1][1]
-            self.assertAlmostEqual(off_volume, 1.0)
+            self.assertEqual(stage.payloads[-1], b"gain 1.00000000")
 
             saved_off = json.loads(user_path.read_text())
             self.assertFalse(saved_off["_global"]["enabled"])
@@ -361,58 +239,33 @@ class PatchNormalizationStoreTests(unittest.TestCase):
 
             store.set_globally_enabled(True)
             loader.refresh_patch_volume("Lead")
-            restored = loader.osc_client.messages[-1][1]
-            self.assertAlmostEqual(on_volume, restored)
+            self.assertAlmostEqual(stage.db[-1], 4.0, places=5)
 
     def test_user_gain_override_takes_precedence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            user_path = Path(tmp) / "user.json"
-            user_path.write_text(
-                json.dumps(
-                    {
-                        "Lead": {
-                            "gain_db": 6.0,
-                            "user_gain_db": 3.0,
-                            "enabled": True,
-                            "lufs_measured": -24.0,
-                        }
-                    }
-                )
+            store, _ = self._store(
+                tmp, {"Lead": calibrated(6.0, user_gain_db=3.0, lufs_measured=-24.0)}
             )
-            store = PatchNormalizationStore(user_path)
             self.assertEqual(store.get_effective_gain_db("Lead"), 3.0)
             self.assertEqual(store.get_calibrated_gain_db("Lead"), 6.0)
             self.assertEqual(store.get_user_trim_db("Lead"), -3.0)
             self.assertTrue(store.has_user_trim_override("Lead"))
 
-            loader = PatchLoader(normalization_store=store)
-            loader.osc_client = FakeOscClient()
-            loader.osc_enabled = True
-            loader.user_volume_trim = 1.0
+            loader, stage = make_loader(store)
             loader.refresh_patch_volume("Lead")
-            from patch_browser.patch_normalization import db_to_linear, NORM_MAX_AMP_VOLUME_LINEAR
-
-            sent = loader.osc_client.messages[-1][1]
-            expected = min(db_to_linear(3.0), NORM_MAX_AMP_VOLUME_LINEAR)  # 6 + (-3) trim
-            self.assertAlmostEqual(sent, expected)
+            self.assertAlmostEqual(stage.db[-1], 3.0, places=5)  # 6 + (-3) trim
 
     def test_clear_user_gain_reverts_to_calibrated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            user_path = Path(tmp) / "user.json"
-            user_path.write_text(
-                json.dumps({"Lead": {"gain_db": 6.0, "user_gain_db": 2.0, "enabled": True}})
-            )
-            store = PatchNormalizationStore(user_path)
+            store, _ = self._store(tmp, {"Lead": calibrated(6.0, user_gain_db=2.0)})
             store.clear_user_trim_db("Lead")
             self.assertFalse(store.has_user_trim_override("Lead"))
             self.assertEqual(store.get_effective_gain_db("Lead"), 6.0)
 
-    def test_set_calibration_preserves_user_gain_override(self) -> None:
+    def test_recalibration_preserves_a_stage_trim(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            user_path = Path(tmp) / "user.json"
-            user_path.write_text(json.dumps({"Lead": {"gain_db": 4.0, "user_gain_db": 8.0}}))
-            store = PatchNormalizationStore(user_path)
-            store.set_calibration("Lead", 5.0, -20.0, true_peak_dbtp=-4.0)
+            store, user_path = self._store(tmp, {"Lead": calibrated(4.0, user_gain_db=8.0)})
+            self.assertIsNone(store.set_calibration("Lead", 5.0, -20.0, true_peak_dbtp=-4.0))
             self.assertEqual(store.get_calibrated_gain_db("Lead"), 5.0)
             self.assertEqual(store.get_effective_gain_db("Lead"), 9.0)  # trim +4 preserved on re-cal
             store.save()
@@ -420,6 +273,7 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             self.assertEqual(saved["Lead"]["gain_db"], 5.0)
             self.assertEqual(saved["Lead"]["user_trim_db"], 4.0)
             self.assertNotIn("user_gain_db", saved["Lead"])
+            self.assertNotIn("user_trim_db_legacy", saved["Lead"])
 
 
 if __name__ == "__main__":

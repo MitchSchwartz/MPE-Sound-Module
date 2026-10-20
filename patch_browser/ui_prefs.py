@@ -8,20 +8,34 @@ from patch_browser.touch_ui_constants import UI_STATE_FILE, VOLUME_MAX, VOLUME_M
 from patch_browser.ui_theme import SavedAccentColor, serialize_custom_accent_colors
 
 
+# The trim-mode Vol fader's law, saved with it. A position saved before the
+# stage gain (no law) is moved once so it sounds the same
+# (`patch_normalization.legacy_vol_fader_to_stage`).
+VOLUME_LAW_KEY = "law"
+VOLUME_LAW = "fx-stage-v1"
+
+
 def load_volume_level() -> float:
     if VOLUME_STATE_FILE.exists():
         try:
             data = json.loads(VOLUME_STATE_FILE.read_text())
-            level = float(data.get("volume", 1.0))
-            return max(VOLUME_MIN, min(VOLUME_MAX, level))
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
-            pass
+            level = max(VOLUME_MIN, min(VOLUME_MAX, float(data.get("volume", 1.0))))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError, AttributeError):
+            return 1.0
+        if data.get(VOLUME_LAW_KEY) != VOLUME_LAW:
+            from patch_browser.patch_normalization import legacy_vol_fader_to_stage
+
+            level = legacy_vol_fader_to_stage(level, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX)
+            save_volume_level(level)
+        return level
     return 1.0
 
 
 def save_volume_level(level: float) -> None:
     try:
-        VOLUME_STATE_FILE.write_text(json.dumps({"volume": level}, indent=2))
+        VOLUME_STATE_FILE.write_text(
+            json.dumps({"volume": level, VOLUME_LAW_KEY: VOLUME_LAW}, indent=2)
+        )
     except OSError as exc:
         print(f"Warning: could not persist volume ({exc})")
 

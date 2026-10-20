@@ -27,7 +27,7 @@ from luma.core.render import canvas
 from PIL import ImageFont
 import subprocess
 
-from patch_browser.patch_loader import PatchLoader
+from patch_browser.patch_loader import PatchLoader, UdpStageSender
 from patch_browser.patch_scanner import (
     FAVORITES_NAME,
     LAST_PATCH_FILE,
@@ -538,7 +538,7 @@ class PatchBrowser:
         
         # Initialize loader - Surge should be ready now
         try:
-            self.loader = PatchLoader()
+            self.loader = PatchLoader(stage_sender=UdpStageSender())
             if not self.loader.osc_enabled:
                 print("Warning: OSC not available - patch loading will not work")
                 # Continue anyway - UI still useful for browsing
@@ -1038,7 +1038,7 @@ class PatchBrowser:
                 if success:
                     print(f"Surge restarted successfully: {message}")
                     try:
-                        self.loader = PatchLoader()
+                        self.loader = PatchLoader(stage_sender=UdpStageSender())
                     except:
                         pass
                 else:

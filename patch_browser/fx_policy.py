@@ -26,7 +26,8 @@ controller they are per-note expression.
 the patch's mod-wheel flag once per load, resolves the effective config and
 publishes the resulting CC 1 destination, plus any Effect fader request, to
 `fx-route.json` in the run dir. The remapper sees every controller message, so
-it owns `Cc1Router`, the one process that talks to the FX host: it reads that
+it owns `Cc1Router`, the one process that sends the FX host its effect
+commands (the stage `gain` is the patch loader's, one writer per command): it reads that
 file when it changes, asks `route_cc1` what to do with each message, and
 publishes what the knob and the fader have set to `fx-levels.json`: the depth
 in force, for the Effect fader, and the last CC 1 it sent Surge, for the Patch

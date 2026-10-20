@@ -108,7 +108,9 @@ class PatchLoaderHoldTests(unittest.TestCase):
         sample = bytes.fromhex(
             "2f706172616d2f612f6165672f7375737461696e000000002c6673003ecaf8be33392e3634202500"
         )
-        value = PatchLoader._parse_surge_param_query(sample)
+        value = PatchLoader._parse_surge_param_query(sample, "/param/a/aeg/sustain")
+        # The float, not the display string; and only for the parameter asked.
+        self.assertIsNone(PatchLoader._parse_surge_param_query(sample, "/param/a/amp/volume"))
         self.assertIsNotNone(value)
         assert value is not None
         self.assertAlmostEqual(value, 0.3964, places=3)

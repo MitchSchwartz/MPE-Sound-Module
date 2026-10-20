@@ -49,6 +49,36 @@ and fades the split in and out, so a sender may send raw slider steps. The UI
 offers Off and `BASS_STEPS_HZ` (80-300 Hz); the client accepts 20-1000.
 
     bass 120.000000
+
+**Stage gain** (`gain <linear>`, `encode_gain`). One linear gain the client
+applies to its input before the chain, for per-patch normalization. 1.0 is
+unity, which is where a fresh client starts, and a client that never
+receives one plays exactly as before. `PatchLoader` sends it; the senders
+are named in `tests/test_stage_gain_guard.py` (`STAGE_SENDERS`). A datagram of its
+own, for the reason `bass` is one. The client ramps it (~25 ms), clamps it to
+`GAIN_MAX_DB` and ignores NaN, inf and negative values; the value is a plain
+decimal with eight places, so -90 dB still has three significant digits.
+
+    gain 3.98107171
+
+**Without mpe-fx-host the level is the patch's own.** The insert always runs
+(`MPE_FX_HOST` gates only the effects), so normalization, the Norm trim, device
+mode's headroom and the trim-mode Vol fader all live in this one stage. When
+the insert is absent (stopped, crashed, restarting, or the direct monitor path
+restored) Surge goes straight out: every patch plays as authored, normalization
+is off in effect, and the Vol fader does nothing. The DAC level in device mode
+still applies. No second level site exists in Surge to fall back to; that was
+the bug the stage removes. The sender cannot tell: a `gain` datagram is
+fire-and-forget and the browser has no fx-host health indicator, so this state
+is not shown on screen. A restarted insert starts at the last gain it was
+told (below), so a restart does not undo a cut.
+
+The client keeps the last gain it was told in a file (`gain_state_path`,
+`/run/mpe/fx-stage-gain` unless `MPE_FX_GAIN_STATE` says otherwise; one line in
+the datagram's own format) and a restarted client starts at it held to unity,
+with no ramp from unity (`native/mpe-fx-host/fx_gain_state.h`): a restart keeps
+a cut, never a boost, and a boost waits for the sender's next resend. No file:
+unity.
 """
 
 from __future__ import annotations
@@ -134,6 +164,13 @@ BASS_STEPS_HZ: tuple[float, ...] = (
 )
 
 
+#: Must equal FX_GAIN_MAX_DB in native/mpe-fx-host/fx_dsp.h: the most stage
+#: gain the client applies. `tests/test_fx_host.py` reads the C and pins it.
+GAIN_MAX_DB = 48.0
+#: Unity: what a fresh client plays at.
+GAIN_UNITY = 1.0
+
+
 def enabled(value: str | None = None) -> bool:
     """One law for "is the FX host on", shared with the shell.
 
@@ -153,6 +190,45 @@ def resolve_port() -> int:
     except (TypeError, ValueError):
         return DEFAULT_PORT
     return port if 1 <= port <= 65535 else DEFAULT_PORT
+
+
+#: Must equal FX_GAIN_STATE_DEFAULT in native/mpe-fx-host/fx_gain_state.h
+#: (`tests/test_fx_host.py` reads the C).
+GAIN_STATE_DEFAULT = "/run/mpe/fx-stage-gain"
+
+
+def gain_state_path() -> str:
+    """Where the client keeps the last stage gain it was told (MPE_FX_GAIN_STATE)."""
+    return os.environ.get("MPE_FX_GAIN_STATE", "").strip() or GAIN_STATE_DEFAULT
+
+
+def read_gain_state(path: str | None = None) -> float | None:
+    """The last stage gain the client applied, from its state file; None if the
+    file is missing or is not one well-formed `gain` line. Only a client that is
+    running and was told a new value writes it, so a reader that sees the value
+    it just sent knows the client took it."""
+    try:
+        with open(path or gain_state_path(), "rb") as handle:
+            raw = handle.read(65)
+    except OSError:
+        return None
+    if len(raw) > 64:
+        return None
+    try:
+        text = raw.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    parts = text.split()
+    if len(parts) != 2 or parts[0] != "gain" or not text.startswith("gain "):
+        return None
+    number = parts[1]
+    if not number or any(c not in "0123456789." for c in number):
+        return None
+    try:
+        value = float(number)
+    except ValueError:
+        return None
+    return value if math.isfinite(value) else None
 
 
 def encode(effect_id: int, depth: float) -> bytes:
@@ -326,3 +402,19 @@ def encode_bass(hz: float) -> bytes:
     if value > 0.0:
         value = max(BASS_MIN_HZ, min(BASS_MAX_HZ, value))
     return f"bass {value:.6f}".encode("ascii")
+
+
+def encode_gain(linear: float) -> bytes:
+    """The stage gain's datagram: a linear gain, 1.0 for unity.
+
+    Clamped to GAIN_MAX_DB, as the client clamps, so what is sent is what is
+    applied. Raises ValueError for a non-finite or negative value, for the
+    reason `encode` does.
+    """
+    if isinstance(linear, bool) or not isinstance(linear, (int, float)):
+        raise ValueError(f"gain must be a number, got {linear!r}")
+    value = float(linear)
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError(f"gain must be finite and >= 0, got {linear!r}")
+    value = min(value, 10.0 ** (GAIN_MAX_DB / 20.0))
+    return f"gain {value:.8f}".encode("ascii")

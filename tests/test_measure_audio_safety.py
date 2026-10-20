@@ -30,6 +30,15 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "amixer"
 AMP = ("/param/a/amp/volume", "/param/b/amp/volume")
 
 
+def stage_linears(payloads: list[bytes]) -> list[float]:
+    out = []
+    for payload in payloads:
+        word, value = payload.decode("ascii").split()
+        assert word == "gain", payload
+        out.append(float(value))
+    return out
+
+
 class FakeOscClient:
     def __init__(self) -> None:
         self.messages: list[tuple[str, object]] = []
@@ -100,8 +109,10 @@ class TestPatchLoadKeepsDeviceTrim(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         store = PatchNormalizationStore(Path(self._tmp.name) / "norm.json")
+        self.stage: list[bytes] = []
         self.loader = PatchLoader(normalization_store=store, fx_policy=mock.Mock(),
-                                  fx_store=mock.Mock())
+                                  fx_store=mock.Mock(),
+                                  stage_sender=lambda p: self.stage.append(p) or True)
         self.loader.osc_client = FakeOscClient()
         self.loader.osc_enabled = True
 
@@ -114,22 +125,24 @@ class TestPatchLoadKeepsDeviceTrim(unittest.TestCase):
             mock.patch.object(self.loader, "_send_hold_osc", return_value=True),
             mock.patch.object(self.loader, "_apply_playback_policy"),
             mock.patch.object(self.loader, "_resend_patch_mod"),
+            mock.patch.object(self.loader, "_query_osc_float", return_value=0.9),
         ):
             return measure_patch.load_patch_like_ui(self.loader, "/p/Lead.fxp", **kw)
 
-    def test_device_mode_every_amp_message_carries_the_trim(self):
+    def test_device_mode_every_stage_message_carries_the_trim(self):
         self.assertTrue(self._load(device_active=True, level=0.3))
-        amps = self.loader.osc_client.amps()
-        self.assertTrue(amps, "the load must set Surge's level")
+        gains = stage_linears(self.stage)
+        self.assertTrue(gains, "the load must set the stage")
         trim = db_to_linear(dv.DEVICE_MODE_SURGE_TRIM_DB)
-        for amp in amps:
+        for gain in gains:
             # Unnormalized patch: full fader is unity, so every send is exactly the trim.
-            self.assertAlmostEqual(amp, trim, places=12)
-        self.assertLess(max(amps), 1.0, "a unity send is the hidden +6 dB")
+            self.assertAlmostEqual(gain, trim, places=7)
+        self.assertLess(max(gains), 1.0, "a unity send is the hidden +6 dB")
+        self.assertEqual(self.loader.osc_client.amps(), [], "Surge's volume is never set")
 
     def test_trim_mode_uses_the_saved_fader_without_headroom(self):
         self.assertTrue(self._load(device_active=False, level=1.0))
-        self.assertEqual(self.loader.osc_client.amps()[-1], 1.0)
+        self.assertEqual(stage_linears(self.stage)[-1], 1.0)
 
     def test_mode_comes_from_the_same_resolver_as_the_fader(self):
         """KA1 on hw:1 → device mode, read with `amixer contents` only."""
@@ -151,6 +164,7 @@ class TestPatchLoadKeepsDeviceTrim(unittest.TestCase):
     def test_the_script_routes_through_the_ui_volume_path(self):
         module = _load_script("load-patch-osc.py")
         with (
+            mock.patch.object(module, "ui_running", return_value=None),
             mock.patch.object(sys, "argv", ["load-patch-osc.py", __file__]),
             mock.patch("patch_browser.patch_loader.PatchLoader", return_value=self.loader),
             mock.patch.object(measure_patch, "device_mode_active", return_value=True),
@@ -162,11 +176,62 @@ class TestPatchLoadKeepsDeviceTrim(unittest.TestCase):
             mock.patch.object(self.loader, "_send_hold_osc", return_value=True),
             mock.patch.object(self.loader, "_apply_playback_policy"),
             mock.patch.object(self.loader, "_resend_patch_mod"),
+            mock.patch.object(self.loader, "_query_osc_float", return_value=0.9),
         ):
             module.main()
-        amps = self.loader.osc_client.amps()
-        self.assertTrue(amps)
-        self.assertTrue(all(a < 1.0 for a in amps), amps)
+        gains = stage_linears(self.stage)
+        self.assertTrue(gains)
+        self.assertTrue(all(g < 1.0 for g in gains), gains)
+        self.assertEqual(self.loader.osc_client.amps(), [])
+
+    def test_the_script_refuses_while_the_ui_runs(self):
+        """The UI re-sends its own patch's stage gain every second: a patch loaded
+        beside it would play at that gain (a cut patch's -20 dB lost, or worse)."""
+        module = _load_script("load-patch-osc.py")
+        with (
+            mock.patch.object(sys, "argv", ["load-patch-osc.py", __file__]),
+            mock.patch.object(module.subprocess, "run",
+                              return_value=mock.Mock(returncode=0)) as run,
+            mock.patch("patch_browser.patch_loader.PatchLoader") as loader_cls,
+            self.assertRaises(SystemExit) as exit_,
+        ):
+            module.main()
+        self.assertEqual(exit_.exception.code, 3)
+        loader_cls.assert_not_called()
+        self.assertEqual(run.call_args.args[0],
+                         ["systemctl", "is-active", "--quiet", "touch-patch-browser.service"])
+        # The older OLED UI's unit counts too.
+        with mock.patch.object(module.subprocess, "run",
+                               side_effect=[mock.Mock(returncode=3), mock.Mock(returncode=0)]):
+            self.assertEqual(module.ui_running(), "patch-browser.service")
+        # Neither unit active, or no systemctl at all: it loads.
+        for result in (mock.Mock(returncode=3), FileNotFoundError("systemctl")):
+            with self.subTest(result=result), mock.patch.object(
+                    module.subprocess, "run",
+                    **({"side_effect": result} if isinstance(result, Exception) else {"return_value": result})):
+                self.assertIsNone(module.ui_running())
+
+    def test_harnesses_that_load_patches_stop_the_ui_first(self):
+        """Each harness that loads through load-patch-osc.py stops both UI units with
+        mpe_unit_stop_for_measure (started again on exit) before its first load.
+        measure-v8b-playable.sh has no restore trap: it relies on the refusal."""
+        relying_on_refusal = {"measure-v8b-playable.sh"}
+        missing = []
+        for path in sorted(SCRIPTS.glob("measure-*.sh")):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if "mpe_load_patch_osc" not in text or path.name in relying_on_refusal:
+                continue
+            ui_stop = re.search(r"for (\w+) in [^;]*\btouch-patch-browser\.service[^;]*\bpatch-browser\.service"
+                                r"; do\n\s*mpe_unit_stop_for_measure \"\$\1\"", text)
+            if ui_stop is None:
+                missing.append(path.name)
+                continue
+            # Before the first load at top level (a load inside a function runs later).
+            top_level = [m.start() for m in re.finditer(r"^(?![\s#]).*\bmpe_load_patch_osc ", text, re.M)]
+            if top_level and ui_stop.start() > min(top_level):
+                missing.append(path.name + " (after its first load)")
+        self.assertEqual(missing, [])
+        self.assertTrue((SCRIPTS / "measure-v8b-playable.sh").read_text().count("mpe_load_patch_osc"))
 
     def test_harnesses_load_patches_only_through_the_shared_loader(self):
         """One authority: no measure script calls load-patch-osc.py or PatchLoader itself."""

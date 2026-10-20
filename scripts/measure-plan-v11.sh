@@ -49,6 +49,11 @@ echo "PROVENANCE governor=off clock=1800 cells=512x2,256x3 patches=Crystals@3,Cl
 mpe_env_arm
 mpe_env_set MPE_POLY_GOVERNOR 0
 mpe_unit_stop_for_measure surge-poly-governor.service
+# The touch UI owns the stage gain and re-sends it every second: a patch loaded
+# here would play at the UI patch's level (load-patch-osc.py refuses while it runs).
+for _ui_unit in touch-patch-browser.service patch-browser.service; do
+    mpe_unit_stop_for_measure "$_ui_unit"
+done
 if ! mpe_meter_xruns_read >/dev/null 2>&1; then
     echo "Peak meter blind — restarting audio graph"
     systemctl restart mpe-jackd.service

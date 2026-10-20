@@ -10,18 +10,19 @@ whatever ALSA's restore rule last saved for it. Measured 2026-09-13:
 Two modes, decided per bound card:
 
   device  exactly ONE playback-only volume element that is writable and carries
-          a dB range. The fader IS that element; Surge's trim is fixed at
+          a dB range. The fader IS that element; the stage gain carries a fixed
           DEVICE_MODE_SURGE_TRIM_DB (-9 dB) so nothing stacks and the graph
           keeps headroom. KA1 (PCM) and Sound Blaster (Speaker) qualify.
   trim    anything else — no element, no dB, or more than one candidate. The
           Scarlett 4i4 exposes four Line volumes behind a hardware knob, and
-          choosing one would be a guess. The fader keeps trimming Surge.
+          choosing one would be a guess. The fader trims the stage gain
+          (patch_normalization.stage_db).
 
 Ambiguity goes to trim on purpose: the fader must show a value read from the
 device, and a device we cannot read unambiguously cannot give us that.
 
 Levels are remembered per USB model (usb:VID:PID) in dB. A model never seen
-before starts at MPE_DAC_VOLUME_DB (default -12 dB).
+before starts at MPE_DAC_VOLUME_DB, never above DEFAULT_DB (-30 dB).
 
 The fader position is ALSA's perceptual mapping (volume_mapping.c) — the same
 percentage alsamixer and `amixer -M` show, so the numbers agree across tools.
@@ -41,7 +42,7 @@ from pathlib import Path
 DEVICE_MODE = "device"
 TRIM_MODE = "trim"
 
-# Surge's fixed trim while the DAC is the level stage. The only place it is set.
+# The stage gain's fixed cut while the DAC is the level stage. The only place it is set.
 #
 # Normalization (patch_normalization.py) calibrates each patch to -18 LUFS with
 # a -3 dBTP peak cap on single test notes. Live chords with pressure stack well
@@ -61,7 +62,19 @@ TRIM_MODE = "trim"
 # "Audio output safety"). It comes up quieter; the fader brings it back.
 DEVICE_MODE_SURGE_TRIM_DB = -9.0
 
-DEFAULT_DB = -12.0
+# Until 2026-10-19 the -9 dB went to Surge's amp/volume as 10^(-9/20), which
+# Surge reads as a cube law: about -27 dB. The stage applies -9, so every stored
+# DAC level is cut once by the difference (`load_levels`), and device mode comes
+# up exactly as loud as before at the same fader.
+STAGE_LAW_DAC_CUT_DB = 3.0 * DEVICE_MODE_SURGE_TRIM_DB - DEVICE_MODE_SURGE_TRIM_DB
+# Marks a levels file as already cut. `save_levels` always writes it.
+STAGE_LAW_KEY = "_stage_law"
+STAGE_LAW = "fx-stage-v1"
+
+# A model never seen before starts here, or lower if MPE_DAC_VOLUME_DB says so:
+# -12 until the stage, less the cut above. An env file written before the
+# stage still says -12, which would start a new card 18 dB louder than it did.
+DEFAULT_DB = -30.0
 STATE_FILE = Path.home() / ".patch_browser_device_volume.json"
 MPE_ENV_PATH = Path("/etc/mpe/mpe.env")
 ASOUND_ROOT = Path("/proc/asound")
@@ -217,11 +230,11 @@ def resolve_binding(
     return card, key, choose_element(parse_contents(text or ""))
 
 
-def surge_volume_args(*, device_active: bool, level: float) -> tuple[float, float]:
-    """(fader, headroom_db) for PatchLoader.set_volume. The one Surge-level rule.
+def stage_volume_args(*, device_active: bool, level: float) -> tuple[float, float]:
+    """(fader, headroom_db) for PatchLoader.set_volume. The one rule for the stage's share.
 
-    Device mode: the DAC is the level stage, Surge sits at full fader with the
-    fixed DEVICE_MODE_SURGE_TRIM_DB headroom. Trim mode: the fader trims Surge.
+    Device mode: the DAC is the level stage, the stage sits at full fader with the
+    fixed DEVICE_MODE_SURGE_TRIM_DB headroom. Trim mode: the fader trims the stage.
     """
     from patch_browser.touch_ui_constants import VOLUME_MAX
 
@@ -230,9 +243,9 @@ def surge_volume_args(*, device_active: bool, level: float) -> tuple[float, floa
     return float(level), 0.0
 
 
-def apply_surge_volume(loader, *, device_active: bool, level: float):
-    """Send Surge's level through PatchLoader.set_volume, the UI's own path."""
-    fader, headroom_db = surge_volume_args(device_active=device_active, level=level)
+def apply_stage_volume(loader, *, device_active: bool, level: float):
+    """Send the stage's share of the level through PatchLoader.set_volume, the UI's own path."""
+    fader, headroom_db = stage_volume_args(device_active=device_active, level=level)
     return loader.set_volume(fader, headroom_db=headroom_db)
 
 
@@ -246,12 +259,15 @@ def default_db(env_path: Path = MPE_ENV_PATH) -> float:
         except OSError:
             raw = ""
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError:
         return DEFAULT_DB
+    return min(value, DEFAULT_DB) if math.isfinite(value) else DEFAULT_DB
 
 
 def load_levels(path: Path = STATE_FILE) -> dict[str, float]:
+    """Stored levels by model. A file from before the stage is cut by
+    STAGE_LAW_DAC_CUT_DB and rewritten, once (never raised)."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -260,16 +276,26 @@ def load_levels(path: Path = STATE_FILE) -> dict[str, float]:
         return {}
     levels = {}
     for key, value in data.items():
+        if key == STAGE_LAW_KEY or isinstance(value, bool):
+            continue
         try:
             levels[str(key)] = float(value)
         except (TypeError, ValueError):
             continue
+    if data.get(STAGE_LAW_KEY) != STAGE_LAW:
+        levels = {k: round(v + STAGE_LAW_DAC_CUT_DB, 2) for k, v in levels.items()}
+        if levels:
+            print(f"device volume: stored levels cut {STAGE_LAW_DAC_CUT_DB:+.0f} dB "
+                  "for the stage gain (once)")
+        save_levels(levels, path)
     return levels
 
 
 def save_levels(levels: dict[str, float], path: Path = STATE_FILE) -> None:
+    payload: dict[str, object] = {str(k): v for k, v in levels.items()}
+    payload[STAGE_LAW_KEY] = STAGE_LAW
     try:
-        path.write_text(json.dumps(levels, indent=2, sort_keys=True), encoding="utf-8")
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     except OSError as exc:
         print(f"Warning: could not persist device volume ({exc})")
 

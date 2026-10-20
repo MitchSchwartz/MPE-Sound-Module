@@ -45,7 +45,7 @@ class _Library:
 
 
 def _calibrated(gain_db: float = -3.0) -> dict:
-    return {"gain_db": gain_db, "enabled": True}
+    return {"gain_db": gain_db, "cal_path": "fx-stage-v1", "enabled": True}
 
 
 class DedupeByStableKeyTests(unittest.TestCase):

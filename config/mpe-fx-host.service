@@ -1,13 +1,10 @@
 [Unit]
-Description=MPE trunk effects insert (JACK client between Surge and the fan-out)
+Description=MPE trunk insert: stage gain and effects (JACK client between Surge and the fan-out)
 After=mpe-jackd.service surge-xt-cli.service
 Wants=mpe-jackd.service
 PartOf=mpe-jackd.service
-# Opt-in, and in NEITHER list in install-units.sh — same reasoning as
-# mpe-live-monitor: start-mpe-fx-host.sh gates on MPE_FX_HOST and exits 0 when
-# off, so leaving it enabled is safe, while listing it in DISABLED would
-# `systemctl disable` it on every deploy with the flag still set (the
-# ghost-unit pattern). Enable only after MPE_FX_HOST=1 in /etc/mpe/mpe.env.
+# Always enabled (ENABLED in install-units.sh): the stage gain is the trunk's
+# level, so it runs whatever MPE_FX_HOST says; the flag gates only the effects.
 
 [Service]
 Type=simple

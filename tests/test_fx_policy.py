@@ -775,18 +775,36 @@ class OneSenderGuardTests(unittest.TestCase):
         self.assertEqual(set(owners), {"Cc1Router"})
 
     def test_nothing_else_in_the_repo_encodes_or_sends(self) -> None:
-        allowed = {
-            REPO / "patch_browser" / "fx_policy.py",
-            REPO / "patch_browser" / "fx_host_protocol.py",
+        """One writer per command: the effects (`chain`, `chainl`, `fx`, `bass`)
+        from the policy, the stage `gain` from PatchLoader. The calibration
+        script's isolation control is the one other `gain` sender: it mutes the
+        stage to prove calibration cannot hear it."""
+        import re
+
+        writers = {
+            "encode_gain": {
+                REPO / "patch_browser" / "patch_loader.py",
+                REPO / "scripts" / "calibrate-patch-normalization.py",
+            },
         }
+        effects_writer = {REPO / "patch_browser" / "fx_policy.py"}
         offenders = []
         for path in list((REPO / "patch_browser").rglob("*.py")) + list((REPO / "scripts").rglob("*.py")):
-            if path in allowed:
+            if path == REPO / "patch_browser" / "fx_host_protocol.py":
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
-            if "FxHostSender" in text or "fx_host_protocol.encode" in text or "from patch_browser.fx_host_protocol import" in text and "encode" in text:
-                offenders.append(str(path.relative_to(REPO)))
+            names = set(re.findall(r"\bfx_host_protocol\.(encode\w*)", text))
+            if re.search(r"from patch_browser\.fx_host_protocol import[^\n]*\bencode", text):
+                names.add("import encode")
+            if "FxHostSender" in text:
+                names.add("FxHostSender")
+            for name in names:
+                if path not in writers.get(name, effects_writer):
+                    offenders.append(f"{path.relative_to(REPO)}: {name}")
         self.assertEqual(offenders, [])
+        # Both gain writers really do write it: the guard is not vacuous.
+        for path in writers["encode_gain"]:
+            self.assertIn("fx_host_protocol.encode_gain", path.read_text(encoding="utf-8"), path)
 
 
 class Cc1RouterTests(unittest.TestCase):

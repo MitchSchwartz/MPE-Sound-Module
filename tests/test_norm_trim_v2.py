@@ -51,7 +51,7 @@ class UserTrimTests(unittest.TestCase):
                 json.dumps(
                     {
                         "Lead": {
-                            "gain_db": 6.0,
+                            "gain_db": 6.0, "cal_path": "fx-stage-v1",
                             "user_trim_db": -2.0,
                             "enabled": True,
                         }
@@ -65,14 +65,14 @@ class UserTrimTests(unittest.TestCase):
     def test_slider_default_is_zero_trim(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
-            user_path.write_text(json.dumps({"Lead": {"gain_db": 6.0, "enabled": True}}))
+            user_path.write_text(json.dumps({"Lead": {"gain_db": 6.0, "cal_path": "fx-stage-v1", "enabled": True}}))
             store = PatchNormalizationStore(user_path)
             self.assertEqual(store.get_slider_default_gain_db("Lead"), 0.0)
 
     def test_set_user_trim_drops_legacy_user_gain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
-            user_path.write_text(json.dumps({"Lead": {"gain_db": 4.0, "user_gain_db": 8.0}}))
+            user_path.write_text(json.dumps({"Lead": {"gain_db": 4.0, "cal_path": "fx-stage-v1", "user_gain_db": 8.0}}))
             store = PatchNormalizationStore(user_path)
             store.set_user_trim_db("Lead", -3.0)
             store.save()
@@ -84,7 +84,7 @@ class UserTrimTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
             user_path.write_text(
-                json.dumps({"Lead": {"gain_db": 6.0, "user_gain_db": 2.0, "enabled": True}})
+                json.dumps({"Lead": {"gain_db": 6.0, "cal_path": "fx-stage-v1", "user_gain_db": 2.0, "enabled": True}})
             )
             store = PatchNormalizationStore(user_path)
             store.clear_user_trim_db("Lead")
@@ -95,7 +95,7 @@ class UserTrimTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
             user_path.write_text(
-                json.dumps({"Lead": {"gain_db": 6.0, "user_gain_db": 3.0, "enabled": True}})
+                json.dumps({"Lead": {"gain_db": 6.0, "cal_path": "fx-stage-v1", "user_gain_db": 3.0, "enabled": True}})
             )
             store = PatchNormalizationStore(user_path)
             self.assertEqual(store.get_user_trim_db("Lead"), -3.0)
@@ -107,25 +107,31 @@ class UserTrimTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
             user_path.write_text(
-                json.dumps({"Lead": {"gain_db": 0.0, "user_gain_db": 24.0, "enabled": True}})
+                json.dumps({"Lead": {"gain_db": 0.0, "cal_path": "fx-stage-v1", "user_gain_db": 40.0, "enabled": True}})
             )
             store = PatchNormalizationStore(user_path)
             self.assertEqual(store.get_user_trim_db("Lead"), NORM_TRIM_DB_MAX)
 
     def test_trim_clamp(self) -> None:
-        self.assertEqual(clamp_user_trim_db(-30.0), NORM_TRIM_DB_MIN)
-        self.assertEqual(clamp_user_trim_db(20.0), NORM_TRIM_DB_MAX)
+        self.assertEqual(clamp_user_trim_db(-40.0), NORM_TRIM_DB_MIN)
+        self.assertEqual(clamp_user_trim_db(40.0), NORM_TRIM_DB_MAX)
+        self.assertEqual(clamp_user_trim_db(-29.0), -29.0)
+        self.assertEqual(clamp_user_trim_db(29.0), 29.0)
+
+    def test_trim_range_is_symmetric_about_the_calibration(self) -> None:
+        """0 (the calibrated baseline) at the fader's visual centre."""
+        self.assertEqual((NORM_TRIM_DB_MIN, NORM_TRIM_DB_MAX), (-30.0, 30.0))
 
 
 class RuntimeTrimTests(unittest.TestCase):
-    def test_trim_reaches_osc_send(self) -> None:
+    def test_trim_reaches_the_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
             user_path.write_text(
                 json.dumps(
                     {
                         "Lead": {
-                            "gain_db": 6.0,
+                            "gain_db": 6.0, "cal_path": "fx-stage-v1",
                             "user_trim_db": -2.0,
                             "enabled": True,
                         }
@@ -133,13 +139,16 @@ class RuntimeTrimTests(unittest.TestCase):
                 )
             )
             store = PatchNormalizationStore(user_path)
-            loader = PatchLoader(normalization_store=store)
+            sent: list[bytes] = []
+            loader = PatchLoader(normalization_store=store, stage_sender=sent.append)
             loader.osc_client = FakeOscClient()
             loader.osc_enabled = True
+            # Surge has confirmed the loaded patch: a boost goes out (keep_stage_alive).
+            loader._surge_confirmed = True
             loader.user_volume_trim = 1.0
             loader.refresh_patch_volume("Lead")
-            sent = loader.osc_client.messages[-1][1]
-            self.assertAlmostEqual(sent, db_to_linear(4.0))
+            self.assertEqual(sent, [f"gain {db_to_linear(4.0):.8f}".encode()])
+            self.assertEqual(loader.osc_client.messages, [])
 
 
 class VolFaderLawTests(unittest.TestCase):

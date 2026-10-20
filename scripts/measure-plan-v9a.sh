@@ -75,6 +75,11 @@ mpe_env_set MPE_POLY_GOVERNOR 0
 mpe_env_set MPE_POLY_CEILING 64
 mpe_env_set MPE_POLY_FLOOR 64
 mpe_unit_stop_for_measure surge-poly-governor.service
+# The touch UI owns the stage gain and re-sends it every second: a patch loaded
+# here would play at the UI patch's level (load-patch-osc.py refuses while it runs).
+for _ui_unit in touch-patch-browser.service patch-browser.service; do
+    mpe_unit_stop_for_measure "$_ui_unit"
+done
 if systemctl is-enabled --quiet surge-poly-governor.service 2>/dev/null; then
     mpe_env_on_restore systemctl enable surge-poly-governor.service
     systemctl disable surge-poly-governor.service 2>/dev/null || true
