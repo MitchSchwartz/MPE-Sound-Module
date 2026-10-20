@@ -771,6 +771,7 @@ class Gate(unittest.TestCase):
         stand_in = bin_dir / "mpe-fx-host"
         stand_in.write_text(f'#!/bin/sh\ntouch "{mark}"\n')
         stand_in.chmod(0o755)
+        (bin_dir / "Makefile").write_text("all:\n")  # up to date: the start's rebuild is a no-op
         env = dict(os.environ, MPE_FX_HOST="0", MPE_MODULE_REPO=str(repo),
                    MPE_RUN_DIR=str(repo))
         check = subprocess.run(["bash", str(START), "--check"], env=env,
