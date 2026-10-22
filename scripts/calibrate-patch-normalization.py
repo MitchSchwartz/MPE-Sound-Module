@@ -80,6 +80,7 @@ from patch_browser.calibration_constants import (  # noqa: E402
 )
 from patch_browser.calibration_teardown import (  # noqa: E402
     calibration_audio_scope,
+    refresh_maintenance_flag,
     unload_snd_aloop_if_idle,
 )
 from patch_browser.patch_normalization import (  # noqa: E402
@@ -1725,6 +1726,8 @@ def main() -> int:
                 for index, path in enumerate(targets, start=1):
                     if _interrupted:
                         break
+                    if needs_service_handoff:
+                        refresh_maintenance_flag()
                     name = path.stem
                     print(
                         f"[{index}/{len(targets)}] verify {name}",
@@ -1767,6 +1770,8 @@ def main() -> int:
                 if _interrupted:
                     print("Calibration interrupted — keeping partial progress.", file=sys.stderr)
                     break
+                if needs_service_handoff:
+                    refresh_maintenance_flag()
                 name = path.stem
                 last_patch_index = index
                 last_patch_name = name
