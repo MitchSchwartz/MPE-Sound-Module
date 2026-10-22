@@ -1,19 +1,22 @@
-"""Surge's amp/volume is never set: the stage gain in mpe-fx-host is the one level.
+"""Surge's volume parameters are never set: the stage gain in mpe-fx-host is the one level.
 
 Surge reads `/param/*/amp/volume` as a cube law clamped to 0..1, so a gain sent
 there in dB was cut three times too deep and lost above unity. The level of the
 trunk is decided in `patch_normalization.stage_db` and sent by `PatchLoader` as
 a `gain` datagram. This refuses a second site: any product file (Python or
-shell) that names Surge's volume parameter, except
+shell) that names Surge's scene or master volume parameter, except
 
 - `PatchLoader`'s AUTHORED_VOLUME_PATHS, read only (`_query_osc_float`), to
   notice an edited patch. A read, not a send;
-- the calibration script's AMP_VOLUME_PATHS, written only by
-  `set_capture_volume`, which pads a clipped capture of the standalone Surge
-  that calibration measures, outside the stage.
+- the calibration script's MASTER_VOLUME_PATH, read by `read_master_volume`
+  and written only by `set_capture_volume`, which pads a clipped capture of the
+  standalone Surge that calibration measures, outside the stage. The pad is on
+  master volume, not amp/volume: master is applied after the patch FX in exact
+  dB, while amp/volume sits before them and a saturating FX chain eats part of
+  the pad (Cloud Horn: 12 dB asked, 7.8 dB got).
 
-The pad is the one named exception to "nothing sends amp/volume" (spec D3 against
-D9). It is enforced here: one binding, one writing function, one calling file,
+The pad is the one named exception to "nothing sends Surge's volume" (spec D3
+against D9). It is enforced here: one binding, one writing function, one calling file,
 and the write always puts the authored value back
 (tests/test_calibration_stage.py).
 """
@@ -27,15 +30,16 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-AMP_VOLUME = re.compile(r"amp/volume")
+AMP_VOLUME = re.compile(r"(amp|global)/volume")
 # A string that is a path, not prose: no whitespace, naming the parameter. Catches
-# "/param/a/amp/volume", f"/param/{scene}/amp/volume" and a bare "amp/volume" piece.
-PATH_TOKEN = re.compile(r"^\S*amp/volume\S*$")
+# "/param/a/amp/volume", f"/param/{scene}/amp/volume", "/param/global/volume" and a
+# bare "amp/volume" piece.
+PATH_TOKEN = re.compile(r"^\S*(amp|global)/volume\S*$")
 
 # (file, name the literal is bound to): the only places it may appear.
 ALLOWED = {
     ("patch_browser/patch_loader.py", "AUTHORED_VOLUME_PATHS"),
-    ("scripts/calibrate-patch-normalization.py", "AMP_VOLUME_PATHS"),
+    ("scripts/calibrate-patch-normalization.py", "MASTER_VOLUME_PATH"),
 }
 
 
@@ -121,7 +125,11 @@ class NoSecondLevelSite(unittest.TestCase):
 
     def test_calibration_writes_it_in_one_function(self) -> None:
         path = REPO / "scripts/calibrate-patch-normalization.py"
-        self.assertEqual(set(name_uses(path, "AMP_VOLUME_PATHS")), {"set_capture_volume"})
+        self.assertEqual(set(name_uses(path, "MASTER_VOLUME_PATH")),
+                         {"set_capture_volume", "read_master_volume"})
+        # Only set_capture_volume sends; read_master_volume queries.
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(text.count("send_message(MASTER_VOLUME_PATH"), 1)
 
     def test_nothing_outside_calibration_calls_the_pad(self) -> None:
         callers = [
@@ -299,6 +307,10 @@ class GuardSees(unittest.TestCase):
             "patch_browser/g.py": 'c.send_message("/param/a/" + "amp/volume", v)\n',
         })
         self.assertEqual(sorted(sites), [("patch_browser/f.py", None), ("patch_browser/g.py", None)])
+
+    def test_a_master_volume_send_is_a_site(self) -> None:
+        sites = self._sites({"patch_browser/m.py": 'c.send_message("/param/global/volume", 0.5)\n'})
+        self.assertEqual(sites, [("patch_browser/m.py", None)])
 
     def test_a_shell_send_is_a_site(self) -> None:
         sites = self._sites({"scripts/z.sh": "oscsend localhost 53280 /param/a/amp/volume f 1\n"})

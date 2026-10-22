@@ -678,6 +678,31 @@ mpe_planned_promote_flag_clear() {
     rm -f "$(mpe_planned_promote_flag_file)" 2>/dev/null || true
 }
 
+# Calibration stops the production Surge and runs its own on the ALSA loopback,
+# with /run/mpe/maintenance set (session_snapshot.set_maintenance_flag: pid=,
+# deadline=). A Surge restarted under it is a second Surge on OSC 53280: loads
+# and their /q/patch confirmations reach that one while the capture hears the
+# other, so every patch after the first read the same level (2026-10-22).
+# Active while the deadline is ahead and the setter is alive, the rule
+# maintenance_mode_active() uses. Builtins only: the watchdog polls every 5 s.
+mpe_maintenance_active() {
+    local file="${MPE_MAINTENANCE_FLAG:-$(mpe_run_dir)/maintenance}"
+    local key value pid="" deadline=""
+    [ -f "$file" ] || return 1
+    while IFS='=' read -r key value; do
+        case "$key" in
+            pid) pid="$value" ;;
+            deadline) deadline="${value%%.*}" ;;
+        esac
+    done <"$file"
+    [[ "$deadline" =~ ^[0-9]+$ ]] || return 1
+    [ "$EPOCHSECONDS" -lt "$deadline" ] || return 1
+    if [[ "$pid" =~ ^[0-9]+$ ]] && [ "$pid" -gt 0 ] && [ ! -d "/proc/$pid" ]; then
+        return 1
+    fi
+    return 0
+}
+
 # ROLI udev debounce writes /run/mpe/midi-connect.state while remapper restarts.
 # Skip passive Surge reconcile during hot-plug — remapper-only work must not restart Surge.
 mpe_midi_hotplug_busy() {

@@ -129,8 +129,17 @@ def stop_mpe_audio_services() -> None:
     )
     _safe_emit_event("mode.changed", detail="calibration-stop", source="calibration_teardown.py")
     time.sleep(1)
-    subprocess.run(["sudo", "pkill", "-f", "surge-xt-cli"], check=False)
+    subprocess.run(["sudo", "pkill", "-x", "surge-xt-cli"], check=False)
     time.sleep(0.5)
+
+
+def refresh_maintenance_flag() -> None:
+    """Push the maintenance deadline out again; the calibrator calls it per patch.
+    A full run takes hours and the deadline is 30 min. Once it lapses the watchdog
+    restarts the production Surge alongside the calibration one
+    (surge-watchdog.sh, mpe_maintenance_active), and every later patch is measured
+    off the wrong Surge."""
+    set_maintenance_flag(source="calibration")
 
 
 def exec_touch_patch_browser() -> None:
@@ -146,7 +155,7 @@ def exec_touch_patch_browser() -> None:
 
 def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     """Stop calibration Surge, unload loopback, restart production services."""
-    subprocess.run(["sudo", "pkill", "-f", "surge-xt-cli"], check=False)
+    subprocess.run(["sudo", "pkill", "-x", "surge-xt-cli"], check=False)
     time.sleep(0.5)
     unload_snd_aloop_if_idle()
     _systemctl("mpe-pressure-remap", "start")
