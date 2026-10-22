@@ -76,6 +76,13 @@ DEFAULT_CLASSIC_BEND_SEMITONES = float(
     os.environ.get("MPE_CLASSIC_BEND_SEMITONES", "2")
 )
 
+# A keyboard with no aftertouch (the VI61) never sends pressure, so a patch
+# whose volume follows pressure (a wind's breath: Bass Ocarina is 5.7 dB quieter
+# at none, 2026-10-22) sits at its no-breath level however hard it is struck.
+# On, each note starts with pressure equal to its velocity, set per note on its
+# member channel. Stops for good once the device sends pressure of its own.
+CLASSIC_VELOCITY_PRESSURE = os.environ.get("MPE_CLASSIC_VELOCITY_PRESSURE", "0") == "1"
+
 STEAL_OLDEST = "oldest"
 STEAL_NEWEST = "newest"
 STEAL_NEVER = "never"
@@ -116,6 +123,7 @@ class ClassicToMpe:
     bend_semitones: float = DEFAULT_CLASSIC_BEND_SEMITONES
     target_bend_semitones: float = SURGE_MEMBER_BEND_SEMITONES
     steal: str = STEAL_OLDEST
+    velocity_pressure: bool = CLASSIC_VELOCITY_PRESSURE
 
     _tick: int = field(default=0, init=False)
     _active: dict[int, _Voice] = field(default_factory=dict, init=False)
@@ -182,12 +190,14 @@ class ClassicToMpe:
         if kind == PITCH_BEND and len(msg) >= 3:
             return self._pitch_bend(msg[1], msg[2])
         if kind == CHANNEL_PRESSURE and len(msg) >= 2:
+            self.velocity_pressure = False
             self._pressure = msg[1]
             return [self._pressure_message(v.channel) for v in self._active.values()]
         if kind == POLY_AFTERTOUCH and len(msg) >= 3:
             # Per-note pressure is exactly what MPE expresses per member
             # channel — the one classic message that maps without loss. It is
             # per note, so it does NOT become the zone's pressure.
+            self.velocity_pressure = False
             voice = self._active.get(msg[1])
             if voice is None:
                 return []
@@ -215,11 +225,12 @@ class ClassicToMpe:
         # Every per-channel quantity must match the zone BEFORE the note-on:
         # Surge reads the channel at voice creation, so a message sent after it
         # is a slide, not the note's starting value (plan §7.9).
-        out += self._prime(channel)
+        pressure = velocity if self.velocity_pressure else None
+        out += self._prime(channel, pressure=pressure)
         out.append([NOTE_ON | channel, note, velocity])
         return out
 
-    def _prime(self, channel: int) -> list[list[int]]:
+    def _prime(self, channel: int, *, pressure: int | None = None) -> list[list[int]]:
         """Bring one member channel to the zone's current state.
 
         Emits only what differs from what this channel was last sent, so a
@@ -229,7 +240,12 @@ class ClassicToMpe:
         out: list[list[int]] = []
         if self._chan_bend.get(channel) != self._scaled_bend():
             out.append(self._bend_message(channel))
-        if self._chan_pressure.get(channel) != self._pressure:
+        if pressure is not None:
+            # This note's own pressure, not the zone's: velocity pressure.
+            if self._chan_pressure.get(channel) != pressure:
+                self._chan_pressure[channel] = pressure
+                out.append([CHANNEL_PRESSURE | channel, pressure])
+        elif self._chan_pressure.get(channel) != self._pressure:
             out.append(self._pressure_message(channel))
         for cc, value in self._cc_zone.items():
             if self._chan_cc.get((channel, cc)) != value:
