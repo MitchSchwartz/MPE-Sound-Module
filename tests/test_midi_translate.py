@@ -429,3 +429,57 @@ class RpnNull(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VelocityPressure(unittest.TestCase):
+    """MPE_CLASSIC_VELOCITY_PRESSURE: a keyboard without aftertouch (the VI61)
+    gives each note pressure equal to its velocity, until it sends its own."""
+
+    def test_off_by_default(self) -> None:
+        t = ClassicToMpe()
+        self.assertFalse(t.velocity_pressure)
+        out = t.translate([NOTE_ON, 60, 90])
+        self.assertNotIn([CHANNEL_PRESSURE | 1, 90], out)
+
+    def test_each_note_starts_at_its_velocity(self) -> None:
+        t = ClassicToMpe(velocity_pressure=True)
+        self.assertEqual(
+            t.translate([NOTE_ON, 60, 90]),
+            [bend_msg(1, BEND_CENTRE), [CHANNEL_PRESSURE | 1, 90], [NOTE_ON | 1, 60, 90]],
+        )
+        self.assertEqual(
+            t.translate([NOTE_ON, 64, 40]),
+            [bend_msg(2, BEND_CENTRE), [CHANNEL_PRESSURE | 2, 40], [NOTE_ON | 2, 64, 40]],
+        )
+
+    def test_reused_channel_takes_the_new_velocity(self) -> None:
+        t = ClassicToMpe(member_channels=(1,), velocity_pressure=True)
+        t.translate([NOTE_ON, 60, 90])
+        t.translate([NOTE_OFF, 60, 0])
+        self.assertEqual(
+            t.translate([NOTE_ON, 62, 30]), [[CHANNEL_PRESSURE | 1, 30], [NOTE_ON | 1, 62, 30]]
+        )
+
+    def test_same_velocity_on_a_reused_channel_sends_nothing_extra(self) -> None:
+        t = ClassicToMpe(member_channels=(1,), velocity_pressure=True)
+        t.translate([NOTE_ON, 60, 90])
+        t.translate([NOTE_OFF, 60, 0])
+        self.assertEqual(t.translate([NOTE_ON, 62, 90]), [[NOTE_ON | 1, 62, 90]])
+
+    def test_device_channel_pressure_ends_it(self) -> None:
+        t = ClassicToMpe(member_channels=(1,), velocity_pressure=True)
+        t.translate([CHANNEL_PRESSURE, 0])
+        self.assertFalse(t.velocity_pressure)
+        self.assertEqual(t.translate([NOTE_ON, 60, 90]), [bend_msg(1, BEND_CENTRE), [CHANNEL_PRESSURE | 1, 0], [NOTE_ON | 1, 60, 90]])
+
+    def test_device_poly_aftertouch_ends_it(self) -> None:
+        t = ClassicToMpe(velocity_pressure=True)
+        t.translate([POLY_AFTERTOUCH, 60, 10])
+        self.assertFalse(t.velocity_pressure)
+
+    def test_after_velocity_pressure_ends_the_channel_returns_to_the_zone(self) -> None:
+        t = ClassicToMpe(member_channels=(1,), velocity_pressure=True)
+        t.translate([NOTE_ON, 60, 90])
+        t.translate([NOTE_OFF, 60, 0])
+        t.translate([CHANNEL_PRESSURE, 0])
+        self.assertEqual(t.translate([NOTE_ON, 62, 70]), [[CHANNEL_PRESSURE | 1, 0], [NOTE_ON | 1, 62, 70]])
