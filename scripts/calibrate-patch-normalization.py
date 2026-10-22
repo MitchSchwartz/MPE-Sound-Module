@@ -752,6 +752,20 @@ def hold_seconds_for_gesture(gesture_seconds: float, pre_roll: float = 0.25) -> 
     return max(base_hold, gesture_seconds - pre_roll - 0.35 - 0.3)
 
 
+def pressure_message(ch: int, value: int) -> list[int]:
+    """Channel pressure (0xD0), Surge's per-note pressure on an MPE member channel.
+    Until 2026-10-22 the gestures sent 0xE0 here, which is pitch bend: with the
+    48-semitone bend range it played the anchor note about two octaves low and
+    never pressed, so every calibration measured the wrong pitch."""
+    return [0xD0 | ch, max(0, min(127, int(value)))]
+
+
+def bend_centre_message(ch: int) -> list[int]:
+    """Pitch bend at centre (8192). Surge keeps bend per member channel, so a
+    gesture starts from it rather than from whatever the channel last had."""
+    return [0xE0 | ch, 0x00, 0x40]
+
+
 def send_performance_gesture(
     midi_out: object, pre_roll: float = 0.25, hold_seconds: float = 1.8
 ) -> None:
@@ -760,15 +774,15 @@ def send_performance_gesture(
     ch = MPE_CHANNEL - 1
     note_on = 0x90 | ch
     note_off = 0x80 | ch
-    pressure_cc = 0xE0 | ch
 
+    midi_out.send_message(bend_centre_message(ch))  # type: ignore[union-attr]
     midi_out.send_message([note_on, NOTE, STRIKE_VELOCITY])  # type: ignore[union-attr]
 
     steps = 24
     step_sleep = hold_seconds / steps
     for step in range(steps + 1):
         pressure = int(127 * step / steps)
-        midi_out.send_message([pressure_cc, pressure & 0x7F, (pressure >> 7) & 0x7F])  # type: ignore[union-attr]
+        midi_out.send_message(pressure_message(ch, pressure))  # type: ignore[union-attr]
         time.sleep(step_sleep)
 
     time.sleep(0.15)
@@ -785,13 +799,10 @@ def send_light_touch_gesture(
     ch = MPE_CHANNEL - 1
     note_on = 0x90 | ch
     note_off = 0x80 | ch
-    pressure_cc = 0xE0 | ch
-    pressure = max(0, min(127, int(LIGHT_TOUCH_PRESSURE)))
 
+    midi_out.send_message(bend_centre_message(ch))  # type: ignore[union-attr]
     midi_out.send_message([note_on, NOTE, STRIKE_VELOCITY])  # type: ignore[union-attr]
-    midi_out.send_message(  # type: ignore[union-attr]
-        [pressure_cc, pressure & 0x7F, (pressure >> 7) & 0x7F]
-    )
+    midi_out.send_message(pressure_message(ch, LIGHT_TOUCH_PRESSURE))  # type: ignore[union-attr]
     time.sleep(hold_seconds)
     midi_out.send_message([note_off, NOTE, 0])  # type: ignore[union-attr]
     time.sleep(0.2)
@@ -858,13 +869,10 @@ def send_anchor_gesture(
     ch = MPE_CHANNEL - 1
     note_on = 0x90 | ch
     note_off = 0x80 | ch
-    pressure_cc = 0xE0 | ch
-    press = max(0, min(127, int(pressure)))
     vel = max(1, min(127, int(velocity)))
+    midi_out.send_message(bend_centre_message(ch))  # type: ignore[union-attr]
     midi_out.send_message([note_on, NOTE, vel])  # type: ignore[union-attr]
-    midi_out.send_message(  # type: ignore[union-attr]
-        [pressure_cc, press & 0x7F, (press >> 7) & 0x7F]
-    )
+    midi_out.send_message(pressure_message(ch, pressure))  # type: ignore[union-attr]
     time.sleep(hold_seconds)
     midi_out.send_message([note_off, NOTE, 0])  # type: ignore[union-attr]
     time.sleep(0.2)
