@@ -8,8 +8,8 @@ ffmpeg loudnorm, and writes gain offsets to patch_normalization.json.
 Surge is measured alone, at the patch's authored volume, outside mpe-fx-host:
 the stage gain is linear, so the gain is applied arithmetically (LUFS and true
 peak move by exactly gain_db) and the entry is marked CAL_PATH. A capture that
-clips is measured again with CAPTURE_PAD_DB taken off through Surge's own
-volume law (`set_capture_volume`, the one place this tool touches amp/volume).
+clips is measured again with CAPTURE_PAD_DB taken off Surge's master volume
+(`set_capture_volume`, the one place this tool sets a Surge volume).
 `--controls PATCH` runs the instrument controls first: a known pad must read as
 that pad, a repeat must read the same, and muting the stage must change nothing.
 
@@ -95,7 +95,7 @@ from patch_browser.patch_normalization import (  # noqa: E402
     compute_gain_db,
     compute_gain_db_dual_anchor,
     default_normalization_path,
-    padded_volume,
+    padded_master_volume,
     plausible_authored_volume,
     repo_starter_path,
     stage_db,
@@ -142,8 +142,9 @@ SUSTAIN_ANCHOR_PRESSURE = 127
 ANCHOR_HOLD_SECONDS = 1.5
 ANCHOR_GESTURE_SECONDS = 2.5
 SUSTAIN_ANCHOR_GESTURE_SECONDS = (2.5, 4.0, 6.0, 8.0)
-# Surge's volume parameters: written only by `set_capture_volume`.
-AMP_VOLUME_PATHS = ("/param/a/amp/volume", "/param/b/amp/volume")
+# Surge's master volume: read by `read_master_volume`, written only by
+# `set_capture_volume`. After the patch's effects, so a pad there is exact.
+MASTER_VOLUME_PATH = "/param/global/volume"
 CONTROL_PAD_DB = 6.0
 # The isolation control's mute is believed only once mpe-fx-host has written it
 # to its state file (fx_host_protocol.read_gain_state): polled this often, this
@@ -1012,25 +1013,25 @@ def measure_sustain_anchor_lufs(midi_out: object, audio_device: str) -> tuple[fl
     return None
 
 
-def set_capture_volume(loader: PatchLoader, volume: float) -> bool:
-    """Set Surge's amp/volume (both scenes) for a capture: the pad, and putting the
-    authored value back after it. The only amp/volume write in the product
-    (tests/test_stage_gain_guard.py), here because the measured Surge is the
-    standalone one, outside the stage.
+def read_master_volume(loader: PatchLoader) -> float | None:
+    """The loaded patch's master volume (0..1), or None when Surge does not say."""
+    value = loader._query_osc_float(MASTER_VOLUME_PATH)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+        return None
+    return float(value)
 
-    Callers put the authored value back in a ``finally``, so a pad never outlives
-    its capture. That is safe whether or not Surge keeps amp/volume across patch
-    loads: if it does, the next patch plays at the restored value, the read after
-    its load (``loader._authored_volume``) reports that value, the measurement and
-    the stored ``authored_volume`` agree with each other, and the live instrument,
-    whose Surge never had it set, sees a different authored volume and plays the
-    entry as authored (``patch_normalization.is_stale``) rather than at a wrong
-    gain. Whether Surge does is a hardware check in the PR."""
+
+def set_capture_volume(loader: PatchLoader, volume: float) -> bool:
+    """Set Surge's master volume for a capture: the pad, and putting the authored
+    value back after it. The only Surge volume write in the product
+    (tests/test_stage_gain_guard.py), here because the measured Surge is the
+    standalone one, outside the stage. Callers put the authored value back in a
+    ``finally``, and a patch load resets it anyway (it is part of the patch)."""
     if not loader.osc_enabled or loader.osc_client is None:
         return False
-    value = max(0.0, min(1.0, float(volume)))
-    for path in AMP_VOLUME_PATHS:
-        loader.osc_client.send_message(path, value)
+    loader.osc_client.send_message(MASTER_VOLUME_PATH, max(0.0, min(1.0, float(volume))))
     return True
 
 
@@ -1047,12 +1048,13 @@ def measure_unity_anchors(
     loader: PatchLoader,
     midi_out: object,
     audio_device: str,
-    authored_volume: float | None,
+    master_volume: float | None,
     *,
     name: str = "",
 ) -> UnityMeasurement | None:
     """Strike and sustain at authored volume. A clipped capture is re-measured with
-    CAPTURE_PAD_DB off through Surge's volume law, and the pad added back."""
+    CAPTURE_PAD_DB off Surge's master volume (``master_volume``, the patch's own),
+    and the pad added back."""
     strike = measure_strike_anchor_lufs(midi_out, audio_device)
     if strike is None:
         print(f"  [fail] {name}: strike anchor inaudible", file=sys.stderr)
@@ -1063,19 +1065,24 @@ def measure_unity_anchors(
         return None
     if not (is_clipped(strike) or is_clipped(sustain)):
         return UnityMeasurement(tuple(strike), tuple(sustain))
-    if authored_volume is None:
-        print(f"  [fail] {name}: capture clipped and Surge did not report its volume "
-              f"(no pad possible)", file=sys.stderr)
+    if master_volume is None:
+        print(f"  [fail] {name}: capture clipped and Surge did not report its master "
+              f"volume (no pad possible)", file=sys.stderr)
         return None
     pad = CAPTURE_PAD_DB
+    padded = padded_master_volume(master_volume, pad)
+    if padded is None:
+        print(f"  [fail] {name}: capture clipped and the master volume is too low "
+              f"to take {pad:.0f} dB off", file=sys.stderr)
+        return None
     print(f"  [pad] {name}: capture clipped, measuring again {pad:.0f} dB down")
-    set_capture_volume(loader, padded_volume(authored_volume, pad))
+    set_capture_volume(loader, padded)
     try:
         time.sleep(0.35)
         strike = measure_strike_anchor_lufs(midi_out, audio_device)
         sustain = measure_sustain_anchor_lufs(midi_out, audio_device)
     finally:
-        set_capture_volume(loader, authored_volume)
+        set_capture_volume(loader, master_volume)
     if strike is None or sustain is None:
         print(f"  [fail] {name}: padded capture inaudible", file=sys.stderr)
         return None
@@ -1185,7 +1192,7 @@ def verify_patch(
         return VerifyResult(ok=False, reason="load not confirmed")
     time.sleep(PATCH_LOAD_SETTLE_SECONDS)
     unity = measure_unity_anchors(
-        loader, midi_out, audio_device, loader._authored_volume, name=name
+        loader, midi_out, audio_device, read_master_volume(loader), name=name
     )
     if unity is None:
         return VerifyResult(ok=False, reason="verify capture inaudible")
@@ -1263,7 +1270,7 @@ def calibrate_patch(
         time.sleep(PATCH_LOAD_SETTLE_SECONDS)
 
         unity = measure_unity_anchors(
-            loader, midi_out, audio_device, authored_volume, name=name
+            loader, midi_out, audio_device, read_master_volume(loader), name=name
         )
         if unity is None:
             return CalibrateResult(ok=False)
@@ -1390,7 +1397,7 @@ def run_controls(
 ) -> list[calibration_controls.ControlResult]:
     """The instrument controls on one reference patch, in the order to trust them.
 
-    Positive: CONTROL_PAD_DB taken off through Surge's volume law reads as that pad.
+    Positive: CONTROL_PAD_DB taken off Surge's master volume reads as that pad.
     Repeatability: the same capture twice reads the same. Isolation: the stage gain
     muted during a capture changes nothing, so the stage is outside this path.
 
@@ -1409,9 +1416,12 @@ def run_controls(
 
     if not load_patch_confirmed(loader, patch_path):
         raise RuntimeError(f"Surge did not confirm the control patch loaded: {patch_path}")
-    authored = loader._authored_volume
+    authored = read_master_volume(loader)
     if authored is None:
-        raise RuntimeError("Surge did not report the control patch's volume")
+        raise RuntimeError("Surge did not report the control patch's master volume")
+    padded_master = padded_master_volume(authored, CONTROL_PAD_DB)
+    if padded_master is None:
+        raise RuntimeError("the control patch's master volume is too low to pad")
     time.sleep(PATCH_LOAD_SETTLE_SECONDS)
 
     def sustain() -> tuple[float, float]:
@@ -1423,7 +1433,7 @@ def run_controls(
         return reading[0], reading[1]
 
     first = sustain()
-    set_capture_volume(loader, padded_volume(authored, CONTROL_PAD_DB))
+    set_capture_volume(loader, padded_master)
     try:
         time.sleep(0.35)
         padded = sustain()

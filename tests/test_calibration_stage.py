@@ -78,10 +78,9 @@ class UnityAnchors(unittest.TestCase):
         self.assertEqual(got.padded_db, pad)
         self.assertEqual(got.strike, (-19.0 + pad, -11.0 + pad))
         self.assertEqual(got.sustain, (-21.0 + pad, -12.0 + pad))
-        padded = pn.padded_volume(0.8, pad)
+        # Master volume, after the patch's effects: 12 dB of 48 is 0.25 of its range.
         self.assertEqual(self.sent, [
-            ("/param/a/amp/volume", padded), ("/param/b/amp/volume", padded),
-            ("/param/a/amp/volume", 0.8), ("/param/b/amp/volume", 0.8),
+            ("/param/global/volume", 0.8 - 0.25), ("/param/global/volume", 0.8),
         ])
 
     def test_clipped_with_no_authored_volume_fails_and_touches_nothing(self) -> None:
@@ -96,18 +95,39 @@ class UnityAnchors(unittest.TestCase):
             [anchor(self.cal, -10.0, -1.0, -1.2), anchor(self.cal, -10.0, -1.0, -1.2)],
         )
         self.assertIsNone(got)
-        self.assertEqual(self.sent[-2:], [("/param/a/amp/volume", 0.8), ("/param/b/amp/volume", 0.8)])
+        self.assertEqual(self.sent[-1], ("/param/global/volume", 0.8))
+
+    def test_master_too_low_to_pad_fails_and_touches_nothing(self) -> None:
+        got = self._run([anchor(self.cal, -8.0, 0.4, 0.0)], [anchor(self.cal, -10.0, -1.0, -1.2)],
+                        authored=0.2)
+        self.assertIsNone(got)
+        self.assertEqual(self.sent, [])
 
 
     def test_a_capture_that_fails_mid_pad_still_restores(self) -> None:
-        # Safe whether or not Surge keeps amp/volume across patch loads: the pad
-        # never outlives the capture it was set for.
+        # The pad never outlives the capture it was set for.
         with self.assertRaises(RuntimeError):
             self._run(
                 [anchor(self.cal, -8.0, 0.4, 0.0), RuntimeError("capture died")],
                 [anchor(self.cal, -10.0, -1.0, -1.2)],
             )
-        self.assertEqual(self.sent[-2:], [("/param/a/amp/volume", 0.8), ("/param/b/amp/volume", 0.8)])
+        self.assertEqual(self.sent[-1], ("/param/global/volume", 0.8))
+
+
+class ReadMasterVolume(unittest.TestCase):
+    """Anything but a finite 0..1 number is "Surge did not say", never a level to pad from."""
+
+    def test_only_a_finite_unit_value_is_a_reading(self) -> None:
+        cal = load_cal_module()
+        for raw, want in [
+            (0.8, 0.8), (0, 0.0), (1.0, 1.0),
+            (None, None), (True, None), ("0.8", None),
+            (1.2, None), (-0.1, None), (float("nan"), None), (float("inf"), None),
+        ]:
+            loader = mock.Mock()
+            loader._query_osc_float.return_value = raw
+            self.assertEqual(cal.read_master_volume(loader), want, raw)
+            loader._query_osc_float.assert_called_once_with("/param/global/volume")
 
 
 class CalibratePatch(unittest.TestCase):
@@ -207,6 +227,8 @@ class CalibratePatch(unittest.TestCase):
             store = pn.PatchNormalizationStore(Path(tmp) / "norm.json")
             store.set_patch_dirs([])
             loader = mock.Mock(osc_enabled=True, _authored_volume=0.85)
+            loader._query_osc_float.side_effect = (
+                lambda path: 1.0 if path == "/param/global/volume" else None)
             loader.load_patch.return_value = True
             with (
                 mock.patch.object(self.cal, "measure_strike_anchor_lufs", side_effect=[
@@ -255,6 +277,8 @@ class Controls(unittest.TestCase):
         cal = load_cal_module()
         loader = mock.Mock(osc_enabled=True, _authored_volume=0.8)
         loader.load_patch.return_value = True
+        loader._query_osc_float.side_effect = (
+            lambda path: 0.8 if path == "/param/global/volume" else None)
         line: list[tuple] = []
         loader.osc_client.send_message.side_effect = lambda a, v: line.append((a, v))
         readings = iter([
@@ -290,12 +314,11 @@ class Controls(unittest.TestCase):
         self.assertEqual(loader.load_patch.call_args.kwargs["confirm_timeout_s"],
                          cal.PATCH_LOAD_CONFIRM_TIMEOUT_S)
         self.assertTrue(all(r.ok for r in results), results)
-        padded = pn.padded_volume(0.8, cal.CONTROL_PAD_DB)
         self.assertEqual(line, [
             ("<capture>",),
-            ("/param/a/amp/volume", padded), ("/param/b/amp/volume", padded),
+            ("/param/global/volume", 0.8 - cal.CONTROL_PAD_DB / 48.0),
             ("<capture>",),
-            ("/param/a/amp/volume", 0.8), ("/param/b/amp/volume", 0.8),
+            ("/param/global/volume", 0.8),
             ("<capture>",),
             ("stage", b"gain 0.00000000"),  # the safe direction: mute, never a boost
             ("<capture>",),
@@ -324,6 +347,8 @@ class Controls(unittest.TestCase):
 
         loader = mock.Mock(osc_enabled=True, _authored_volume=0.8)
         loader.load_patch.return_value = True
+        loader._query_osc_float.side_effect = (
+            lambda path: 0.8 if path == "/param/global/volume" else None)
         readings = iter([anchor(cal, -20.0, -6.0, -6.5)] * 3 + [RuntimeError("capture died")])
 
         def sustain(*_a):

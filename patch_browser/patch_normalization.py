@@ -55,7 +55,7 @@ TRIM_LAW_KEY = "trim_law"
 TRIM_LAW_STAGE = CAL_PATH
 
 # Calibration captures whose sample peak reaches this are clipped: re-measured with
-# CAPTURE_PAD_DB applied through Surge's own volume law (`padded_volume`).
+# CAPTURE_PAD_DB off Surge's master volume (`padded_master_volume`).
 CLIP_SAMPLE_PEAK_DBFS = -0.1
 CAPTURE_PAD_DB = 12.0
 
@@ -331,9 +331,18 @@ def norm_at_ceiling(norm_db: float, ceiling_db: float | None) -> bool:
     return ceiling_db is not None and float(norm_db) > float(ceiling_db) + 1e-9
 
 
-def padded_volume(authored_volume: float, pad_db: float) -> float:
-    """Surge's amp/volume for a cut of `pad_db` below `authored_volume` (cube law)."""
-    return float(authored_volume) * 10.0 ** (-float(pad_db) / 60.0)
+# Surge's master volume (/param/global/volume) spans -48..0 dB, linear in its 0..1
+# value, and is applied after the patch's effects, so a pad there moves the output
+# by exactly the pad. The scene amp/volume sits before the effects: on a patch
+# that saturates it moved the output less than the pad (Cloud Horn, 12 dB in,
+# 7.8 dB out, 2026-10-22), and adding the full pad back read it 4 dB too loud.
+MASTER_VOLUME_RANGE_DB = 48.0
+
+
+def padded_master_volume(authored: float, pad_db: float) -> float | None:
+    """Master volume `pad_db` below `authored`, or None when the range ends first."""
+    value = float(authored) - float(pad_db) / MASTER_VOLUME_RANGE_DB
+    return value if value >= 0.0 else None
 
 
 def plausible_authored_volume(value: float | None) -> float | None:

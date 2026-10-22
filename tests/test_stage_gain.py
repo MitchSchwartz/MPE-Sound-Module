@@ -242,10 +242,13 @@ class TrimMigration(unittest.TestCase):
 
 
 class VolumeLaws(unittest.TestCase):
-    def test_pad_through_surges_volume_law(self) -> None:
-        for v in (1.0, 0.8, 0.31):
-            padded = pn.padded_volume(v, 12.0)
-            self.assertAlmostEqual(60.0 * math.log10(padded / v), -12.0, places=9)
+    def test_pad_through_surges_master_volume(self) -> None:
+        """-48..0 dB, linear in the value (Surge ct_decibel_attenuation_clipper)."""
+        for v in (1.0, 0.9063, 0.5):
+            padded = pn.padded_master_volume(v, 12.0)
+            self.assertAlmostEqual(48.0 * (padded - v), -12.0, places=9)
+        self.assertIsNone(pn.padded_master_volume(0.2, 12.0))
+        self.assertEqual(pn.padded_master_volume(0.25, 12.0), 0.0)
 
     def test_fader_inverse(self) -> None:
         for law in (pn.VOL_FADER_LAW_CONSOLE, pn.VOL_FADER_LAW_LINEAR):
